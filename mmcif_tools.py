@@ -112,6 +112,10 @@ class DataBlock:
         """Provides read-only access to the categories."""
         return self._categories
 
+    def add_category(self, category_name: str, category: Category) -> None:
+        """Adds a category to the data block."""
+        self._categories[category_name] = category
+
 
 class MMCIFDataContainer:
     def __init__(self, data_blocks: Dict[str, DataBlock]):
