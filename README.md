@@ -2,34 +2,50 @@
 
 This repository contains the implementation of MMCIF tools for parsing, validating, and writing MMCIF files. The tools are designed to work with various file formats including JSON, XML, Pickle, and MMCIF Binary. Below are examples and explanations of how to use the provided classes and methods.
 
-## Getting Started
+### Getting Started
+
+To begin, ensure you have the necessary dependencies installed. You can install them using:
+
+```bash
+pip install -r requirements.txt
+```
 
 ### Basic Usage
 
 Here is a simple example demonstrating how to parse an MMCIF file and access its contents.
 
 ```python
-from mmcif_tools import MMCIFReader
-
-# Create a reader instance
-reader = MMCIFReader()
-
-# Parse the MMCIF file
-file = reader.parse("emd_33233_md.cif")
-
-# Accessing the DataBlock named '7XJP'
-data = getattr(file, '7XJP')
-
-# Accessing the Category named '_database_2' within the DataBlock '7XJP'
-print(data._database_2)
-
-# List item names in '_database_2' category
-print("Item names in '_database_2':", data._database_2.items)
-
-# Accessing specific item values
-for item in data._database_2.items:
-    item_values = getattr(data._database_2, item)
-    print(f"item {item} values: {item_values}")
+>>> from mmcif_tools import MMCIFReader
+>>> file = reader.parse("emd_33233_md.cif")
+>>> data = getattr(file, '7XJP')
+>>> # Access the '_database_2' category
+>>> data._database_2
+<mmcif_tools.Category object at 0x7fbc0024f430>
+>>> # Access item names of '_database_2' category
+>>> data._database_2.items
+['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
+>>> # Access item values using dot-separated notation
+>>> data._database_2.database_id
+['PDB', 'WWPDB', 'EMDB']
+>>> data._database_2.database_code
+['7XJP', 'D_1300028976', 'EMD-33233']
+>>> data._database_2.pdbx_database_accession
+['pdb_00007xjp', '?', '?']
+>>> data._database_2.pdbx_DOI
+['10.2210/pdb7xjp/pdb', '?', '?']
+>>> # Update values in an item
+>>> data._database_2.database_id = ['PDB', 'NEWDB']
+>>> data._database_2.database_id
+['PDB', 'NEWDB']
+>>> data._database_2.database_code = ['7XJP', 'NEW_CODE']
+>>> data._database_2.database_code
+['7XJP', 'NEW_CODE']
+>>> data._database_2.pdbx_database_accession = ['pdb_00007xjp', 'new_accession']
+>>> data._database_2.pdbx_database_accession
+['pdb_00007xjp', 'new_accession']
+>>> data._database_2.pdbx_DOI = ['10.2210/pdb7xjp/pdb', '10.1000/new.doi']
+>>> data._database_2.pdbx_DOI
+['10.2210/pdb7xjp/pdb', '10.1000/new.doi']
 ```
 
 ### Classes and Methods
@@ -74,8 +90,3 @@ This project is licensed under the MIT License.
 ---
 
 **Note**: This README file provides a basic overview and usage example. For a detailed understanding, refer to the source code and inline documentation.
-
----
-
-**a.** Add unit tests for the MMCIFReader class.  
-**b.** Extend the README with more detailed examples for writing MMCIF files using the `MMCIFWriter` class.
