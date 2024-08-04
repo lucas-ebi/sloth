@@ -25,25 +25,25 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 >>> data = getattr(file, '7XJP')
 
 # Access the '_database_2' category and its items using dot-separated notation
->>> print("Category items:", data._database_2.items)
-Category items: ['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
+>>> data._database_2.items
+['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
 
->>> print("Database IDs:", data._database_2.database_id)
-Database IDs: ['PDB', 'WWPDB', 'EMDB']
+>>> data._database_2.database_id
+['PDB', 'WWPDB', 'EMDB']
 
->>> print("Database Codes:", data._database_2.database_code)
-Database Codes: ['7XJP', 'D_1300028976', 'EMD-33233']
+>>> data._database_2.database_code
+['7XJP', 'D_1300028976', 'EMD-33233']
 
->>> print("PDBx Database Accessions:", data._database_2.pdbx_database_accession)
-PDBx Database Accessions: ['pdb_00007xjp', '?', '?']
+>>> data._database_2.pdbx_database_accession
+['pdb_00007xjp', '?', '?']
 
->>> print("DOIs:", data._database_2.pdbx_DOI)
-DOIs: ['10.2210/pdb7xjp/pdb', '?', '?']
+>>> data._database_2.pdbx_DOI
+['10.2210/pdb7xjp/pdb', '?', '?']
 
 # Update values in an item
 >>> data._database_2.database_id[-1] = 'NEWDB'
->>> print("Updated Database IDs:", data._database_2.database_id)
-Updated Database IDs: ['PDB', 'WWPDB', 'NEWDB']
+>>> data._database_2.database_id
+['PDB', 'WWPDB', 'NEWDB']
 ```
 
 ### Classes and Methods
