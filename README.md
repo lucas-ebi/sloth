@@ -21,8 +21,11 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 >>> reader = MMCIFReader()
 >>> file = reader.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
 
+>>> file.data_blocks
+{'7XJP': <mmcif_tools.DataBlock object at 0x7f8ab0263160>}
+
 # Accessing the DataBlock named '7XJP'
->>> data = getattr(file, '7XJP')
+>>> data = getattr(file, '7XJP') # Python doesn't allow such a syntax like `file.7XJP`, then it has to be through `getattr`.
 
 # Access the '_database_2' category and its items using dot-separated notation
 >>> data._database_2.items
