@@ -2,13 +2,7 @@
 
 This repository contains the implementation of MMCIF tools for parsing, validating, and writing MMCIF files. The tools are designed to work with various file formats including JSON, XML, Pickle, and MMCIF Binary. Below are examples and explanations of how to use the provided classes and methods.
 
-### Getting Started
-
-To begin, ensure you have the necessary dependencies installed. You can install them using:
-
-```bash
-pip install -r requirements.txt
-```
+## Getting Started
 
 ### Basic Usage
 
