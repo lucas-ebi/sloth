@@ -15,11 +15,11 @@ pip install -r requirements.txt
 Below is an example demonstrating how to parse an MMCIF file and access its contents using dot-separated notation.
 
 ```python
->>> from mmcif_tools import MMCIFReader
+>>> from mmcif_tools import MMCIFHandler
 
 # Parse the CIF file
->>> reader = MMCIFReader()
->>> file = reader.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
+>>> handler = MMCIFHandler()
+>>> file = handler.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
 
 >>> file.data_blocks
 {'7XJP': <mmcif_tools.DataBlock object at 0x7f8ab0263160>}
@@ -51,7 +51,7 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 
 ### Classes and Methods
 
-#### `MMCIFReader`
+#### `MMCIFHandler`
 
 - **`parse(filename: str) -> MMCIFDataContainer`**: Parses an MMCIF file and returns an `MMCIFDataContainer` object containing the parsed contents.
 

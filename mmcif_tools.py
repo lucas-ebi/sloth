@@ -145,7 +145,7 @@ class MMCIFDataContainer:
         return self._data_blocks
 
 
-class MMCIFReader:
+class MMCIFHandler:
     def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
         self.atoms: bool = atoms
         self.validator_factory: Optional[ValidatorFactory] = validator_factory
