@@ -286,3 +286,37 @@ class MMCIFHandler:
         item = '_' + item.rstrip()
         if not self.atoms or not item.startswith('_atom_site'):
             setattr(current_data, item, value.strip())
+
+    def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
+        def format_value(value: str) -> str:
+            if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
+                return f";\n{value}\n;"
+            return value
+
+        try:
+            with open(filename, 'w') as f:
+                for block_name, data_block in data_container.data_blocks.items():
+                    f.write(f"data_{block_name}\n")
+                    f.write("#\n")  # Start of block
+                    for category_name, category in data_block.categories.items():
+                        if isinstance(category, Category):
+                            items = category._items
+
+                            # Determine if loop_ is needed
+                            if len(items) > 1 and any(len(values) > 1 for values in items.values()):
+                                f.write("loop_\n")
+                                for item_name in items.keys():
+                                    f.write(f"_{category_name}.{item_name}\n")
+                                for row in zip(*items.values()):
+                                    formatted_row = [format_value(value) for value in row]
+                                    f.write(" ".join(formatted_row) + "\n")
+                            else:
+                                # No loop_ needed; write items directly
+                                for item_name, values in items.items():
+                                    for value in values:
+                                        formatted_value = format_value(value)
+                                        f.write(f"_{category_name}.{item_name} {formatted_value}\n")
+                            f.write("#\n") # End of category
+
+        except IOError as e:
+            print(f"Error writing file {filename}: {e}")
