@@ -47,6 +47,9 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 >>> data._database_2.database_id[-1] = 'NEWDB'
 >>> data._database_2.database_id
 ['PDB', 'WWPDB', 'NEWDB']
+
+# Write updated content in mmCIF format
+>>> handler.write("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", file)
 ```
 
 ### Classes and Methods
