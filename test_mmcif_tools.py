@@ -1,29 +1,12 @@
-from mmcif_tools import MMCIFHandler
+from mmcif_tools import MMCIFFileReader
 
-# Parse the CIF file
-handler = MMCIFHandler()
-file = handler.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
+reader = MMCIFFileReader(atoms=False, validator_factory=None)
+data_container = reader.read('/Users/lucas/Desktop/em/emd_33233_md.cif')
 
-# Accessing the DataBlock named '7XJP'
-data = getattr(file, '7XJP')
-
-# Access the '_database_2' category and its items using dot-separated notation
-data._database_2.items
-
-data._database_2.database_id
-
-data._database_2.database_code
-
-data._database_2.pdbx_database_accession
-
-data._database_2.pdbx_DOI
-
-# Write a copy of the mmCIF file
-handler.write("/Users/lucas/Desktop/em/test_emd_33233_md.cif", file)
-
-# # Update values in an item
-# data._database_2.database_id[-1] = 'NEWDB'
-# data._database_2.database_id
-
-# # Write updated content in mmCIF format
-# handler.write("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", file)
+# To verify the contents
+for block_name, data_block in data_container.data_blocks.items():
+    print(f"Data Block: {block_name}")
+    for category_name, category in data_block.categories.items():
+        print(f"Category: {category_name}")
+        for item_name, values in category._items.items():
+            print(f"  Item: {item_name}, Values: {values}")
