@@ -197,6 +197,7 @@ class MMCIFHandler:
                                         current_category, self.validator_factory)
                                 current_data = data_blocks[current_block]._categories[current_category]
                         else:
+                            value = line[len(item_full):].strip()
                             if current_category != category:
                                 current_category = category
                                 if current_category not in data_blocks[current_block]._categories:
@@ -204,7 +205,6 @@ class MMCIFHandler:
                                         current_category, self.validator_factory)
                                 current_data = data_blocks[current_block]._categories[current_category]
 
-                            value = line[len(item_full):].strip()
                             if value.startswith(';'):
                                 multi_line_value = True
                                 multi_line_item_name = item
@@ -282,7 +282,7 @@ class MMCIFHandler:
                             if len(items) > 1 and any(len(values) > 1 for values in items.values()):
                                 f.write("loop_\n")
                                 for item_name in items.keys():
-                                    f.write(f"_{category_name}.{item_name}\n")
+                                    f.write(f"{category_name}.{item_name}\n")
                                 for row in zip(*items.values()):
                                     formatted_row = [format_value(value) for value in row]
                                     f.write(" ".join(formatted_row) + "\n")
@@ -291,7 +291,7 @@ class MMCIFHandler:
                                 for item_name, values in items.items():
                                     for value in values:
                                         formatted_value = format_value(value)
-                                        f.write(f"_{category_name}.{item_name} {formatted_value}\n")
+                                        f.write(f"{category_name}.{item_name} {formatted_value}\n")
                             f.write("#\n") # End of category
 
         except IOError as e:
