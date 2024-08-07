@@ -145,113 +145,27 @@ class MMCIFDataContainer:
         return self._data_blocks
 
 
-class MMCIFHandler:
-    def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
-        self.atoms: bool = atoms
-        self.validator_factory: Optional[ValidatorFactory] = validator_factory
+class MMCIFFileReader:
+    def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory]):
+        self.atoms = atoms
+        self.validator_factory = validator_factory
+        self.data_blocks = {}
+        self.current_block = None
+        self.current_category = None
+        self.current_data = None
+        self.loop_items = []
+        self.in_loop = False
+        self.multi_line_value = False
+        self.multi_line_item_name = ""
+        self.multi_line_value_buffer = []
+        self.current_row_values = []
+        self.value_counter = 0
 
-    def parse(self, filename: str) -> MMCIFDataContainer:
-        data_blocks: Dict[str, DataBlock] = {}
-        current_block: Optional[str] = None
-        current_category: Optional[str] = None
-        current_data: Optional[Category] = None
-        loop_items = []
-        in_loop = False
-        multi_line_value = False
-        multi_line_item_name = ""
-        multi_line_value_buffer = []
-        current_row_values = []
-        value_counter = 0
-
+    def read(self, filename: str) -> MMCIFDataContainer:
         try:
             with open(filename, 'r') as f:
                 for line in f:
-                    line = line.rstrip()
-
-                    if line.startswith('#'):
-                        continue  # Skip comment lines
-
-                    if line.startswith('data_'):
-                        current_block = line.split('_', 1)[1]
-                        data_blocks[current_block] = DataBlock(current_block, {})
-                        current_category = None
-                        continue
-
-                    if line.startswith('loop_'):
-                        in_loop = True
-                        loop_items = []
-                        continue
-
-                    if line.startswith('_'):
-                        item_full = line.split(' ', 1)[0]
-                        category, item = item_full.split('.', 1)
-                        if category.startswith('_atom_site') and not self.atoms:
-                            continue
-
-                        if in_loop:
-                            loop_items.append(item_full)
-                            if current_category != category:
-                                current_category = category
-                                if current_category not in data_blocks[current_block]._categories:
-                                    data_blocks[current_block]._categories[current_category] = Category(
-                                        current_category, self.validator_factory)
-                                current_data = data_blocks[current_block]._categories[current_category]
-                        else:
-                            value = line[len(item_full):].strip()
-                            if current_category != category:
-                                current_category = category
-                                if current_category not in data_blocks[current_block]._categories:
-                                    data_blocks[current_block]._categories[current_category] = Category(
-                                        current_category, self.validator_factory)
-                                current_data = data_blocks[current_block]._categories[current_category]
-
-                            if value.startswith(';'):
-                                multi_line_value = True
-                                multi_line_item_name = item
-                                multi_line_value_buffer = []
-                            else:
-                                current_data.add_item(item, value)
-                        continue
-
-                    if in_loop:
-                        if not multi_line_value:
-                            values = line.split()
-                            while len(current_row_values) < len(loop_items) and values:
-                                value = values.pop(0)
-                                if value.startswith(';'):
-                                    multi_line_value = True
-                                    multi_line_item_name = loop_items[len(current_row_values)].split('.', 1)[1]
-                                    multi_line_value_buffer.append(value[1:])
-                                    current_row_values.append(None)  # Placeholder for multi-line data
-                                    break
-                                else:
-                                    current_row_values.append(value)
-                                    value_counter += 1
-
-                            if value_counter == len(loop_items):
-                                for i, value in enumerate(current_row_values):
-                                    item_name = loop_items[i].split('.', 1)[1]
-                                    current_data.add_item(item_name, value)
-                                current_row_values = []
-                                value_counter = 0
-
-                        else:
-                            if line == ';':
-                                multi_line_value = False
-                                full_value = "\n".join(multi_line_value_buffer)
-                                current_row_values[-1] = full_value  # Replace placeholder
-                                multi_line_value_buffer = []
-                                value_counter += 1
-
-                                if value_counter == len(loop_items):
-                                    for i, value in enumerate(current_row_values):
-                                        item_name = loop_items[i].split('.', 1)[1]
-                                        current_data.add_item(item_name, value)
-                                    current_row_values = []
-                                    value_counter = 0
-                            else:
-                                multi_line_value_buffer.append(line)
-
+                    self.process_line(line.rstrip())
         except FileNotFoundError:
             print(f"File not found: {filename}")
         except IndexError as e:
@@ -261,38 +175,147 @@ class MMCIFHandler:
         except Exception as e:
             print(f"Error reading file {filename}: {e}")
 
-        return MMCIFDataContainer(data_blocks)
+        return MMCIFDataContainer(self.data_blocks)
 
+    def process_line(self, line: str):
+        if line.startswith('#'):
+            return
+        if line.startswith('data_'):
+            self.start_new_data_block(line)
+        elif line.startswith('loop_'):
+            self.start_loop()
+        elif line.startswith('_'):
+            self.process_item(line)
+        elif self.in_loop:
+            self.process_loop_data(line)
+
+    def start_new_data_block(self, line: str):
+        self.current_block = line.split('_', 1)[1]
+        self.data_blocks[self.current_block] = DataBlock(self.current_block, {})
+        self.current_category = None
+
+    def start_loop(self):
+        self.in_loop = True
+        self.loop_items = []
+
+    def process_item(self, line: str):
+        item_full = line.split(' ', 1)[0]
+        category, item = item_full.split('.', 1)
+        if category.startswith('_atom_site') and not self.atoms:
+            return
+
+        if self.in_loop:
+            self.loop_items.append(item_full)
+            self.set_current_category(category)
+        else:
+            value = line[len(item_full):].strip()
+            self.set_current_category(category)
+            self.handle_single_item_value(item, value)
+
+    def process_loop_data(self, line: str):
+        if not self.multi_line_value:
+            self.handle_loop_values(line)
+        else:
+            self.handle_multi_line_value(line)
+
+    def handle_loop_values(self, line: str):
+        values = line.split()
+        while len(self.current_row_values) < len(self.loop_items) and values:
+            value = values.pop(0)
+            if value.startswith(';'):
+                self.multi_line_value = True
+                self.multi_line_item_name = self.loop_items[len(self.current_row_values)].split('.', 1)[1]
+                self.multi_line_value_buffer.append(value[1:])
+                self.current_row_values.append(None)
+                break
+            else:
+                self.current_row_values.append(value)
+                self.value_counter += 1
+
+        if self.value_counter == len(self.loop_items):
+            self.add_loop_values_to_category()
+
+    def handle_multi_line_value(self, line: str):
+        if line == ';':
+            self.multi_line_value = False
+            full_value = "\n".join(self.multi_line_value_buffer)
+            self.current_row_values[-1] = full_value
+            self.multi_line_value_buffer = []
+            self.value_counter += 1
+            if self.value_counter == len(self.loop_items):
+                self.add_loop_values_to_category()
+        else:
+            self.multi_line_value_buffer.append(line)
+
+    def add_loop_values_to_category(self):
+        for i, value in enumerate(self.current_row_values):
+            item_name = self.loop_items[i].split('.', 1)[1]
+            self.current_data.add_item(item_name, value)
+        self.current_row_values = []
+        self.value_counter = 0
+
+    def set_current_category(self, category: str):
+        if self.current_category != category:
+            self.current_category = category
+            if self.current_category not in self.data_blocks[self.current_block]._categories:
+                self.data_blocks[self.current_block]._categories[self.current_category] = Category(
+                    self.current_category, self.validator_factory)
+            self.current_data = self.data_blocks[self.current_block]._categories[self.current_category]
+
+    def handle_single_item_value(self, item: str, value: str):
+        if value.startswith(';'):
+            self.multi_line_value = True
+            self.multi_line_item_name = item
+            self.multi_line_value_buffer = []
+        else:
+            self.current_data.add_item(item, value)
+
+
+class MMCIFFileWriter:
     def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
-        def format_value(value: str) -> str:
-            if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
-                return f";\n{value}\n;"
-            return value
-
         try:
             with open(filename, 'w') as f:
                 for block_name, data_block in data_container.data_blocks.items():
                     f.write(f"data_{block_name}\n")
-                    f.write("#\n")  # Start of block
+                    f.write("#\n")
                     for category_name, category in data_block.categories.items():
                         if isinstance(category, Category):
-                            items = category._items
-
-                            # Determine if loop_ is needed
-                            if len(items) > 1 and any(len(values) > 1 for values in items.values()):
-                                f.write("loop_\n")
-                                for item_name in items.keys():
-                                    f.write(f"{category_name}.{item_name}\n")
-                                for row in zip(*items.values()):
-                                    formatted_row = [format_value(value) for value in row]
-                                    f.write(" ".join(formatted_row) + "\n")
-                            else:
-                                # No loop_ needed; write items directly
-                                for item_name, values in items.items():
-                                    for value in values:
-                                        formatted_value = format_value(value)
-                                        f.write(f"{category_name}.{item_name} {formatted_value}\n")
-                            f.write("#\n") # End of category
-
+                            self.write_category(f, category_name, category)
+                            f.write("#\n")
         except IOError as e:
             print(f"Error writing file {filename}: {e}")
+
+    def write_category(self, f, category_name: str, category: Category):
+        items = category._items
+        if len(items) > 1 and any(len(values) > 1 for values in items.values()):
+            f.write("loop_\n")
+            for item_name in items.keys():
+                f.write(f"{category_name}.{item_name}\n")
+            for row in zip(*items.values()):
+                formatted_row = [self.format_value(value) for value in row]
+                f.write(" ".join(formatted_row) + "\n")
+        else:
+            for item_name, values in items.items():
+                for value in values:
+                    formatted_value = self.format_value(value)
+                    f.write(f"{category_name}.{item_name} {formatted_value}\n")
+
+    @staticmethod
+    def format_value(value: str) -> str:
+        if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
+            return f";\n{value}\n;"
+        return value
+
+
+class MMCIFHandler:
+    def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
+        self.atoms = atoms
+        self.validator_factory = validator_factory
+        self.reader = MMCIFFileReader(atoms, validator_factory)
+        self.writer = MMCIFFileWriter()
+
+    def parse(self, filename: str) -> MMCIFDataContainer:
+        return self.reader.read(filename)
+
+    def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
+        self.writer.write(filename, data_container)
