@@ -263,30 +263,6 @@ class MMCIFHandler:
 
         return MMCIFDataContainer(data_blocks)
 
-    def _parse_loop(self, f: Any, current_data: Category, loop_items: List[str]) -> None:
-        for item in loop_items:
-            setattr(current_data, item, [])
-
-        for line in f:
-            line = line.strip()
-            if line.startswith('_'):
-                break
-            self._parse_loop_item(line, current_data)
-
-    def _parse_loop_item(self, line: str, current_data: Category) -> None:
-        items = line.split()
-        for i, item in enumerate(current_data.items.keys()):
-            if i < len(items):
-                getattr(current_data, item).append(items[i])
-            else:
-                getattr(current_data, item).append(None)
-
-    def _parse_item(self, line: str, current_data: Category) -> None:
-        item, value = line.split(None, 1)
-        item = '_' + item.rstrip()
-        if not self.atoms or not item.startswith('_atom_site'):
-            setattr(current_data, item, value.strip())
-
     def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
         def format_value(value: str) -> str:
             if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
