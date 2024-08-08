@@ -1,7 +1,7 @@
-from mmcif_tools import MMCIFFileReader
+from mmcif_tools import MMCIFHandler
 
-reader = MMCIFFileReader(atoms=False, validator_factory=None)
-data_container = reader.read('/Users/lucas/Desktop/em/emd_33233_md.cif')
+handler = MMCIFHandler(atoms=False, validator_factory=None)
+data_container = handler.parse('/Users/lucas/Desktop/em/emd_33233_md.cif')
 
 # To verify the contents
 for block_name, data_block in data_container.data_blocks.items():

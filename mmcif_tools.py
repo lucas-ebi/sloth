@@ -1,4 +1,5 @@
-from typing import Callable, Dict, Tuple, List, Any, Union, Optional
+from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
+import io
 
 class ValidatorFactory:
     def __init__(self):
@@ -155,19 +156,16 @@ class MMCIFReader:
         self.current_row_values = []
         self.value_counter = 0
 
-    def read(self, filename: str) -> MMCIFDataContainer:
+    def read(self, file_obj: IO) -> MMCIFDataContainer:
         try:
-            with open(filename, 'r') as f:
-                for line in f:
-                    self.process_line(line.rstrip())
-        except FileNotFoundError:
-            print(f"File not found: {filename}")
+            for line in file_obj:
+                self.process_line(line.rstrip())
         except IndexError as e:
-            print(f"Error reading file {filename}: list index out of range - {e}")
+            print(f"Error reading file: list index out of range - {e}")
         except KeyError as e:
             print(f"Missing data block or category: {e}")
         except Exception as e:
-            print(f"Error reading file {filename}: {e}")
+            print(f"Error reading file: {e}")
 
         return MMCIFDataContainer(self.data_blocks)
 
@@ -285,33 +283,32 @@ class MMCIFReader:
 
 
 class MMCIFWriter:
-    def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
+    def write(self, file_obj: IO, data_container: MMCIFDataContainer) -> None:
         try:
-            with open(filename, 'w') as f:
-                for block_name, data_block in data_container.data_blocks.items():
-                    f.write(f"data_{block_name}\n")
-                    f.write("#\n")
-                    for category_name, category in data_block.categories.items():
-                        if isinstance(category, Category):
-                            self.write_category(f, category_name, category)
-                            f.write("#\n")
+            for block_name, data_block in data_container.data_blocks.items():
+                file_obj.write(f"data_{block_name}\n")
+                file_obj.write("#\n")
+                for category_name, category in data_block.categories.items():
+                    if isinstance(category, Category):
+                        self.write_category(file_obj, category_name, category)
+                        file_obj.write("#\n")
         except IOError as e:
-            print(f"Error writing file {filename}: {e}")
+            print(f"Error writing to file: {e}")
 
-    def write_category(self, f, category_name: str, category: Category):
+    def write_category(self, file_obj: IO, category_name: str, category: Category):
         items = category._items
         if len(items) > 1 and any(len(values) > 1 for values in items.values()):
-            f.write("loop_\n")
+            file_obj.write("loop_\n")
             for item_name in items.keys():
-                f.write(f"{category_name}.{item_name}\n")
+                file_obj.write(f"{category_name}.{item_name}\n")
             for row in zip(*items.values()):
                 formatted_row = [self.format_value(value) for value in row]
-                f.write(f"{''.join(formatted_row)}\n".replace('\n\n', '\n'))
+                file_obj.write(f"{''.join(formatted_row)}\n".replace('\n\n', '\n'))
         else:
             for item_name, values in items.items():
                 for value in values:
                     formatted_value = self.format_value(value)
-                    f.write(f"{category_name}.{item_name} {formatted_value}\n")
+                    file_obj.write(f"{category_name}.{item_name} {formatted_value}\n")
 
     @staticmethod
     def format_value(value: str) -> str:
@@ -326,9 +323,22 @@ class MMCIFHandler:
         self.validator_factory = validator_factory
         self.reader = MMCIFReader(atoms, validator_factory)
         self.writer = MMCIFWriter()
+        self.file_obj = None
+
+    def open_file(self, filename: str, mode: str) -> None:
+        self.file_obj = open(filename, mode)
+
+    def close_file(self) -> None:
+        if self.file_obj:
+            self.file_obj.close()
+            self.file_obj = None
 
     def parse(self, filename: str) -> MMCIFDataContainer:
-        return self.reader.read(filename)
+        with open(filename, 'r') as f:
+            return self.reader.read(f)
 
-    def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
-        self.writer.write(filename, data_container)
+    def write(self, data_container: MMCIFDataContainer) -> None:
+        if self.file_obj:
+            self.writer.write(self.file_obj, data_container)
+        else:
+            raise IOError("File is not open for writing")

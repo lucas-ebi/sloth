@@ -49,7 +49,9 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 ['PDB', 'WWPDB', 'NEWDB']
 
 # Write updated content in mmCIF format
->>> handler.write("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", file)
+>>> handler.open_file("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'r+')
+>>> handler.write(file)
+>>> handler.close_file()
 ```
 
 ### Classes and Methods
@@ -57,15 +59,17 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 #### `MMCIFHandler`
 
 - **`parse(filename: str) -> MMCIFDataContainer`**: Parses an MMCIF file and returns an `MMCIFDataContainer` object containing the parsed contents.
-- **`write(filename: str, data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to a file in MMCIF format.
+- **`write(data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to an open file in MMCIF format. Ensure to open the file using `open_file` method before calling this.
+- **`open_file(filename: str, mode: str) -> None`**: Opens a file with the specified mode ('r+', 'w', etc.) for reading and writing.
+- **`close_file() -> None`**: Closes the currently open file.
 
 #### `MMCIFReader`
 
-- **`read(filename: str) -> MMCIFDataContainer`**: Reads an MMCIF file and returns an `MMCIFDataContainer` object containing the parsed contents.
+- **`read(file_obj: IO) -> MMCIFDataContainer`**: Reads an MMCIF file from a file object and returns an `MMCIFDataContainer` object containing the parsed contents.
 
 #### `MMCIFWriter`
 
-- **`write(filename: str, data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to a file in MMCIF format.
+- **`write(file_obj: IO, data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to a file object in MMCIF format.
 
 #### `MMCIFDataContainer`
 
