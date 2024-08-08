@@ -325,14 +325,6 @@ class MMCIFHandler:
         self.writer = MMCIFWriter()
         self.file_obj = None
 
-    def open_file(self, filename: str, mode: str) -> None:
-        self.file_obj = open(filename, mode)
-
-    def close_file(self) -> None:
-        if self.file_obj:
-            self.file_obj.close()
-            self.file_obj = None
-
     def parse(self, filename: str) -> MMCIFDataContainer:
         with open(filename, 'r') as f:
             return self.reader.read(f)
