@@ -34,8 +34,7 @@ data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
 
 ```python
 data._database_2.items
-# Output: {'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']}
-
+# Output: ['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
 
 data._database_2.database_id
 # Output: ['PDB', 'WWPDB', 'EMDB']
@@ -65,6 +64,36 @@ data._database_2.database_id
 with open("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'w') as f:
     handler.file_obj = f
     handler.write(data_container)
+```
+
+### Validation
+
+You can validate categories and perform cross-check validations using the `ValidatorFactory`.
+
+#### Register validators and cross-checkers
+
+```python
+from mmcif_tools import ValidatorFactory
+
+def validate_database_id(value):
+    assert value.startswith('DB'), "Invalid database ID"
+
+def cross_check_database_id_code(database_id, database_code):
+    assert len(database_id) == len(database_code), "Mismatched lengths"
+
+validator_factory = ValidatorFactory()
+validator_factory.register_validator('_database_2.database_id', validate_database_id)
+validator_factory.register_cross_checker(('_database_2.database_id', '_database_2.database_code'), cross_check_database_id_code)
+```
+
+#### Validate categories
+
+```python
+# Validate a single category
+data._database_2.validate()
+
+# Cross-validate between categories
+data._database_2.validate.against(data._database_2)
 ```
 
 ### Classes and Methods
