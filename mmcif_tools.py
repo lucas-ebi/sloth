@@ -201,6 +201,9 @@ class MMCIFDataContainer:
     def __len__(self):
         return len(self._data_blocks)
 
+    def __repr__(self):
+        return f"MMCIFDataContainer(data_blocks={self._data_blocks})"
+
     @property
     def data(self) -> Union[DataBlock, List[DataBlock]]:
         """Provides read-only access to the data blocks."""

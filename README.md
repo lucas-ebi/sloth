@@ -24,13 +24,32 @@ file = handler.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
 #### Access the DataBlock
 
 ```python
-file.data_blocks
-# Output: {'7XJP': <mmcif_tools.DataBlock object at 0x7f8ab0263160>}
-
-data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
+file
+# Output: MMCIFDataContainer(data_blocks={'7XJP': DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})})
 ```
 
-#### Access the '_database_2' category and its items
+#### Accessing the DataBlock named '7XJP' through getattr
+
+```python
+data = getattr(file, '7XJP')
+# Output: DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})
+```
+#### Accessing the DataBlock named '7XJP' through dot-separated notation by adding "data_" to the beginning of DataBlock name
+
+```python
+data = file.data_7XJP
+data
+# Output: DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})
+```
+
+#### Access the '_database_2' category
+
+```python
+data._database_2
+# Output: Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})
+```
+
+#### Access the '_database_2' category items
 
 ```python
 data._database_2.items

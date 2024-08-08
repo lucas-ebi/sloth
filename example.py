@@ -16,10 +16,13 @@ handler = MMCIFHandler(atoms=False, validator_factory=None)
 # Parse the file with specific categories
 file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
 
+# Print file content
+print(f"File: {file}")
+
 # Print data blocks
 print(f"Data blocks: {file.data}")
 
-# data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
+# Accessing the DataBlock named '7XJP'
 print(f"Data Block: {file.data_7XJP}")
 
 for data_block in file:
