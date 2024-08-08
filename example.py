@@ -1,8 +1,8 @@
 from mmcif_tools import MMCIFHandler
 
-def modify_data(data_container):
+def modify_data(modified_file):
     # Assuming there is a data block named '7XJP'
-    data_block = data_container['7XJP']  # Replace '7XJP' with the actual block name
+    data_block = modified_file['7XJP']  # Replace '7XJP' with the actual block name
 
     # Assuming there is a category named '_database_2'
     category = data_block['_database_2']  # Replace '_database_2' with the actual category name
@@ -17,15 +17,19 @@ handler = MMCIFHandler(atoms=False, validator_factory=None)
 file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
 
 # Print data blocks
-print(f"Data blocks: {file.data_blocks}")
+print(f"Data blocks: {file.data}")
 
-data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
-# Print a specific data block
-print(f"Data block: {data}")
+# data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
+print(f"Data Block: {file.data_7XJP}")
 
-# Print items of a specific category
-# print(data._database_2.items)
-print(f"Items: {data._database_2.items}")
+for data_block in file:
+    print(f"Data Block: {data_block}")
+    for category in data_block:
+        print(f"Category: {category}")
+        print(f"  Name: {category.name}")
+        print(f"  Items: {category.items}")
+        for item, values in category:
+            print(f"  Item: {item}, Values: {values}")
 
 # Apply the modification
 modify_data(file)
@@ -37,11 +41,12 @@ with open('/Users/lucas/Desktop/em/modified_emd_33233.cif', 'w') as f:
     handler.write(file)
 
 # Verify the changes
-data_container = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif', categories=['_database_2', '_atom_site'])
-for block_name, data_block in data_container.data_blocks.items():
-    print(f"Data Block: {block_name}")
-    for category_name, category in data_block.categories.items():
-        print(f"Category: {category_name}")
+modified_file = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif', categories=['_database_2', '_atom_site'])
+for data_block in modified_file:
+    print(f"Data Block: {data_block}")
+    for category in data_block:
+        print(f"Category: {category}")
+        print(f"  Name: {category.name}")
         print(f"  Items: {category.items}")
-        for item_name, values in category.data.items():
-            print(f"  Item: {item_name}, Values: {values}")
+        for item, values in category:
+            print(f"  Item: {item}, Values: {values}")
