@@ -85,6 +85,15 @@ class Category:
     def __setitem__(self, item_name: str, value: List[str]) -> None:
         self._items[item_name] = value
 
+    def __iter__(self):
+        return iter(self._items.items())
+
+    def __len__(self):
+        return len(self._items)
+
+    def __repr__(self):
+        return f"Category(name={self.name}, items={self._items})"
+
     @property
     def items(self) -> List[str]:
         """Provides a list of item names."""
@@ -159,6 +168,9 @@ class DataBlock:
     def __len__(self):
         return len(self._categories)
 
+    def __repr__(self):
+        return f"DataBlock(name={self.name}, categories={self._categories})"
+
     @property
     def categories(self) -> Dict[str, Category]:
         """Provides read-only access to the categories."""
@@ -177,10 +189,11 @@ class MMCIFDataContainer:
         self._data_blocks[block_name] = block
 
     def __getattr__(self, block_name: str) -> DataBlock:
-        try:
-            return self._data_blocks[block_name]
-        except KeyError:
-            raise AttributeError(f"'MMCIFDataContainer' object has no attribute '{block_name}'")
+        if block_name.startswith("data_"):
+            block_name = block_name[5:]  # Remove the 'data_' prefix
+            if block_name in self._data_blocks:
+                return self._data_blocks[block_name]
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     def __iter__(self):
         return iter(self._data_blocks.values())
@@ -189,9 +202,9 @@ class MMCIFDataContainer:
         return len(self._data_blocks)
 
     @property
-    def data_blocks(self) -> Dict[str, DataBlock]:
+    def data(self) -> Union[DataBlock, List[DataBlock]]:
         """Provides read-only access to the data blocks."""
-        return self._data_blocks
+        return list(self._data_blocks.values())
 
 
 class MMCIFReader:
@@ -595,8 +608,8 @@ class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
     def write(self, file_obj: IO, data_container: MMCIFDataContainer) -> None:
         try:
-            for block_name, data_block in data_container.data_blocks.items():
-                file_obj.write(f"data_{block_name}\n")
+            for data_block in data_container:
+                file_obj.write(f"data_{data_block.name}\n")
                 file_obj.write("#\n")
                 for category_name, category in data_block.categories.items():
                     if isinstance(category, Category):
