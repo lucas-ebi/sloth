@@ -11,7 +11,7 @@ def modify_data(data_container):
     category._items['database_id'][-1] = 'NEWDB'
 
 # Initialize the handler
-handler = MMCIFHandler(atoms=False, validator_factory=None)
+handler = MMCIFHandler(atoms=True, validator_factory=None)
 
 # Parse the file with specific categories
 data_container = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
