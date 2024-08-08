@@ -79,6 +79,30 @@ class Category:
             return self
 
 
+    class Validator:
+        def __init__(self, category: 'Category', factory: ValidatorFactory):
+            self.category: 'Category' = category
+            self.factory: ValidatorFactory = factory
+            self.other_category: Optional['Category'] = None
+
+        def __call__(self) -> 'Category.Validator':
+            validator = self.factory.get_validator(self.category.name)
+            if validator:
+                validator(self.category.name)
+            else:
+                print(f"No validator registered for category '{self.category.name}'")
+            return self
+
+        def against(self, other_category: 'Category') -> 'Category.Validator':
+            self.other_category = other_category
+            cross_checker = self.factory.get_cross_checker((self.category.name, other_category.name))
+            if cross_checker:
+                cross_checker(self.category.name, other_category.name)
+            else:
+                print(f"No cross-checker registered for categories '{self.category.name}' and '{other_category.name}'")
+            return self
+
+
 class DataBlock:
     def __init__(self, name: str, categories: Dict[str, Category]):
         self.name = name
@@ -141,25 +165,26 @@ class MMCIFDataContainer:
 
 
 class MMCIFReader:
-    def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory]):
+    def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
         self.atoms = atoms
         self.validator_factory = validator_factory
-        self.data_blocks = {}
-        self.current_block = None
-        self.current_category = None
-        self.current_data = None
-        self.loop_items = []
-        self.in_loop = False
-        self.multi_line_value = False
-        self.multi_line_item_name = ""
-        self.multi_line_value_buffer = []
-        self.current_row_values = []
-        self.value_counter = 0
+        self.categories = categories
+        self._data_blocks = {}
+        self._current_block = None
+        self._current_category = None
+        self._current_data = None
+        self._loop_items = []
+        self._in_loop = False
+        self._multi_line_value = False
+        self._multi_line_item_name = ""
+        self._multi_line_value_buffer = []
+        self._current_row_values = []
+        self._value_counter = 0
 
     def read(self, file_obj: IO) -> MMCIFDataContainer:
         try:
             for line in file_obj:
-                self.process_line(line.rstrip())
+                self._process_line(line.rstrip())
         except IndexError as e:
             print(f"Error reading file: list index out of range - {e}")
         except KeyError as e:
@@ -167,36 +192,36 @@ class MMCIFReader:
         except Exception as e:
             print(f"Error reading file: {e}")
 
-        return MMCIFDataContainer(self.data_blocks)
+        return MMCIFDataContainer(self._data_blocks)
 
-    def process_line(self, line: str):
+    def _process_line(self, line: str):
         if line.startswith('#'):
             return
         if line.startswith('data_'):
-            self.start_new_data_block(line)
+            self._start_new_data_block(line)
         elif line.startswith('loop_'):
-            self.start_loop()
+            self._start_loop()
         elif line.startswith('_'):
             try:
-                self.process_item_simple(line)
+                self._process_item_simple(line)
             except ValueError:
-                self.process_item_fallback(line)
-        elif self.in_loop:
-            self.process_loop_data(line)
-        elif self.multi_line_value:
-            self.handle_multi_line_value(line)
+                self._process_item_fallback(line)
+        elif self._in_loop:
+            self._process_loop_data(line)
+        elif self._multi_line_value:
+            self._handle_multi_line_value(line)
 
-    def start_new_data_block(self, line: str):
-        self.current_block = line.split('_', 1)[1]
-        self.data_blocks[self.current_block] = DataBlock(self.current_block, {})
-        self.current_category = None
-        self.in_loop = False
+    def _start_new_data_block(self, line: str):
+        self._current_block = line.split('_', 1)[1]
+        self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
+        self._current_category = None
+        self._in_loop = False
 
-    def start_loop(self):
-        self.in_loop = True
-        self.loop_items = []
+    def _start_loop(self):
+        self._in_loop = True
+        self._loop_items = []
 
-    def process_item_simple(self, line: str):
+    def _process_item_simple(self, line: str):
         parts = line.split(None, 1)
         if len(parts) != 2:
             raise ValueError("Invalid key-value pair")
@@ -206,80 +231,86 @@ class MMCIFReader:
         if category.startswith('_atom_site') and not self.atoms:
             return
 
-        self.set_current_category(category)
-        self.handle_single_item_value(item, value.strip())
+        if self.categories and category not in self.categories:
+            return
 
-    def process_item_fallback(self, line: str):
+        self._set_current_category(category)
+        self._handle_single_item_value(item, value.strip())
+
+    def _process_item_fallback(self, line: str):
         item_full = line.split(' ', 1)[0]
         category, item = item_full.split('.', 1)
         if category.startswith('_atom_site') and not self.atoms:
             return
 
-        if self.in_loop:
-            self.loop_items.append(item_full)
-            self.set_current_category(category)
+        if self.categories and category not in self.categories:
+            return
+
+        if self._in_loop:
+            self._loop_items.append(item_full)
+            self._set_current_category(category)
         else:
             value = line[len(item_full):].strip()
-            self.set_current_category(category)
-            self.handle_single_item_value(item, value)
+            self._set_current_category(category)
+            self._handle_single_item_value(item, value)
 
-    def process_loop_data(self, line: str):
-        if not self.multi_line_value:
-            self.handle_loop_values(line)
+    def _process_loop_data(self, line: str):
+        if not self._multi_line_value:
+            self._handle_loop_values(line)
         else:
-            self.handle_multi_line_value(line)
+            self._handle_multi_line_value(line)
 
-    def handle_loop_values(self, line: str):
+    def _handle_loop_values(self, line: str):
         values = line.split()
-        while len(self.current_row_values) < len(self.loop_items) and values:
+        while len(self._current_row_values) < len(self._loop_items) and values:
             value = values.pop(0)
             if value.startswith(';'):
-                self.multi_line_value = True
-                self.multi_line_item_name = self.loop_items[len(self.current_row_values)].split('.', 1)[1]
-                self.multi_line_value_buffer.append(value[1:])
-                self.current_row_values.append(None)
+                self._multi_line_value = True
+                self._multi_line_item_name = self._loop_items[len(self._current_row_values)].split('.', 1)[1]
+                self._multi_line_value_buffer.append(value[1:])
+                self._current_row_values.append(None)
                 break
             else:
-                self.current_row_values.append(value)
-                self.value_counter += 1
+                self._current_row_values.append(value)
+                self._value_counter += 1
 
-        if self.value_counter == len(self.loop_items):
-            self.add_loop_values_to_category()
+        if self._value_counter == len(self._loop_items):
+            self._add_loop_values_to_category()
 
-    def handle_multi_line_value(self, line: str):
+    def _handle_multi_line_value(self, line: str):
         if line == ';':
-            self.multi_line_value = False
-            full_value = "\n".join(self.multi_line_value_buffer)
-            self.current_row_values[-1] = full_value
-            self.multi_line_value_buffer = []
-            self.value_counter += 1
-            if self.value_counter == len(self.loop_items):
-                self.add_loop_values_to_category()
+            self._multi_line_value = False
+            full_value = "\n".join(self._multi_line_value_buffer)
+            self._current_row_values[-1] = full_value
+            self._multi_line_value_buffer = []
+            self._value_counter += 1
+            if self._value_counter == len(self._loop_items):
+                self._add_loop_values_to_category()
         else:
-            self.multi_line_value_buffer.append(line)
+            self._multi_line_value_buffer.append(line)
 
-    def add_loop_values_to_category(self):
-        for i, value in enumerate(self.current_row_values):
-            item_name = self.loop_items[i].split('.', 1)[1]
-            self.current_data.add_item(item_name, value)
-        self.current_row_values = []
-        self.value_counter = 0
+    def _add_loop_values_to_category(self):
+        for i, value in enumerate(self._current_row_values):
+            item_name = self._loop_items[i].split('.', 1)[1]
+            self._current_data.add_item(item_name, value)
+        self._current_row_values = []
+        self._value_counter = 0
 
-    def set_current_category(self, category: str):
-        if self.current_category != category:
-            self.current_category = category
-            if self.current_category not in self.data_blocks[self.current_block]._categories:
-                self.data_blocks[self.current_block]._categories[self.current_category] = Category(
-                    self.current_category, self.validator_factory)
-            self.current_data = self.data_blocks[self.current_block]._categories[self.current_category]
+    def _set_current_category(self, category: str):
+        if self._current_category != category:
+            self._current_category = category
+            if self._current_category not in self._data_blocks[self._current_block]._categories:
+                self._data_blocks[self._current_block]._categories[self._current_category] = Category(
+                    self._current_category, self.validator_factory)
+            self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
 
-    def handle_single_item_value(self, item: str, value: str):
+    def _handle_single_item_value(self, item: str, value: str):
         if value.startswith(';'):
-            self.multi_line_value = True
-            self.multi_line_item_name = item
-            self.multi_line_value_buffer = []
+            self._multi_line_value = True
+            self._multi_line_item_name = item
+            self._multi_line_value_buffer = []
         else:
-            self.current_data.add_item(item, value)
+            self._current_data.add_item(item, value)
 
 
 class MMCIFWriter:
@@ -290,28 +321,28 @@ class MMCIFWriter:
                 file_obj.write("#\n")
                 for category_name, category in data_block.categories.items():
                     if isinstance(category, Category):
-                        self.write_category(file_obj, category_name, category)
+                        self._write_category(file_obj, category_name, category)
                         file_obj.write("#\n")
         except IOError as e:
             print(f"Error writing to file: {e}")
 
-    def write_category(self, file_obj: IO, category_name: str, category: Category):
+    def _write_category(self, file_obj: IO, category_name: str, category: Category):
         items = category._items
         if len(items) > 1 and any(len(values) > 1 for values in items.values()):
             file_obj.write("loop_\n")
             for item_name in items.keys():
                 file_obj.write(f"{category_name}.{item_name}\n")
             for row in zip(*items.values()):
-                formatted_row = [self.format_value(value) for value in row]
+                formatted_row = [self._format_value(value) for value in row]
                 file_obj.write(f"{''.join(formatted_row)}\n".replace('\n\n', '\n'))
         else:
             for item_name, values in items.items():
                 for value in values:
-                    formatted_value = self.format_value(value)
+                    formatted_value = self._format_value(value)
                     file_obj.write(f"{category_name}.{item_name} {formatted_value}\n")
 
     @staticmethod
-    def format_value(value: str) -> str:
+    def _format_value(value: str) -> str:
         if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
             return f"\n;{value.strip()}\n;\n"
         return f"{value} "
@@ -321,16 +352,25 @@ class MMCIFHandler:
     def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
         self.atoms = atoms
         self.validator_factory = validator_factory
-        self.reader = MMCIFReader(atoms, validator_factory)
-        self.writer = MMCIFWriter()
-        self.file_obj = None
+        self._reader = None
+        self._writer = MMCIFWriter()
+        self._file_obj = None
 
-    def parse(self, filename: str) -> MMCIFDataContainer:
+    def parse(self, filename: str, categories: Optional[List[str]] = None) -> MMCIFDataContainer:
+        self._reader = MMCIFReader(self.atoms, self.validator_factory, categories)
         with open(filename, 'r') as f:
-            return self.reader.read(f)
+            return self._reader.read(f)
 
     def write(self, data_container: MMCIFDataContainer) -> None:
-        if self.file_obj:
-            self.writer.write(self.file_obj, data_container)
+        if self._file_obj:
+            self._writer.write(self._file_obj, data_container)
         else:
             raise IOError("File is not open for writing")
+
+    @property
+    def file_obj(self):
+        return self._file_obj
+
+    @file_obj.setter
+    def file_obj(self, file_obj):
+        self._file_obj = file_obj
