@@ -2,16 +2,11 @@ from mmcif_tools import MMCIFHandler, ValidatorFactory
 
 # Example validators and cross-checkers
 def database_validator(category_name):
-    print(f"Validating category: {category_name}")
+    print(f"\nValidating category: {category_name}")
 
 def cross_checker(category_name_1, category_name_2):
-    print(f"Cross-checking categories: {category_name_1} and {category_name_2}")
-
-# Initialize the ValidatorFactory and register validators
-validator_factory = ValidatorFactory()
-validator_factory.register_validator('_database_2', database_validator)
-validator_factory.register_cross_checker(('_database_2', '_atom_site'), cross_checker)
-
+    print(f"\nCross-checking categories: {category_name_1} and {category_name_2}")
+    
 def modify_data(modified_file):
     # Assuming there is a data block named '7XJP'
     data_block = modified_file['7XJP']  # Replace '7XJP' with the actual block name
@@ -22,14 +17,8 @@ def modify_data(modified_file):
     # Modify an item in the category
     category._items['database_id'][-1] = 'NEWDB'
 
-    # Validate the category
-    category.validate()
-
-    # Assuming there is another category named '_atom_site'
-    other_category = data_block['_atom_site']
-    
-    # Cross-validate the categories
-    category.validate().against(other_category)
+# Initialize the ValidatorFactory and register validators
+validator_factory = ValidatorFactory()
 
 # Initialize the handler
 handler = MMCIFHandler(atoms=True, validator_factory=validator_factory)
@@ -45,6 +34,19 @@ print(f"Data blocks: {file.data}")
 
 # Accessing the DataBlock named '7XJP'
 print(f"Data Block: {file.data_7XJP}")
+
+category = file.data_7XJP._database_2
+other_category = file.data_7XJP._atom_site
+
+# Register the validators and cross-checkers
+validator_factory.register_validator(category.name, database_validator)
+validator_factory.register_cross_checker((category.name, other_category.name), cross_checker)
+
+# Validate the category
+category.validate()
+
+# Cross-validate the categories
+category.validate.against(other_category)
 
 for data_block in file:
     for category in data_block:
