@@ -21,10 +21,11 @@ print(f"Data blocks: {file.data_blocks}")
 
 data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
 # Print a specific data block
-print(data)
+print(f"Data block: {data}")
 
 # Print items of a specific category
-print(data._database_2.items)
+# print(data._database_2.items)
+print(f"Items: {data._database_2.items}")
 
 # Apply the modification
 modify_data(file)
@@ -41,6 +42,6 @@ for block_name, data_block in data_container.data_blocks.items():
     print(f"Data Block: {block_name}")
     for category_name, category in data_block.categories.items():
         print(f"Category: {category_name}")
-        print(f"  Items: {category._items}")
-        for item_name, values in category._items.items():
+        print(f"  Items: {category.items}")
+        for item_name, values in category.data.items():
             print(f"  Item: {item_name}, Values: {values}")
