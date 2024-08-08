@@ -32,6 +32,7 @@ file
 
 ```python
 data = getattr(file, '7XJP')
+data
 # Output: DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})
 ```
 #### Accessing the DataBlock named '7XJP' through dot-separated notation by adding "data_" to the beginning of DataBlock name
