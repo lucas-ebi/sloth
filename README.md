@@ -1,6 +1,6 @@
 # MMCIF Tools
 
-This repository contains the implementation of tools for parsing MMCIF files. The tools are designed to handle the complex data structures found in MMCIF files, providing a way to access and manipulate data through a simple API. The current focus is on parsing functionality.
+This repository contains the implementation of tools for parsing and writing MMCIF files. The tools are designed to handle the complex data structures found in MMCIF files, providing a way to access and manipulate data through a simple API. The current focus is on parsing and writing functionality.
 
 ### Getting Started
 
@@ -12,7 +12,7 @@ pip install -r requirements.txt
 
 ### Basic Usage
 
-Below is an example demonstrating how to parse an MMCIF file and access its contents using dot-separated notation.
+Below is an example demonstrating how to parse an MMCIF file and access its contents using dot-separated notation, and how to write updates back to a new MMCIF file.
 
 ```python
 >>> from mmcif_tools import MMCIFHandler
@@ -57,6 +57,15 @@ Below is an example demonstrating how to parse an MMCIF file and access its cont
 #### `MMCIFHandler`
 
 - **`parse(filename: str) -> MMCIFDataContainer`**: Parses an MMCIF file and returns an `MMCIFDataContainer` object containing the parsed contents.
+- **`write(filename: str, data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to a file in MMCIF format.
+
+#### `MMCIFReader`
+
+- **`read(filename: str) -> MMCIFDataContainer`**: Reads an MMCIF file and returns an `MMCIFDataContainer` object containing the parsed contents.
+
+#### `MMCIFWriter`
+
+- **`write(filename: str, data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to a file in MMCIF format.
 
 #### `MMCIFDataContainer`
 

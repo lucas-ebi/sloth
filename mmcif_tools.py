@@ -139,7 +139,7 @@ class MMCIFDataContainer:
         return self._data_blocks
 
 
-class MMCIFFileReader:
+class MMCIFReader:
     def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory]):
         self.atoms = atoms
         self.validator_factory = validator_factory
@@ -284,7 +284,7 @@ class MMCIFFileReader:
             self.current_data.add_item(item, value)
 
 
-class MMCIFFileWriter:
+class MMCIFWriter:
     def write(self, filename: str, data_container: MMCIFDataContainer) -> None:
         try:
             with open(filename, 'w') as f:
@@ -324,8 +324,8 @@ class MMCIFHandler:
     def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
         self.atoms = atoms
         self.validator_factory = validator_factory
-        self.reader = MMCIFFileReader(atoms, validator_factory)
-        self.writer = MMCIFFileWriter()
+        self.reader = MMCIFReader(atoms, validator_factory)
+        self.writer = MMCIFWriter()
 
     def parse(self, filename: str) -> MMCIFDataContainer:
         return self.reader.read(filename)
