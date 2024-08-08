@@ -92,7 +92,8 @@ class Category:
         return len(self._items)
 
     def __repr__(self):
-        return f"Category(name={self.name}, items={self._items})"
+        # Limit the output to avoid long print statements
+        return f"Category(name={self.name}, items={list(self._items.keys())})"
 
     @property
     def items(self) -> List[str]:
@@ -104,7 +105,7 @@ class Category:
         """Provides read-only access to the data."""
         return self._items
 
-    def add_item_value(self, item_name: str, value: str) -> None:
+    def _add_item_value(self, item_name: str, value: str) -> None:
         """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
             self._items[item_name] = []
@@ -552,7 +553,7 @@ class MMCIFReader:
         for i, value in enumerate(self._current_row_values):
             item_name = self._loop_items[i].split('.', 1)[1]
             # Add the value to the corresponding item in the current category.
-            self._current_data.add_item_value(item_name, value)
+            self._current_data._add_item_value(item_name, value)
         # Reset the current row and value counter.
         self._current_row_values = []
         self._value_counter = 0
@@ -609,7 +610,7 @@ class MMCIFReader:
             self._multi_line_item_name = item
             self._multi_line_value_buffer = []
         else:  # Otherwise, add the value to the current category.
-            self._current_data.add_item_value(item, value)
+            self._current_data._add_item_value(item, value)
 
 
 class MMCIFWriter:
