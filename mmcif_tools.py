@@ -1,6 +1,6 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
-import zlib
+
 
 class ValidatorFactory:
     """A factory class for creating validators and cross-checkers."""
@@ -61,55 +61,34 @@ class Category:
         self.name: str = name
         self._items: Dict[str, List[str]] = {}
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
-        self._compressed_data: Optional[bytes] = None  # Store compressed data if necessary
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ('name', '_items', '_validator_factory', '_compressed_data'):
+        if name in ('name', '_items', '_validator_factory'):
             super().__setattr__(name, value)
         else:
             self._items[name] = value
 
     def __getattr__(self, item_name: str) -> List[str]:
-        self._decompress_data_if_needed()
-        try:
+        if item_name in self._items:
             return self._items[item_name]
-        except KeyError:
-            raise AttributeError(f"'Category' object has no attribute '{item_name}'")
+        raise AttributeError(f"'Category' object has no attribute '{item_name}'")
 
     def __getitem__(self, item_name: str) -> List[str]:
-        self._decompress_data_if_needed()
         return self._items[item_name]
 
     def __setitem__(self, item_name: str, value: List[str]) -> None:
-        self._decompress_data_if_needed()
         self._items[item_name] = value
 
     @property
     def items(self) -> Dict[str, List[str]]:
         """Provides a list of item names."""
-        self._decompress_data_if_needed()
         return self._items
 
     def add_item(self, item_name: str, value: str) -> None:
         """Adds a value to the list of values for the given item name."""
-        self._decompress_data_if_needed()
         if item_name not in self._items:
             self._items[item_name] = []
         self._items[item_name].append(value)
-
-    def _compress_data(self) -> None:
-        """Compress the category data to save memory."""
-        if self._items:
-            data_str = str(self._items)
-            self._compressed_data = zlib.compress(data_str.encode('utf-8'))
-            self._items = {}
-
-    def _decompress_data_if_needed(self) -> None:
-        """Decompress the data if it is compressed."""
-        if self._compressed_data:
-            data_str = zlib.decompress(self._compressed_data).decode('utf-8')
-            self._items = eval(data_str)
-            self._compressed_data = None
 
 
 class Validator:
