@@ -144,6 +144,7 @@ class Validator:
                 print(f"No cross-checker registered for categories '{self.category.name}' and '{other_category.name}'")
             return self
 
+
 class DataBlock:
     """A class to represent a data block in an mmCIF file."""
     def __init__(self, name: str, categories: Dict[str, Category]):
@@ -172,10 +173,6 @@ class DataBlock:
     def categories(self) -> Dict[str, Category]:
         """Provides read-only access to the categories."""
         return self._categories
-
-    def add_category(self, category_name: str, category: Category) -> None:
-        """Adds a category to the data block."""
-        self._categories[category_name] = category
 
 
 class MMCIFDataContainer:
@@ -250,7 +247,6 @@ class MMCIFReader:
         - For each line in the file:
             - Process the line based on its type (data block, loop, item, etc.).
             - Add the processed data to the appropriate structures.
-        - If atom site data is present, compress the data.
         - Return the populated data container.
 
         :param file_obj: The file object to read from.
@@ -262,9 +258,6 @@ class MMCIFReader:
             for line in file_obj:
                 # Process the line based on its type (data block, loop, item, etc.).
                 self._process_line(line.rstrip())
-            # If atom site data is present, compress the data.
-            if self.atoms:
-                self._compress_atom_site_data()  # Compress atom_site data after reading
         except IndexError as e:
             print(f"Error reading file: list index out of range - {e}")
         except KeyError as e:
@@ -548,10 +541,7 @@ class MMCIFReader:
         for i, value in enumerate(self._current_row_values):
             item_name = self._loop_items[i].split('.', 1)[1]
             # Add the value to the corresponding item in the current category.
-            if self._current_category == '_atom_site':  # If atom site data, buffer the values
-                self._atom_site_buffer.append((item_name, value))
-            else:  # Otherwise, add the value to the current category.
-                self._current_data.add_item(item_name, value)
+            self._current_data.add_item(item_name, value)
         # Reset the current row and value counter.
         self._current_row_values = []
         self._value_counter = 0
@@ -596,9 +586,6 @@ class MMCIFReader:
         Pseudocode:
         - If the value starts a multi-line value, initialize the buffer.
         - Otherwise, add the value to the current category.
-            - If atom site data, buffer the values.
-            - Otherwise, add the value to the current category.
-
         :param item: The item name.
         :type item: str
         :param value: The item value.
@@ -611,22 +598,7 @@ class MMCIFReader:
             self._multi_line_item_name = item
             self._multi_line_value_buffer = []
         else:  # Otherwise, add the value to the current category.
-            # If atom site data, buffer the values.
-            if self._current_category == '_atom_site':
-                self._atom_site_buffer.append((item, value))
-            else:  # Otherwise, add the value to the current category.
-                self._current_data.add_item(item, value)
-
-    def _compress_atom_site_data(self) -> None:
-        """Compresses the atom_site data and stores it in the data container."""
-        if '_atom_site' in self._data_blocks[self._current_block]._categories:
-            category = self._data_blocks[self._current_block]._categories['_atom_site']
-            for item, value in self._atom_site_buffer:
-                if item not in category._items:
-                    category._items[item] = []
-                category._items[item].append(value)
-            category._compress_data()
-            self._atom_site_buffer = []
+            self._current_data.add_item(item, value)
 
 
 class MMCIFWriter:
@@ -682,8 +654,6 @@ class MMCIFWriter:
         if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
             return f"\n;{value.strip()}\n;\n"
         return f"{value} "
-
-
 
 
 class MMCIFHandler:
