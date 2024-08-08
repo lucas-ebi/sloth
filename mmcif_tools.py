@@ -119,7 +119,7 @@ class Category:
             self._other_category: Optional['Category'] = None
         
         def __call__(self) -> 'Category.Validator':
-            validator = self._factory.get_validator(self.category.name)
+            validator = self._factory.get_validator(self._category.name)
             if validator:
                 validator(self._category.name)
             else:
@@ -191,9 +191,9 @@ class MMCIFDataContainer:
     def __getattr__(self, block_name: str) -> DataBlock:
         if block_name.startswith("data_"):
             block_name = block_name[5:]  # Remove the 'data_' prefix
-            if block_name in self._data_blocks:
-                return self._data_blocks[block_name]
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        if block_name in self._data_blocks:
+            return self._data_blocks[block_name]
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{block_name}'")
 
     def __iter__(self):
         return iter(self._data_blocks.values())
@@ -205,9 +205,14 @@ class MMCIFDataContainer:
         return f"MMCIFDataContainer(data_blocks={self._data_blocks})"
 
     @property
-    def data(self) -> Union[DataBlock, List[DataBlock]]:
+    def data(self) ->  List[DataBlock]:
         """Provides read-only access to the data blocks."""
         return list(self._data_blocks.values())
+
+    @property
+    def blocks(self) -> List[str]:
+        """Provides a list of data block names."""
+        return list(self._data_blocks.keys())
 
 
 class MMCIFReader:
