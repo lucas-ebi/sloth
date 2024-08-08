@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
+import zlib
 
 class ValidatorFactory:
     """A factory class for creating validators and cross-checkers."""
@@ -60,38 +61,58 @@ class Category:
         self.name: str = name
         self._items: Dict[str, List[str]] = {}
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
+        self._compressed_data: Optional[bytes] = None  # Store compressed data if necessary
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ('name', '_items', '_validator_factory'):
+        if name in ('name', '_items', '_validator_factory', '_compressed_data'):
             super().__setattr__(name, value)
         else:
             self._items[name] = value
 
     def __getattr__(self, item_name: str) -> List[str]:
+        self._decompress_data_if_needed()
         try:
             return self._items[item_name]
         except KeyError:
             raise AttributeError(f"'Category' object has no attribute '{item_name}'")
 
     def __getitem__(self, item_name: str) -> List[str]:
+        self._decompress_data_if_needed()
         return self._items[item_name]
 
     def __setitem__(self, item_name: str, value: List[str]) -> None:
+        self._decompress_data_if_needed()
         self._items[item_name] = value
 
     @property
-    def items(self) -> List[str]:
+    def items(self) -> Dict[str, List[str]]:
         """Provides a list of item names."""
-        return list(self._items.keys())
+        self._decompress_data_if_needed()
+        return self._items
 
     def add_item(self, item_name: str, value: str) -> None:
         """Adds a value to the list of values for the given item name."""
+        self._decompress_data_if_needed()
         if item_name not in self._items:
             self._items[item_name] = []
         self._items[item_name].append(value)
 
+    def _compress_data(self) -> None:
+        """Compress the category data to save memory."""
+        if self._items:
+            data_str = str(self._items)
+            self._compressed_data = zlib.compress(data_str.encode('utf-8'))
+            self._items = {}
 
-    class Validator:
+    def _decompress_data_if_needed(self) -> None:
+        """Decompress the data if it is compressed."""
+        if self._compressed_data:
+            data_str = zlib.decompress(self._compressed_data).decode('utf-8')
+            self._items = eval(data_str)
+            self._compressed_data = None
+
+
+class Validator:
         """A class to validate a category."""
         def __init__(self, category: 'Category', factory: ValidatorFactory):
             self.category: 'Category' = category
@@ -127,7 +148,7 @@ class DataBlock:
     """A class to represent a data block in an mmCIF file."""
     def __init__(self, name: str, categories: Dict[str, Category]):
         self.name = name
-        self._categories = categories  # Internal storage
+        self._categories = categories
 
     def __getitem__(self, category_name: str) -> Category:
         return self._categories[category_name]
@@ -160,7 +181,7 @@ class DataBlock:
 class MMCIFDataContainer:
     """A class to represent an mmCIF data container."""
     def __init__(self, data_blocks: Dict[str, DataBlock]):
-        self._data_blocks = data_blocks  # Internal storage
+        self._data_blocks = data_blocks
 
     def __getitem__(self, block_name: str) -> DataBlock:
         return self._data_blocks[block_name]
@@ -188,7 +209,7 @@ class MMCIFDataContainer:
 
 class MMCIFReader:
     """A class to read an mmCIF file and return a data container."""
-    
+
     def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
         """
         Initializes the MMCIFReader.
@@ -214,13 +235,14 @@ class MMCIFReader:
         self._multi_line_value_buffer = []
         self._current_row_values = []
         self._value_counter = 0
+        self._atom_site_buffer = []  # Buffer for atom_site data
 
     def read(self, file_obj: IO) -> MMCIFDataContainer:
         """
         Reads an mmCIF file and returns a data container.
 
         Overview:
-        This method reads through the mmCIF file line by line, processing each line to extract 
+        This method reads through the mmCIF file line by line, processing each line to extract
         data blocks, categories, and items. It handles simple items, loops, and multi-line values.
 
         Pseudocode:
@@ -228,6 +250,7 @@ class MMCIFReader:
         - For each line in the file:
             - Process the line based on its type (data block, loop, item, etc.).
             - Add the processed data to the appropriate structures.
+        - If atom site data is present, compress the data.
         - Return the populated data container.
 
         :param file_obj: The file object to read from.
@@ -239,6 +262,9 @@ class MMCIFReader:
             for line in file_obj:
                 # Process the line based on its type (data block, loop, item, etc.).
                 self._process_line(line.rstrip())
+            # If atom site data is present, compress the data.
+            if self.atoms:
+                self._compress_atom_site_data()  # Compress atom_site data after reading
         except IndexError as e:
             print(f"Error reading file: list index out of range - {e}")
         except KeyError as e:
@@ -250,11 +276,11 @@ class MMCIFReader:
         return MMCIFDataContainer(self._data_blocks)
 
     def _process_line(self, line: str) -> None:
-        """ 
+        """
         Processes a line from the mmCIF file.
 
         Overview:
-        This method determines the type of the given line and calls the appropriate handler 
+        This method determines the type of the given line and calls the appropriate handler
         function to process the line and extract relevant data.
 
         Pseudocode:
@@ -357,6 +383,7 @@ class MMCIFReader:
             raise ValueError("Invalid key-value pair")
 
         item_full, value = parts
+        
         # Extract the category and item from the item name.
         category, item = item_full.split('.', 1)
         if category.startswith('_atom_site') and not self.atoms:
@@ -511,15 +538,20 @@ class MMCIFReader:
         Pseudocode:
         - For each value in the current row:
             - Add the value to the corresponding item in the current category.
+                - If atom site data, buffer the values.
+                - Otherwise, add the value to the current category.
         - Reset the current row and value counter.
 
         :return: None
         """
         # For each value in the current row:
         for i, value in enumerate(self._current_row_values):
-            # Add the value to the corresponding item in the current category.
             item_name = self._loop_items[i].split('.', 1)[1]
-            self._current_data.add_item(item_name, value)
+            # Add the value to the corresponding item in the current category.
+            if self._current_category == '_atom_site':  # If atom site data, buffer the values
+                self._atom_site_buffer.append((item_name, value))
+            else:  # Otherwise, add the value to the current category.
+                self._current_data.add_item(item_name, value)
         # Reset the current row and value counter.
         self._current_row_values = []
         self._value_counter = 0
@@ -564,6 +596,8 @@ class MMCIFReader:
         Pseudocode:
         - If the value starts a multi-line value, initialize the buffer.
         - Otherwise, add the value to the current category.
+            - If atom site data, buffer the values.
+            - Otherwise, add the value to the current category.
 
         :param item: The item name.
         :type item: str
@@ -576,9 +610,23 @@ class MMCIFReader:
             self._multi_line_value = True
             self._multi_line_item_name = item
             self._multi_line_value_buffer = []
-        else:
-            # Otherwise, add the value to the current category.
-            self._current_data.add_item(item, value)
+        else:  # Otherwise, add the value to the current category.
+            # If atom site data, buffer the values.
+            if self._current_category == '_atom_site':
+                self._atom_site_buffer.append((item, value))
+            else:  # Otherwise, add the value to the current category.
+                self._current_data.add_item(item, value)
+
+    def _compress_atom_site_data(self) -> None:
+        """Compresses the atom_site data and stores it in the data container."""
+        if '_atom_site' in self._data_blocks[self._current_block]._categories:
+            category = self._data_blocks[self._current_block]._categories['_atom_site']
+            for item, value in self._atom_site_buffer:
+                if item not in category._items:
+                    category._items[item] = []
+                category._items[item].append(value)
+            category._compress_data()
+            self._atom_site_buffer = []
 
 
 class MMCIFWriter:
@@ -634,6 +682,8 @@ class MMCIFWriter:
         if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
             return f"\n;{value.strip()}\n;\n"
         return f"{value} "
+
+
 
 
 class MMCIFHandler:
