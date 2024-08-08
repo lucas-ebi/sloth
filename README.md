@@ -12,46 +12,57 @@ pip install -r requirements.txt
 
 ### Basic Usage
 
-Below is an example demonstrating how to parse an MMCIF file and access its contents using dot-separated notation, and how to write updates back to a new MMCIF file.
+#### Parse the CIF file
 
 ```python
->>> from mmcif_tools import MMCIFHandler
+from mmcif_tools import MMCIFHandler
 
-# Parse the CIF file
->>> handler = MMCIFHandler()
->>> file = handler.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
+handler = MMCIFHandler()
+file = handler.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
+```
 
->>> file.data_blocks
-{'7XJP': <mmcif_tools.DataBlock object at 0x7f8ab0263160>}
+#### Access the DataBlock
 
-# Accessing the DataBlock named '7XJP'
->>> data = getattr(file, '7XJP') # Python doesn't allow such a syntax like `file.7XJP`, then it has to be through `getattr`.
+```python
+file.data_blocks
+# Output: {'7XJP': <mmcif_tools.DataBlock object at 0x7f8ab0263160>}
 
-# Access the '_database_2' category and its items using dot-separated notation
->>> data._database_2.items
-['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
+data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
+```
 
->>> data._database_2.database_id
-['PDB', 'WWPDB', 'EMDB']
+#### Access the '_database_2' category and its items
 
->>> data._database_2.database_code
-['7XJP', 'D_1300028976', 'EMD-33233']
+```python
+data._database_2.items
+# Output: ['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
 
->>> data._database_2.pdbx_database_accession
-['pdb_00007xjp', '?', '?']
+data._database_2.database_id
+# Output: ['PDB', 'WWPDB', 'EMDB']
 
->>> data._database_2.pdbx_DOI
-['10.2210/pdb7xjp/pdb', '?', '?']
+data._database_2.database_code
+# Output: ['7XJP', 'D_1300028976', 'EMD-33233']
 
-# Update values in an item
->>> data._database_2.database_id[-1] = 'NEWDB'
->>> data._database_2.database_id
-['PDB', 'WWPDB', 'NEWDB']
+data._database_2.pdbx_database_accession
+# Output: ['pdb_00007xjp', '?', '?']
 
-# Write updated content in mmCIF format
->>> handler.open_file("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'r+')
->>> handler.write(file)
->>> handler.close_file()
+data._database_2.pdbx_DOI
+# Output: ['10.2210/pdb7xjp/pdb', '?', '?']
+```
+
+#### Update values in an item
+
+```python
+data._database_2.database_id[-1] = 'NEWDB'
+data._database_2.database_id
+# Output: ['PDB', 'WWPDB', 'NEWDB']
+```
+
+#### Write updated content in mmCIF format
+
+```python
+handler.open_file("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'r+')
+handler.write(file)
+handler.close_file()
 ```
 
 ### Classes and Methods
