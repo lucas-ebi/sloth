@@ -1,8 +1,6 @@
 # mmcif_tools.py
 
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional
-from xml.etree import ElementTree
-from xml.etree.ElementTree import Element, SubElement, tostring
 
 
 class ValidatorFactory:
