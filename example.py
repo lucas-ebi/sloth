@@ -11,18 +11,29 @@ def modify_data(data_container):
     category._items['database_id'][-1] = 'NEWDB'
 
 # Initialize the handler
-handler = MMCIFHandler(atoms=True, validator_factory=None)
+handler = MMCIFHandler(atoms=False, validator_factory=None)
 
 # Parse the file with specific categories
-data_container = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
+file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
+
+# Print data blocks
+print(f"Data blocks: {file.data_blocks}")
+
+data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
+# Print a specific data block
+print(data)
+
+# Print items of a specific category
+print(data._database_2.items)
 
 # Apply the modification
-modify_data(data_container)
+modify_data(file)
+
 
 # Write the updated content back to a new mmCIF file
 with open('/Users/lucas/Desktop/em/modified_emd_33233.cif', 'w') as f:
     handler.file_obj = f
-    handler.write(data_container)
+    handler.write(file)
 
 # Verify the changes
 data_container = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif', categories=['_database_2', '_atom_site'])

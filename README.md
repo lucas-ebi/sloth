@@ -34,7 +34,8 @@ data = getattr(file, '7XJP')  # Accessing the DataBlock named '7XJP'
 
 ```python
 data._database_2.items
-# Output: ['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
+# Output: {'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']}
+
 
 data._database_2.database_id
 # Output: ['PDB', 'WWPDB', 'EMDB']
