@@ -60,9 +60,10 @@ data._database_2.database_id
 #### Write updated content in mmCIF format
 
 ```python
-handler.open_file("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'r+')
-handler.write(file)
-handler.close_file()
+# Write the updated content back to a new mmCIF file
+with open("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'w') as f:
+    handler.file_obj = f
+    handler.write(data_container)
 ```
 
 ### Classes and Methods
