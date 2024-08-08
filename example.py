@@ -26,14 +26,14 @@ handler = MMCIFHandler(atoms=True, validator_factory=validator_factory)
 # Parse the file with specific categories
 file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
 
-# Print file content
-print(f"File: {file}")
-
 # Print data blocks
-print(f"Data blocks: {file.data}")
+print(f"\nData blocks: {file.blocks}")
+
+# Print file content
+print(f"\nFile content: {file.data}")
 
 # Accessing the DataBlock named '7XJP'
-print(f"Data Block: {file.data_7XJP}")
+print(f"\nData Block: {file.data_7XJP}")
 
 category = file.data_7XJP._database_2
 other_category = file.data_7XJP._atom_site
