@@ -1,7 +1,4 @@
-# mmcif_tools.py
-
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional
-
 
 class ValidatorFactory:
     def __init__(self):
@@ -34,7 +31,6 @@ class Category:
             self._items[name] = value
 
     def __getattr__(self, item_name: str) -> List[str]:
-        # This will handle attribute access via dot notation
         try:
             return self._items[item_name]
         except KeyError:
@@ -183,20 +179,39 @@ class MMCIFFileReader:
         elif line.startswith('loop_'):
             self.start_loop()
         elif line.startswith('_'):
-            self.process_item(line)
+            try:
+                self.process_item_simple(line)
+            except ValueError:
+                self.process_item_fallback(line)
         elif self.in_loop:
             self.process_loop_data(line)
+        elif self.multi_line_value:
+            self.handle_multi_line_value(line)
 
     def start_new_data_block(self, line: str):
         self.current_block = line.split('_', 1)[1]
         self.data_blocks[self.current_block] = DataBlock(self.current_block, {})
         self.current_category = None
+        self.in_loop = False
 
     def start_loop(self):
         self.in_loop = True
         self.loop_items = []
 
-    def process_item(self, line: str):
+    def process_item_simple(self, line: str):
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            raise ValueError("Invalid key-value pair")
+
+        item_full, value = parts
+        category, item = item_full.split('.', 1)
+        if category.startswith('_atom_site') and not self.atoms:
+            return
+
+        self.set_current_category(category)
+        self.handle_single_item_value(item, value.strip())
+
+    def process_item_fallback(self, line: str):
         item_full = line.split(' ', 1)[0]
         category, item = item_full.split('.', 1)
         if category.startswith('_atom_site') and not self.atoms:
