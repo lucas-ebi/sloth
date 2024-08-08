@@ -306,7 +306,7 @@ class MMCIFFileWriter:
                 f.write(f"{category_name}.{item_name}\n")
             for row in zip(*items.values()):
                 formatted_row = [self.format_value(value) for value in row]
-                f.write(" ".join(formatted_row) + "\n")
+                f.write(f"{''.join(formatted_row)}\n".replace('\n\n', '\n'))
         else:
             for item_name, values in items.items():
                 for value in values:
@@ -316,8 +316,8 @@ class MMCIFFileWriter:
     @staticmethod
     def format_value(value: str) -> str:
         if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
-            return f";\n{value}\n;"
-        return value
+            return f"\n;{value.strip()}\n;\n"
+        return f"{value} "
 
 
 class MMCIFHandler:
