@@ -71,7 +71,13 @@ class Category:
     def __getattr__(self, item_name: str) -> List[str]:
         if item_name in self._items:
             return self._items[item_name]
-        raise AttributeError(f"'Category' object has no attribute '{item_name}'")
+        elif item_name == 'validate':
+            return self._create_validator()
+        else:
+            raise AttributeError(f"'Category' object has no attribute '{item_name}'")
+
+    def _create_validator(self):
+        return self.Validator(self, self._validator_factory)
 
     def __getitem__(self, item_name: str) -> List[str]:
         return self._items[item_name]
@@ -80,32 +86,37 @@ class Category:
         self._items[item_name] = value
 
     @property
-    def items(self) -> Dict[str, List[str]]:
+    def items(self) -> List[str]:
         """Provides a list of item names."""
+        return list(self._items.keys())
+
+    @property
+    def data(self) -> Dict[str, List[str]]:
+        """Provides read-only access to the data."""
         return self._items
 
-    def add_item(self, item_name: str, value: str) -> None:
+    def add_item_value(self, item_name: str, value: str) -> None:
         """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
             self._items[item_name] = []
         self._items[item_name].append(value)
 
 
-class Validator:
+    class Validator:
         """A class to validate a category."""
         def __init__(self, category: 'Category', factory: ValidatorFactory):
-            self.category: 'Category' = category
-            self.factory: ValidatorFactory = factory
-            self.other_category: Optional['Category'] = None
-
+            self._category: 'Category' = category
+            self._factory: ValidatorFactory = factory
+            self._other_category: Optional['Category'] = None
+        
         def __call__(self) -> 'Category.Validator':
-            validator = self.factory.get_validator(self.category.name)
+            validator = self._factory.get_validator(self.category.name)
             if validator:
-                validator(self.category.name)
+                validator(self._category.name)
             else:
-                print(f"No validator registered for category '{self.category.name}'")
+                print(f"No validator registered for category '{self._category.name}'")
             return self
-
+        
         def against(self, other_category: 'Category') -> 'Category.Validator':
             """
             Cross-checks the current category against another category.
@@ -115,12 +126,12 @@ class Validator:
             :return: The validator object.
             :rtype: Category.Validator
             """
-            self.other_category = other_category
-            cross_checker = self.factory.get_cross_checker((self.category.name, other_category.name))
+            self._other_category = other_category
+            cross_checker = self._factory.get_cross_checker((self._category.name, other_category.name))
             if cross_checker:
-                cross_checker(self.category.name, other_category.name)
+                cross_checker(self._category.name, other_category.name)
             else:
-                print(f"No cross-checker registered for categories '{self.category.name}' and '{other_category.name}'")
+                print(f"No cross-checker registered for categories '{self._category.name}' and '{other_category.name}'")
             return self
 
 
@@ -520,7 +531,7 @@ class MMCIFReader:
         for i, value in enumerate(self._current_row_values):
             item_name = self._loop_items[i].split('.', 1)[1]
             # Add the value to the corresponding item in the current category.
-            self._current_data.add_item(item_name, value)
+            self._current_data.add_item_value(item_name, value)
         # Reset the current row and value counter.
         self._current_row_values = []
         self._value_counter = 0
@@ -577,7 +588,7 @@ class MMCIFReader:
             self._multi_line_item_name = item
             self._multi_line_value_buffer = []
         else:  # Otherwise, add the value to the current category.
-            self._current_data.add_item(item, value)
+            self._current_data.add_item_value(item, value)
 
 
 class MMCIFWriter:
