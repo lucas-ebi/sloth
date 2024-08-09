@@ -1,7 +1,7 @@
 from mmcif_tools import MMCIFHandler, ValidatorFactory
 
 # Example validators and cross-checkers
-def database_validator(category_name):
+def category_validator(category_name):
     print(f"\nValidating category: {category_name}")
 
 def cross_checker(category_name_1, category_name_2):
@@ -42,7 +42,7 @@ category = file.data_7XJP._database_2
 other_category = file.data_7XJP._atom_site
 
 # Register the validators and cross-checkers
-validator_factory.register_validator(category.name, database_validator)
+validator_factory.register_validator(category.name, category_validator)
 validator_factory.register_cross_checker((category.name, other_category.name), cross_checker)
 
 # Validate the category

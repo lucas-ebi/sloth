@@ -95,15 +95,15 @@ You can validate categories and perform cross-check validations using the `Valid
 ```python
 from mmcif_tools import ValidatorFactory
 
-def validate_database_id(value):
-    assert value.startswith('DB'), "Invalid database ID"
+def category_validator(category_name):
+    print(f"\nValidating category: {category_name}")
 
-def cross_check_database_id_code(database_id, database_code):
-    assert len(database_id) == len(database_code), "Mismatched lengths"
+def cross_checker(category_name_1, category_name_2):
+    print(f"\nCross-checking categories: {category_name_1} and {category_name_2}")
 
 validator_factory = ValidatorFactory()
-validator_factory.register_validator('_database_2.database_id', validate_database_id)
-validator_factory.register_cross_checker(('_database_2.database_id', '_database_2.database_code'), cross_check_database_id_code)
+validator_factory.register_validator('_database_2', category_validator)
+validator_factory.register_cross_checker(('_database_2', '_atom_site'), cross_checker)
 ```
 
 #### Validate categories
@@ -113,7 +113,7 @@ validator_factory.register_cross_checker(('_database_2.database_id', '_database_
 data._database_2.validate()
 
 # Cross-validate between categories
-data._database_2.validate.against(data._database_2)
+data._database_2.validate.against(data._atom_site)
 ```
 
 ### Classes and Methods
