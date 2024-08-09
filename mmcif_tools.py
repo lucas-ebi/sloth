@@ -496,19 +496,19 @@ class MMCIFParser:
 
         self._set_current_category(category)
 
-        # Create a Table instance to handle looped data
+        # Set end_offset to the current position if it's not already set
+        end_offset = self._get_current_offset()
+
+        # Create a Table instance with proper initialization
         table_obj = Table(
             mmap_obj=mmap_obj, 
             start_offset=start_offset, 
-            end_offset=self._get_current_offset(),  # This will be updated later
+            end_offset=end_offset, 
             header=header
         )
 
-        # Instead of assigning directly, we work with the data property
-        data = self._current_data._items.data  # Access the current table's data dictionary
-        data[item] = table_obj  # Assign the table object to the appropriate item
-        self._current_data._items.data = data  # Set the updated data dictionary back
-
+        # Assign the Table object to the appropriate item in the category
+        self._current_data._items.data[item] = table_obj
 
 class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
