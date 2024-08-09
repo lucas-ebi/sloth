@@ -346,6 +346,16 @@ class MMCIFParser:
         self._finalize_table()  # Ensure end_offset is captured at the end of parsing
         return MMCIFDataContainer(self._data_blocks)
 
+    def _get_current_offset(self) -> int:
+        """
+        Returns the current file pointer position (offset).
+        This is used to track where data blocks, loops, and items start and end.
+        
+        :return: The current offset in the file.
+        :rtype: int
+        """
+        return self.file_obj.tell()
+
     def _start_new_data_block(self, line: str) -> None:
         block_name = line.strip()
         self._current_block = block_name
