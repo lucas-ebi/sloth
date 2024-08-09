@@ -14,6 +14,7 @@ class Item:
         self._length = None  # Cache for storing the length
 
     def __iter__(self):
+        # Lazy loading values only when iteration begins
         return self._load_values()
 
     def _load_values(self):
@@ -57,6 +58,7 @@ class Item:
     def __repr__(self):
         return f"Item(col_index={self._col_index}, length={len(self)})"
 
+
 class Table:
     def __init__(self, mmap_obj=None, start_offset=None, end_offset=None, header=None):
         self._mmap_obj = mmap_obj
@@ -71,7 +73,7 @@ class Table:
             if self._mmap_obj is None or self._start_offset is None or self._end_offset is None or self.header is None:
                 raise ValueError("mmap_obj, start_offset, end_offset, and header must be set to generate data.")
             
-            # Generate the items lazily
+            # Generate the items lazily, ensuring memory efficiency
             self._items = {
                 key: Item(self._mmap_obj, self._start_offset, self._end_offset, idx)
                 for idx, key in enumerate(self.header)
@@ -405,6 +407,9 @@ class MMCIFParser:
             self._process_single_loop_line(line)
         else:
             self._handle_multi_line_value(line)
+
+        # Free up memory after processing each line to keep memory usage low
+        self._current_row_values.clear()
 
     def _process_single_loop_line(self, line: str) -> None:
         """Handle a single line of data within a loop."""
