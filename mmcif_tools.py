@@ -354,13 +354,6 @@ class MMCIFParser:
         return MMCIFDataContainer(self._data_blocks)
 
     def _get_current_offset(self) -> int:
-        """
-        Returns the current file pointer position (offset).
-        This is used to track where data blocks, loops, and items start and end.
-        
-        :return: The current offset in the file.
-        :rtype: int
-        """
         return self.file_obj.tell()
 
     def _start_new_data_block(self, line: str) -> None:
@@ -401,7 +394,13 @@ class MMCIFParser:
         if value.startswith(';'):
             self._start_multi_line_value(item, value[1:])
         else:
-            self._current_data._add_item_value(item, value)
+            # Handle item directly without _add_item_value
+            self._current_data._items.data[item] = Item(mmap_obj=self.file_obj,
+                                                        start_offset=self._get_current_offset(),
+                                                        end_offset=self._get_current_offset(),
+                                                        col_index=0)
+            # Assuming the value is a single line, we could also capture its offset range
+            self._finalize_table()
 
     def _process_loop_data(self, line: str) -> None:
         """Process a line of loop data."""
@@ -446,16 +445,27 @@ class MMCIFParser:
                 if len(self._current_row_values) == len(self._loop_items):
                     self._finalize_loop_row()
             else:
-                self._current_data._add_item_value(self._multi_line_item_name, full_value)
+                self._current_data._items.data[self._multi_line_item_name] = Item(
+                    mmap_obj=self.file_obj,
+                    start_offset=self._get_current_offset(),
+                    end_offset=self._get_current_offset(),
+                    col_index=0
+                )
             self._multi_line_value_buffer = []
         else:
             self._multi_line_value_buffer.append(line)
 
     def _finalize_loop_row(self) -> None:
         """Add a completed row of loop data to the current category."""
+        start_offset = self._get_current_offset()
         for i, value in enumerate(self._current_row_values):
             item_name = self._loop_items[i]
-            self._current_data._add_item_value(item_name, value)
+            self._current_data._items.data[item_name] = Item(
+                mmap_obj=self.file_obj,
+                start_offset=start_offset,
+                end_offset=self._get_current_offset(),
+                col_index=i
+            )
         self._current_row_values = []
 
     def _finalize_table(self) -> None:
