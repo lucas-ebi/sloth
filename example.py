@@ -35,6 +35,9 @@ print(f"\nFile content: {file.data}")
 # Accessing the DataBlock named '7XJP'
 print(f"\nData Block: {file.data_7XJP}")
 
+# Accessing the first DataBlock in the file
+print(f"\nFirst Data Block: {file.data[0]}")
+
 category = file.data_7XJP._database_2
 other_category = file.data_7XJP._atom_site
 
