@@ -21,10 +21,10 @@ def modify_data(modified_file):
 validator_factory = ValidatorFactory()
 
 # Initialize the handler
-handler = MMCIFHandler(atoms=True, validator_factory=validator_factory)
+handler = MMCIFHandler(validator_factory=validator_factory)
 
 # Parse the file with specific categories
-file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
+file = handler.read('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
 
 # Print data blocks
 print(f"\nData blocks: {file.blocks}")

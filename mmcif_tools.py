@@ -1,5 +1,90 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
+import mmap
+import weakref
+
+
+class Item:
+    def __init__(self, mmap_obj=None, start_offset=None, end_offset=None, col_index=None):
+        self._mmap_obj = mmap_obj
+        self._start_offset = start_offset
+        self._end_offset = end_offset
+        self._col_index = col_index
+        self._length = None  # Cache for storing the length
+
+    def __iter__(self):
+        return self._load_values()
+
+    def _load_values(self):
+        if self._mmap_obj is None or self._start_offset is None or self._end_offset is None or self._col_index is None:
+            raise ValueError("mmap_obj, start_offset, end_offset, and col_index must be set to load values.")
+
+        offset = self._start_offset
+        while offset < self._end_offset:
+            self._mmap_obj.seek(offset)
+            line = self._mmap_obj.readline().strip().decode('utf-8')
+            values = line.split()
+            if len(values) > self._col_index:
+                yield values[self._col_index]
+            offset = self._mmap_obj.tell()
+
+    def get_value(self):
+        """Returns the content of the multi-line value as a single string."""
+        if self._mmap_obj is None or self._start_offset is None or self._end_offset is None:
+            raise ValueError("mmap_obj, start_offset, and end_offset must be set to get the value.")
+        
+        self._mmap_obj.seek(self._start_offset)
+        content = self._mmap_obj.read(self._end_offset - self._start_offset).decode('utf-8')
+        return content.strip()
+
+    def __len__(self):
+        if self._length is None:
+            if self._mmap_obj is None or self._start_offset is None or self._end_offset is None:
+                raise ValueError("mmap_obj, start_offset, and end_offset must be set to calculate length.")
+            
+            offset = self._start_offset
+            self._length = 0
+            while offset < self._end_offset:
+                self._mmap_obj.seek(offset)
+                line = self._mmap_obj.readline().strip()
+                if line:
+                    self._length += 1
+                offset = self._mmap_obj.tell()
+
+        return self._length
+
+    def __repr__(self):
+        return f"Item(col_index={self._col_index}, length={len(self)})"
+
+class Table:
+    def __init__(self, mmap_obj=None, start_offset=None, end_offset=None, header=None):
+        self._mmap_obj = mmap_obj
+        self._start_offset = start_offset
+        self._end_offset = end_offset
+        self.header = header
+        self._items: Optional[Dict[str, Item]] = None  # Lazy-loaded or set via data property
+
+    @property
+    def data(self) -> Dict[str, Item]:
+        if self._items is None:
+            if self._mmap_obj is None or self._start_offset is None or self._end_offset is None or self.header is None:
+                raise ValueError("mmap_obj, start_offset, end_offset, and header must be set to generate data.")
+            
+            # Generate the items lazily
+            self._items = {
+                key: Item(self._mmap_obj, self._start_offset, self._end_offset, idx)
+                for idx, key in enumerate(self.header)
+            }
+        return self._items
+
+    @data.setter
+    def data(self, items: Dict[str, Item]):
+        if not all(isinstance(value, Item) for value in items.values()):
+            raise ValueError("All values in the data dictionary must be instances of Item.")
+        self._items = items
+
+    def __iter__(self):
+        return iter(self.data)
 
 
 class ValidatorFactory:
@@ -57,20 +142,21 @@ class ValidatorFactory:
 
 class Category:
     """A class to represent a category in a data block."""
-    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory]):
+    def __init__(self, name: str, items: 'Table', validator_factory: Optional['ValidatorFactory'] = None):
         self.name: str = name
-        self._items: Dict[str, List[str]] = {}
+        self._items: 'Table' = items  # Store the Table object directly, still named _items for consistency
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name in ('name', '_items', '_validator_factory'):
             super().__setattr__(name, value)
         else:
-            self._items[name] = value
+            # Set an Item instance directly in the Table's data
+            self._items.data[name] = value
 
-    def __getattr__(self, item_name: str) -> List[str]:
-        if item_name in self._items:
-            return self._items[item_name]
+    def __getattr__(self, item_name: str) -> 'Item':
+        if item_name in self._items.data:
+            return self._items.data[item_name]  # Return the Item instance from the Table
         elif item_name == 'validate':
             return self._create_validator()
         else:
@@ -79,44 +165,35 @@ class Category:
     def _create_validator(self):
         return self.Validator(self, self._validator_factory)
 
-    def __getitem__(self, item_name: str) -> List[str]:
-        return self._items[item_name]
+    def __getitem__(self, item_name: str) -> 'Item':
+        return self._items.data[item_name]  # Return the Item instance from the Table
 
-    def __setitem__(self, item_name: str, value: List[str]) -> None:
-        self._items[item_name] = value
+    def __setitem__(self, item_name: str, value: 'Item') -> None:
+        self._items.data[item_name] = value
 
     def __iter__(self):
-        return iter(self._items.items())
+        return iter(self._items.data.items())
 
     def __len__(self):
-        return len(self._items)
+        return len(self._items.data)
 
     def __repr__(self):
         # Limit the output to avoid long print statements
-        return f"Category(name={self.name}, items={list(self._items.keys())})"
+        return f"Category(name={self.name}, items={list(self._items.data.keys())})"
 
     @property
-    def items(self) -> List[str]:
-        """Provides a list of item names."""
-        return list(self._items.keys())
-
-    @property
-    def data(self) -> Dict[str, List[str]]:
-        """Provides read-only access to the data."""
-        return self._items
-
-    def _add_item_value(self, item_name: str, value: str) -> None:
-        """Adds a value to the list of values for the given item name."""
-        if item_name not in self._items:
-            self._items[item_name] = []
-        self._items[item_name].append(value)
-
+    def items(self) -> Dict[str, 'Item']:
+        """
+        Provides read-only access to the data as a dictionary of
+        item names and their corresponding Item instances.
+        """
+        return self._items.data
 
     class Validator:
         """A class to validate a category."""
-        def __init__(self, category: 'Category', factory: ValidatorFactory):
+        def __init__(self, category: 'Category', factory: 'ValidatorFactory'):
             self._category: 'Category' = category
-            self._factory: ValidatorFactory = factory
+            self._factory: 'ValidatorFactory' = factory
             self._other_category: Optional['Category'] = None
         
         def __call__(self) -> 'Category.Validator':
@@ -216,21 +293,10 @@ class MMCIFDataContainer:
         return list(self._data_blocks.keys())
 
 
-class MMCIFReader:
+class MMCIFParser:
     """A class to read an mmCIF file and return a data container."""
 
-    def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
-        """
-        Initializes the MMCIFReader.
-
-        :param atoms: Flag indicating whether to include atom site data.
-        :type atoms: bool
-        :param validator_factory: Factory for creating validators.
-        :type validator_factory: Optional[ValidatorFactory]
-        :param categories: List of categories to read, reads all if None.
-        :type categories: Optional[List[str]]
-        """
-        self.atoms = atoms
+    def __init__(self, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
         self.validator_factory = validator_factory
         self.categories = categories
         self._data_blocks = {}
@@ -241,380 +307,110 @@ class MMCIFReader:
         self._in_loop = False
         self._multi_line_value = False
         self._multi_line_item_name = ""
-        self._multi_line_value_buffer = []
-        self._current_row_values = []
-        self._value_counter = 0
-        self._atom_site_buffer = []  # Buffer for atom_site data
+        self._multi_line_start_offset = 0
 
-    def read(self, file_obj: IO) -> MMCIFDataContainer:
-        """
-        Reads an mmCIF file and returns a data container.
-
-        Overview:
-        This method reads through the mmCIF file line by line, processing each line to extract
-        data blocks, categories, and items. It handles simple items, loops, and multi-line values.
-
-        Pseudocode:
-        - Initialize an empty data container.
-        - For each line in the file:
-            - Process the line based on its type (data block, loop, item, etc.).
-            - Add the processed data to the appropriate structures.
-        - Return the populated data container.
-
-        :param file_obj: The file object to read from.
-        :type file_obj: IO
-        :return: The data container.
-        :rtype: MMCIFDataContainer
-        """
-        try:
-            for line in file_obj:
-                # Process the line based on its type (data block, loop, item, etc.).
-                self._process_line(line.rstrip())
-        except IndexError as e:
-            print(f"Error reading file: list index out of range - {e}")
-        except KeyError as e:
-            print(f"Missing data block or category: {e}")
-        except Exception as e:
-            print(f"Error reading file: {e}")
-
-        # Return the populated data container.
+    def parse(self, file_obj: IO) -> MMCIFDataContainer:
+        with mmap.mmap(file_obj.fileno(), 0, access=mmap.ACCESS_READ) as mmap_obj:
+            self._parse_mmap(mmap_obj)
         return MMCIFDataContainer(self._data_blocks)
 
-    def _process_line(self, line: str) -> None:
-        """
-        Processes a line from the mmCIF file.
+    def _parse_mmap(self, mmap_obj) -> None:
+        start_offset = None
+        header = []
 
-        Overview:
-        This method determines the type of the given line and calls the appropriate handler
-        function to process the line and extract relevant data.
+        for line_num, line in enumerate(iter(mmap_obj.readline, b"")):
+            line = line.decode('utf-8').strip()
+            if line.startswith('#'):
+                continue  # Ignore comments
+            if line.startswith('data_'):
+                self._start_new_data_block(line.split('_', 1)[1])
+            elif line.startswith('loop_'):
+                self._start_loop()
+            elif line.startswith('_'):
+                try:
+                    self._process_item(line, mmap_obj)
+                except ValueError:
+                    self._process_table(line, mmap_obj, start_offset, header)
+            elif self._in_loop:
+                self._process_table(line, mmap_obj, start_offset, header)
+            elif self._multi_line_value:
+                self._handle_multi_line_value(line, mmap_obj)
+            else:
+                continue  # Skip non-relevant lines
 
-        Pseudocode:
-        - If the line is a comment, ignore it.
-        - If the line starts a new data block, call _start_new_data_block.
-        - If the line starts a loop, call _start_loop.
-        - If the line defines an item, process the item.
-        - If currently in a loop, process the loop data.
-        - If handling a multi-line value, continue handling it.
+        # Ensure the last category is added
+        if self._current_category is not None and not self._in_loop:
+            self._finalize_category(mmap_obj, start_offset, self._current_category, header)
 
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        if line.startswith('#'):
-            return  # Ignore comments
-        if line.startswith('data_'):
-            # If the line starts a new data block, call _start_new_data_block.
-            self._start_new_data_block(line)
-        elif line.startswith('loop_'):
-            # If the line starts a loop, call _start_loop.
-            self._start_loop()
-        elif line.startswith('_'):
-            try:
-                # If the line defines an item, process the item.
-                self._process_item_simple(line)
-            except ValueError:
-                self._process_item_fallback(line)  # Process an item with fallback method
-        elif self._in_loop:
-            # If currently in a loop, process the loop data.
-            self._process_loop_data(line)
-        elif self._multi_line_value:
-            # If handling a multi-line value, continue handling it.
-            self._handle_multi_line_value(line)
-
-    def _start_new_data_block(self, line: str) -> None:
-        """
-        Starts a new data block.
-
-        Overview:
-        This method initializes a new data block and resets the current category and loop status.
-
-        Pseudocode:
-        - Extract the data block name from the line.
-        - Create a new DataBlock object and add it to the data blocks dictionary.
-        - Reset the current category and loop status.
-
-        :param line: The line containing the data block name.
-        :type line: str
-        :return: None
-        """
-        # Extract the data block name from the line.
-        self._current_block = line.split('_', 1)[1]
-        # Create a new DataBlock object and add it to the data blocks dictionary.
-        self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
-        # Reset the current category and loop status.
-        self._current_category = None
-        self._in_loop = False
-
-    def _start_loop(self) -> None:
-        """
-        Starts a loop.
-
-        Overview:
-        This method sets the loop status to true and initializes the loop items list.
-
-        Pseudocode:
-        - Set the loop status to true.
-        - Initialize the loop items list.
-
-        :return: None
-        """
-        # Set the loop status to true.
-        self._in_loop = True
-        # Initialize the loop items list.
-        self._loop_items = []
-
-    def _process_item_simple(self, line: str) -> None:
-        """
-        Processes a simple item line.
-
-        Overview:
-        This method extracts the category and item from the line, validates them, and adds the item
-        to the current category.
-
-        Pseudocode:
-        - Split the line into the item and value.
-        - Extract the category and item from the item name.
-        - If the category is not in the list of categories to read (if specified), skip it.
-        - Set the current category.
-        - Add the item value to the current category.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        # Split the line into the item and value.
+    def _process_item(self, line: str, mmap_obj) -> None:
         parts = line.split(None, 1)
         if len(parts) != 2:
             raise ValueError("Invalid key-value pair")
 
         item_full, value = parts
-        
-        # Extract the category and item from the item name.
         category, item = item_full.split('.', 1)
-        if category.startswith('_atom_site') and not self.atoms:
-            return
-
         if self.categories and category not in self.categories:
             return
 
-        # Set the current category.
         self._set_current_category(category)
-        # Add the item value to the current category.
-        self._handle_single_item_value(item, value.strip())
 
-    def _process_item_fallback(self, line: str) -> None:
-        """
-        Processes an item line with a fallback method if the simple method fails due to loop or multi-line values.
-
-        Overview:
-        This method handles cases where the simple item processing fails, such as when dealing with
-        looped items or multi-line values.
-
-        Pseudocode:
-        - Extract the full item name.
-        - Extract the category and item from the item name.
-        - If the category is not in the list of categories to read (if specified), skip it.
-        - If in a loop, add the item to the loop items list and set the current category.
-        - Otherwise, add the single item value to the current category.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        # Extract the full item name.
-        item_full = line.split(' ', 1)[0]
-        # Extract the category and item from the item name.
-        category, item = item_full.split('.', 1)
-        if category.startswith('_atom_site') and not self.atoms:
-            return
-
-        if self.categories and category not in self.categories:
-            return
-
-        if self._in_loop:
-            # If in a loop, add the item to the loop items list and set the current category.
-            self._loop_items.append(item_full)
-            self._set_current_category(category)
-        else:
-            # Otherwise, add the single item value to the current category.
-            value = line[len(item_full):].strip()
-            self._set_current_category(category)
-            self._handle_single_item_value(item, value)
-
-    def _process_loop_data(self, line: str) -> None:
-        """
-        Processes a line of data in a loop.
-
-        Overview:
-        This method handles the processing of looped data lines, adding values to the current row
-        and managing multi-line values.
-
-        Pseudocode:
-        - If not handling a multi-line value, process loop values.
-        - Otherwise, handle the multi-line value continuation.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        if not self._multi_line_value:
-            # If not handling a multi-line value, process loop values.
-            self._handle_loop_values(line)
-        else:
-            # Otherwise, handle the multi-line value continuation.
-            self._handle_multi_line_value(line)
-
-    def _handle_loop_values(self, line: str) -> None:
-        """
-        Handles the values in a loop.
-
-        Overview:
-        This method processes the values within a loop, managing multi-line values and adding them
-        to the current row.
-
-        Pseudocode:
-        - Split the line into values.
-        - While there are still items in the loop and values to process:
-            - If a value starts a multi-line value, handle it accordingly.
-            - Otherwise, add the value to the current row.
-        - If the current row is complete, add it to the category.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        # Split the line into values.
-        values = line.split()
-        while len(self._current_row_values) < len(self._loop_items) and values:
-            value = values.pop(0)
-            if value.startswith(';'):
-                # If a value starts a multi-line value, handle it accordingly.
-                self._multi_line_value = True
-                self._multi_line_item_name = self._loop_items[len(self._current_row_values)].split('.', 1)[1]
-                self._multi_line_value_buffer.append(value[1:])
-                self._current_row_values.append(None)
-                break
-            else:
-                # Otherwise, add the value to the current row.
-                self._current_row_values.append(value)
-                self._value_counter += 1
-
-        if self._value_counter == len(self._loop_items):
-            # If the current row is complete, add it to the category.
-            self._add_loop_values_to_category()
-
-    def _handle_multi_line_value(self, line: str) -> None:
-        """
-        Handles a multi-line value.
-
-        Overview:
-        This method processes the continuation of a multi-line value, adding lines to the buffer
-        until the multi-line value is complete.
-
-        Pseudocode:
-        - If the line ends the multi-line value, finalize it.
-        - Otherwise, add the line to the multi-line buffer.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        if line == ';':
-            # If the line ends the multi-line value, finalize it.
-            self._multi_line_value = False
-            full_value = "\n".join(self._multi_line_value_buffer)
-            self._current_row_values[-1] = full_value
-            self._multi_line_value_buffer = []
-            self._value_counter += 1
-            if self._value_counter == len(self._loop_items):
-                self._add_loop_values_to_category()
-        else:
-            # Otherwise, add the line to the multi-line buffer.
-            self._multi_line_value_buffer.append(line)
-
-    def _add_loop_values_to_category(self) -> None:
-        """
-        Adds the values in the current row to the current category.
-
-        Overview:
-        This method finalizes the processing of the current row of looped values, adding each value
-        to the appropriate item in the current category.
-
-        Pseudocode:
-        - For each value in the current row:
-            - Add the value to the corresponding item in the current category.
-                - If atom site data, buffer the values.
-                - Otherwise, add the value to the current category.
-        - Reset the current row and value counter.
-
-        :return: None
-        """
-        # For each value in the current row:
-        for i, value in enumerate(self._current_row_values):
-            item_name = self._loop_items[i].split('.', 1)[1]
-            # Add the value to the corresponding item in the current category.
-            self._current_data._add_item_value(item_name, value)
-        # Reset the current row and value counter.
-        self._current_row_values = []
-        self._value_counter = 0
-
-    def _set_current_category(self, category: str) -> None:
-        """
-        Sets the current category.
-
-        Overview:
-        This method updates the current category being processed, creating a new Category object
-        if necessary.
-
-        Pseudocode:
-        - If the current category is different from the specified category:
-            - Update the current category.
-            - If the category does not exist in the current data block, create it.
-            - Set the current data to the specified category.
-
-        :param category: The category name.
-        :type category: str
-        :return: None
-        """
-        # If the current category is different from the specified category:
-        if self._current_category != category:
-            # Update the current category.
-            self._current_category = category
-            # If the category does not exist in the current data block, create it.
-            if self._current_category not in self._data_blocks[self._current_block]._categories:
-                self._data_blocks[self._current_block]._categories[self._current_category] = Category(
-                    self._current_category, self.validator_factory)
-            # Set the current data to the specified category.
-            self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
-
-    def _handle_single_item_value(self, item: str, value: str) -> None:
-        """
-        Handles a single item value.
-
-        Overview:
-        This method processes a single item value, handling multi-line values if necessary and
-        adding the value to the current category.
-
-        Pseudocode:
-        - If the value starts a multi-line value, initialize the buffer.
-        - Otherwise, add the value to the current category.
-        :param item: The item name.
-        :type item: str
-        :param value: The item value.
-        :type value: str
-        :return: None
-        """
-        if value.startswith(';'):
-            # If the value starts a multi-line value, initialize the buffer.
+        if value.startswith(';'):  # Indicates the start of a multi-line value
             self._multi_line_value = True
             self._multi_line_item_name = item
-            self._multi_line_value_buffer = []
-        else:  # Otherwise, add the value to the current category.
-            self._current_data._add_item_value(item, value)
+            self._multi_line_start_offset = mmap_obj.tell() - len(value)
+        else:
+            end_offset = mmap_obj.tell()  # Current position as end offset for single-line value
+            item_obj = Item(mmap_obj, self._multi_line_start_offset, end_offset, 0)
+            self._current_data[item] = item_obj
+
+    def _handle_multi_line_value(self, line: str, mmap_obj) -> None:
+        if line == ';':  # End of multi-line value
+            self._multi_line_value = False
+            end_offset = mmap_obj.tell()  # Current position as end offset
+
+            # Determine if we're in a table or single key-value
+            if self._in_loop:
+                self._current_data._items[self._multi_line_item_name] = Item(
+                    mmap_obj, self._multi_line_start_offset, end_offset, len(self._loop_items) - 1)
+            else:
+                self._current_data._items[self._multi_line_item_name] = Item(
+                    mmap_obj, self._multi_line_start_offset, end_offset, 0)
+        else:
+            # Just track the offset, no need to store the content
+            pass
+
+    def _process_table(self, line: str, mmap_obj, start_offset, header) -> None:
+        item_full = line.split(' ', 1)[0]
+        category, item = item_full.split('.', 1)
+        if self.categories and category not in self.categories:
+            return
+
+        self._set_current_category(category)
+
+        table_obj = Table(mmap_obj, start_offset, mmap_obj.tell(), header)
+        self._current_data._items[item] = table_obj
+
+    def _set_current_category(self, category: str) -> None:
+        if self._current_category != category:
+            self._current_category = category
+            if self._current_category not in self._data_blocks[self._current_block]._categories:
+                self._data_blocks[self._current_block]._categories[self._current_category] = Category(
+                    self._current_category, Table(), self.validator_factory)
+            self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
+
+    def _finalize_category(self, mmap_obj, start_offset, category, header):
+        end_offset = mmap_obj.tell()
+        table_obj = Table(mmap_obj, start_offset, end_offset, header)
+        items = table_obj.data  # This gets the dictionary of `Item` objects
+
+        # Set the items in the category
+        for key, item in items.items():
+            self._current_data._items[key] = item
 
 
 class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
+
     def write(self, file_obj: IO, data_container: MMCIFDataContainer) -> None:
         try:
             for data_block in data_container:
@@ -639,19 +435,37 @@ class MMCIFWriter:
         :type category: Category
         :return: None
         """
-        items = category._items
-        if len(items) > 1 and any(len(values) > 1 for values in items.values()):
+        items = category.items  # Retrieve the dictionary of Item objects from the Table
+
+        # Determine if it's a looped category (more than one column and rows of data)
+        is_loop = len(items) > 1 and any(len(item) > 1 for item in items.values())
+
+        if is_loop:
             file_obj.write("loop_\n")
             for item_name in items.keys():
                 file_obj.write(f"{category_name}.{item_name}\n")
             for row in zip(*items.values()):
-                formatted_row = [self._format_value(value) for value in row]
-                file_obj.write(f"{''.join(formatted_row)}\n".replace('\n\n', '\n'))
+                formatted_row = [self._format_item_value(item) for item in row]
+                file_obj.write(f"{' '.join(formatted_row)}\n".replace('\n\n', '\n'))
         else:
-            for item_name, values in items.items():
-                for value in values:
-                    formatted_value = self._format_value(value)
+            for item_name, item in items.items():
+                for value in item:
+                    formatted_value = self._format_item_value(item)
                     file_obj.write(f"{category_name}.{item_name} {formatted_value}\n")
+
+    def _format_item_value(self, item: Item) -> str:
+        """
+        Formats an Item's value for writing to a file.
+
+        :param item: The Item instance containing the value.
+        :type item: Item
+        :return: The formatted value.
+        :rtype: str
+        """
+        # For multi-line values, retrieve the full content
+        value = item.get_value()
+
+        return self._format_value(value)
 
     @staticmethod
     def _format_value(value: str) -> str:
@@ -670,40 +484,55 @@ class MMCIFWriter:
 
 class MMCIFHandler:
     """A class to handle reading and writing mmCIF files."""
-    def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
-        self.atoms = atoms
+    
+    class MMCIFHandlerError(Exception):
+        """Custom exception for MMCIFHandler errors."""
+        pass
+
+    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
         self.validator_factory = validator_factory
-        self._reader = None
+        self._parser = None
         self._writer = MMCIFWriter()
         self._file_obj = None
+        self._data_container = None
 
-    def parse(self, filename: str, categories: Optional[List[str]] = None) -> MMCIFDataContainer:
+    def read(self, filename: str, categories: Optional[List[str]] = None) -> None:
         """
-        Parses an mmCIF file and returns a data container.
+        Parses an mmCIF file and stores the data container internally.
 
         :param filename: The name of the file to parse.
         :type filename: str
         :param categories: The categories to parse.
         :type categories: Optional[List[str]]
-        :return: The data container.
-        :rtype: MMCIFDataContainer
-        """
-        self._reader = MMCIFReader(self.atoms, self.validator_factory, categories)
-        with open(filename, 'r') as f:
-            return self._reader.read(f)
-
-    def write(self, data_container: MMCIFDataContainer) -> None:
-        """
-        Writes a data container to a file.
-
-        :param data_container: The data container to write.
-        :type data_container: MMCIFDataContainer
         :return: None
         """
-        if self._file_obj:
-            self._writer.write(self._file_obj, data_container)
-        else:
-            raise IOError("File is not open for writing")
+        try:
+            self._parser = MMCIFParser(self.validator_factory, categories)
+            with open(filename, 'r+b') as f:
+                self.file_obj = f
+                self.content = self._parser.parse(self.file_obj)
+        except FileNotFoundError:
+            raise self.MMCIFHandlerError(f"File '{filename}' not found. Please check the file path.")
+        except IOError as e:
+            raise self.MMCIFHandlerError(f"Error reading file '{filename}': {e}")
+        except Exception as e:
+            raise self.MMCIFHandlerError(f"An unexpected error occurred while parsing '{filename}': {e}")
+
+    def write(self) -> None:
+        """
+        Writes the internally stored data container to a file.
+
+        :return: None
+        """
+        try:
+            if self.file_obj:
+                self._writer.write(self.file_obj, self.content)
+            else:
+                raise self.MMCIFHandlerError("File is not open for writing. Please ensure a valid file is set.")
+        except IOError as e:
+            raise self.MMCIFHandlerError(f"Error writing to file: {e}")
+        except Exception as e:
+            raise self.MMCIFHandlerError(f"An unexpected error occurred during writing: {e}")
 
     @property
     def file_obj(self):
@@ -714,3 +543,13 @@ class MMCIFHandler:
     def file_obj(self, file_obj):
         """Sets the file object."""
         self._file_obj = file_obj
+
+    @property
+    def content(self) -> MMCIFDataContainer:
+        """Provides access to the data container."""
+        return self._data_container
+
+    @content.setter
+    def content(self, data_container: MMCIFDataContainer):
+        """Sets the data container."""
+        self._data_container = data_container
