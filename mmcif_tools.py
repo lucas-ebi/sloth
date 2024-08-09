@@ -332,12 +332,17 @@ class MMCIFParser:
                 start_offset = self._get_current_offset()  # Capture the start of the loop
 
             elif line.startswith('_'):
-                try:
-                    # If the line defines an item, process the item.
-                    self._process_item(line)
-                except ValueError:
-                    # If the item processing fails, treat it as a table (looped data).
-                    self._process_table(line, self.file_obj, start_offset, self._loop_items)
+                if self._in_loop:
+                    # Split the line by '.' to extract the item name after the category
+                    item_name = line.split('.', 1)[1]  # Extract the part after the dot
+                    self._loop_items.append(item_name)  # Capture item names
+                else:
+                    try:
+                        # If the line defines an item, process the item.
+                        self._process_item(line)
+                    except ValueError:
+                        # If the item processing fails, treat it as a table (looped data).
+                        self._process_table(line, self.file_obj, start_offset, self._loop_items)
 
             elif self._in_loop:
                 self._process_loop_data(line)
@@ -449,7 +454,7 @@ class MMCIFParser:
     def _finalize_loop_row(self) -> None:
         """Add a completed row of loop data to the current category."""
         for i, value in enumerate(self._current_row_values):
-            item_name = self._loop_items[i].split('.', 1)[1]
+            item_name = self._loop_items[i]
             self._current_data._add_item_value(item_name, value)
         self._current_row_values = []
 
@@ -514,6 +519,7 @@ class MMCIFParser:
 
         # Assign the Table object to the appropriate item in the category
         self._current_data._items.data[item] = table_obj
+
 
 class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
