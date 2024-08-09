@@ -315,6 +315,7 @@ class MMCIFParser:
 
     def parse(self, file_obj: IO) -> MMCIFDataContainer:
         self.file_obj = file_obj  # Store the file object reference
+        start_offset = None
         for line in file_obj:
             line = line.decode('utf-8').strip()  # Decode the line from bytes to string
             print(line)
@@ -326,14 +327,15 @@ class MMCIFParser:
 
             elif line.startswith('loop_'):
                 self._start_loop()
+                start_offset = self._get_current_offset()  # Capture the start of the loop
 
             elif line.startswith('_'):
-                if self._in_loop:
-                    self._loop_items.append(line)
-                    category = line.split('.', 1)[0][1:]
-                    self._set_current_category(category)
-                else:
+                try:
+                    # If the line defines an item, process the item.
                     self._process_item(line)
+                except ValueError:
+                    # If the item processing fails, treat it as a table (looped data).
+                    self._process_table(line, self.file_obj, start_offset, self._loop_items)
 
             elif self._in_loop:
                 self._process_loop_data(line)
@@ -341,29 +343,32 @@ class MMCIFParser:
             elif self._multi_line_value:
                 self._handle_multi_line_value(line)
 
-        # Ensure end_offset is captured at the end of parsing
-        self._finalize_table()
-
+        self._finalize_table()  # Ensure end_offset is captured at the end of parsing
         return MMCIFDataContainer(self._data_blocks)
-
-    def _get_current_offset(self) -> int:
-        """Returns the current file pointer position."""
-        return self.file_obj.tell()
 
     def _start_new_data_block(self, line: str) -> None:
         block_name = line.strip()
         self._current_block = block_name
         self._data_blocks[block_name] = DataBlock(block_name, {})
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        """Reset the state variables for a new data block or category."""
         self._current_category = None
         self._in_loop = False
+        self._multi_line_value = False
+        self._multi_line_item_name = ""
+        self._multi_line_value_buffer = []
+        self._current_row_values = []
+        self._loop_items = []
 
     def _start_loop(self) -> None:
         self._in_loop = True
         self._loop_items = []
         self._current_row_values = []
-        self._value_counter = 0
 
     def _process_item(self, line: str) -> None:
+        """Process a single item outside of a loop."""
         parts = line.split(None, 1)
         if len(parts) != 2:
             raise ValueError("Invalid key-value pair")
@@ -377,38 +382,45 @@ class MMCIFParser:
         self._set_current_category(category)
 
         if value.startswith(';'):
-            self._multi_line_value = True
-            self._multi_line_item_name = item
-            self._multi_line_value_buffer = [value[1:]]
+            self._start_multi_line_value(item, value[1:])
         else:
             self._current_data._add_item_value(item, value)
 
     def _process_loop_data(self, line: str) -> None:
+        """Process a line of loop data."""
         if not self._current_data:
             raise ValueError("Current category data is not set. Cannot process loop data.")
+        
         if not self._multi_line_value:
-            values = line.split()
-            while len(self._current_row_values) < len(self._loop_items) and values:
-                value = values.pop(0)
-                if value.startswith(';'):
-                    self._multi_line_value = True
-                    self._multi_line_item_name = self._loop_items[len(self._current_row_values)].split('.', 1)[1]
-                    self._multi_line_value_buffer.append(value[1:])
-                    self._current_row_values.append(None)
-                    break
-                else:
-                    self._current_row_values.append(value)
-                    self._value_counter += 1
-
-            if self._value_counter == len(self._loop_items):
-                self._finalize_loop_row()
+            self._process_single_loop_line(line)
         else:
             self._handle_multi_line_value(line)
 
+    def _process_single_loop_line(self, line: str) -> None:
+        """Handle a single line of data within a loop."""
+        values = line.split()
+        while len(self._current_row_values) < len(self._loop_items) and values:
+            value = values.pop(0)
+            if value.startswith(';'):
+                self._start_multi_line_value(self._loop_items[len(self._current_row_values)].split('.', 1)[1], value[1:])
+                break
+            else:
+                self._current_row_values.append(value)
+
+        if len(self._current_row_values) == len(self._loop_items):
+            self._finalize_loop_row()
+
+    def _start_multi_line_value(self, item_name: str, initial_value: str) -> None:
+        """Start processing a multi-line value."""
+        self._multi_line_value = True
+        self._multi_line_item_name = item_name
+        self._multi_line_value_buffer = [initial_value]
+
     def _handle_multi_line_value(self, line: str) -> None:
+        """Handle the continuation or end of a multi-line value."""
         if line == ';':
+            full_value = "\n".join(self._multi_line_value_buffer).strip()
             self._multi_line_value = False
-            full_value = "\n".join(self._multi_line_value_buffer)
             if self._in_loop:
                 self._current_row_values[-1] = full_value
                 if len(self._current_row_values) == len(self._loop_items):
@@ -420,30 +432,68 @@ class MMCIFParser:
             self._multi_line_value_buffer.append(line)
 
     def _finalize_loop_row(self) -> None:
+        """Add a completed row of loop data to the current category."""
         for i, value in enumerate(self._current_row_values):
             item_name = self._loop_items[i].split('.', 1)[1]
             self._current_data._add_item_value(item_name, value)
         self._current_row_values = []
-        self._value_counter = 0
 
     def _finalize_table(self) -> None:
-        """Finalize the Table by setting the end_offset if it hasn't been set."""
+        """Finalize the Table by setting the end_offset."""
         if self._current_category and self._current_data and isinstance(self._current_data._items, Table):
             if self._current_data._items._end_offset is None:
                 self._current_data._items._end_offset = self._get_current_offset()
 
     def _set_current_category(self, category: str) -> None:
+        """Set the current category and initialize its Table."""
         if self._current_category != category:
             self._finalize_table()  # Finalize the previous table before moving to the new category
             self._current_category = category
             if self._current_block is not None:
                 if self._current_category not in self._data_blocks[self._current_block]._categories:
-                    table = Table(mmap_obj=self.file_obj, start_offset=self._get_current_offset(), end_offset=None, header=self._loop_items)
+                    table = Table(
+                        mmap_obj=self.file_obj,
+                        start_offset=self._get_current_offset(),
+                        end_offset=None,
+                        header=self._loop_items if self._in_loop else []
+                    )
                     self._data_blocks[self._current_block]._categories[self._current_category] = Category(
                         self._current_category, table, self.validator_factory)
                 self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
             else:
                 raise ValueError("Current data block is not set.")
+
+    def _process_table(self, line: str, mmap_obj, start_offset, header) -> None:
+        """
+        Processes a looped, tabular category.
+
+        This method creates a Table instance to handle looped, tabular data.
+
+        :param line: The line to process.
+        :type line: str
+        :param mmap_obj: The memory-mapped file object.
+        :type mmap_obj: mmap.mmap
+        :param start_offset: The start offset of the table data.
+        :type start_offset: int
+        :param header: The header (item names) for the category.
+        :type header: List[str]
+        :return: None
+        """
+        item_full = line.split(' ', 1)[0]
+        category, item = item_full.split('.', 1)
+        if self.categories and category not in self.categories:
+            return
+
+        self._set_current_category(category)
+
+        # Create a Table instance to handle looped data
+        table_obj = Table(
+            mmap_obj=mmap_obj, 
+            start_offset=start_offset, 
+            end_offset=self._get_current_offset(),  # This will be updated later
+            header=header
+        )
+        self._current_data._items[item] = table_obj
 
 
 class MMCIFWriter:
