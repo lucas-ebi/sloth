@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import mock_open, patch
-from mmcif_tools import MMCIFHandler, MMCIFReader, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, ValidatorFactory
+from mmcif_tools import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, ValidatorFactory
 
-class TestMMCIFReader(unittest.TestCase):
+class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """
 data_7XJP
 #
@@ -12,7 +12,7 @@ _database_2.database_code    7XJP
 """
 
     def setUp(self):
-        self.reader = MMCIFReader(atoms=False, validator_factory=None, categories=['_database_2'])
+        self.reader = MMCIFParser(atoms=False, validator_factory=None, categories=['_database_2'])
 
     @patch("builtins.open", new_callable=mock_open, read_data="")
     def test_read_empty_file(self, mock_file):

@@ -1,6 +1,6 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
-
+# import mmap
 
 class ValidatorFactory:
     """A factory class for creating validators and cross-checkers."""
@@ -216,18 +216,18 @@ class MMCIFDataContainer:
         return list(self._data_blocks.keys())
 
 
-class MMCIFReader:
-    """A class to read an mmCIF file and return a data container."""
+class MMCIFParser:
+    """A class to parse an mmCIF file and return a data container."""
 
     def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
         """
-        Initializes the MMCIFReader.
+        Initializes the MMCIFParser.
 
         :param atoms: Flag indicating whether to include atom site data.
         :type atoms: bool
         :param validator_factory: Factory for creating validators.
         :type validator_factory: Optional[ValidatorFactory]
-        :param categories: List of categories to read, reads all if None.
+        :param categories: List of categories to parse, parses all if None.
         :type categories: Optional[List[str]]
         """
         self.atoms = atoms
@@ -246,12 +246,12 @@ class MMCIFReader:
         self._value_counter = 0
         self._atom_site_buffer = []  # Buffer for atom_site data
 
-    def read(self, file_obj: IO) -> MMCIFDataContainer:
+    def parse(self, file_obj: IO) -> MMCIFDataContainer:
         """
-        Reads an mmCIF file and returns a data container.
+        Reads a file object and returns a data container.
 
         Overview:
-        This method reads through the mmCIF file line by line, processing each line to extract
+        This method reads through the mmCIF file content line by line, processing each line to extract
         data blocks, categories, and items. It handles simple items, loops, and multi-line values.
 
         Pseudocode:
@@ -673,8 +673,8 @@ class MMCIFHandler:
     def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
         self.atoms = atoms
         self.validator_factory = validator_factory
-        self._reader = None
-        self._writer = MMCIFWriter()
+        self._parser = None
+        self._writer = None
         self._file_obj = None
 
     def parse(self, filename: str, categories: Optional[List[str]] = None) -> MMCIFDataContainer:
@@ -688,9 +688,11 @@ class MMCIFHandler:
         :return: The data container.
         :rtype: MMCIFDataContainer
         """
-        self._reader = MMCIFReader(self.atoms, self.validator_factory, categories)
+        self._parser = MMCIFParser(self.atoms, self.validator_factory, categories)
         with open(filename, 'r') as f:
-            return self._reader.read(f)
+            # self._file_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            self._file_obj = f
+            return self._parser.parse(self._file_obj)
 
     def write(self, data_container: MMCIFDataContainer) -> None:
         """
@@ -701,6 +703,7 @@ class MMCIFHandler:
         :return: None
         """
         if self._file_obj:
+            self._writer = MMCIFWriter()
             self._writer.write(self._file_obj, data_container)
         else:
             raise IOError("File is not open for writing")

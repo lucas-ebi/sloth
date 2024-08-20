@@ -125,7 +125,7 @@ data._database_2.validate.against(data._atom_site)
 - **`open_file(filename: str, mode: str) -> None`**: Opens a file with the specified mode ('r+', 'w', etc.) for reading and writing.
 - **`close_file() -> None`**: Closes the currently open file.
 
-#### `MMCIFReader`
+#### `MMCIFParser`
 
 - **`read(file_obj: IO) -> MMCIFDataContainer`**: Reads an MMCIF file from a file object and returns an `MMCIFDataContainer` object containing the parsed contents.
 
