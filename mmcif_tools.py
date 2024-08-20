@@ -1,6 +1,5 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
-# import mmap
 
 class ValidatorFactory:
     """A factory class for creating validators and cross-checkers."""
@@ -675,7 +674,6 @@ class MMCIFHandler:
         self.validator_factory = validator_factory
         self._parser = None
         self._writer = None
-        self._file_obj = None
 
     def parse(self, filename: str, categories: Optional[List[str]] = None) -> MMCIFDataContainer:
         """
@@ -690,9 +688,7 @@ class MMCIFHandler:
         """
         self._parser = MMCIFParser(self.atoms, self.validator_factory, categories)
         with open(filename, 'r') as f:
-            # self._file_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-            self._file_obj = f
-            return self._parser.parse(self._file_obj)
+            return self._parser.parse(f)
 
     def write(self, data_container: MMCIFDataContainer) -> None:
         """
