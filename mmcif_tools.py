@@ -54,6 +54,91 @@ class ValidatorFactory:
         return self.cross_checkers.get(category_pair)
 
 
+class Item:
+    def __init__(self, file_obj=None, start_offset=None, end_offset=None, col_index=None):
+        self._file_obj = file_obj
+        self._start_offset = start_offset
+        self._end_offset = end_offset
+        self._col_index = col_index
+        self._length = None  # Cache for storing the length
+
+    def __iter__(self):
+        # Lazy loading values only when iteration begins
+        return self._load_values()
+
+    def _load_values(self):
+        if self._file_obj is None or self._start_offset is None or self._end_offset is None or self._col_index is None:
+            raise ValueError("file_obj, start_offset, end_offset, and col_index must be set to load values.")
+
+        offset = self._start_offset
+        while offset < self._end_offset:
+            self._file_obj.seek(offset)
+            line = self._file_obj.readline().strip().decode('utf-8')
+            values = line.split()
+            if len(values) > self._col_index:
+                yield values[self._col_index]
+            offset = self._file_obj.tell()
+
+    def get_value(self):
+        """Returns the content of the multi-line value as a single string."""
+        if self._file_obj is None or self._start_offset is None or self._end_offset is None:
+            raise ValueError("file_obj, start_offset, and end_offset must be set to get the value.")
+        
+        self._file_obj.seek(self._start_offset)
+        content = self._file_obj.read(self._end_offset - self._start_offset).decode('utf-8')
+        return content.strip()
+
+    def __len__(self):
+        if self._length is None:
+            if self._file_obj is None or self._start_offset is None or self._end_offset is None:
+                raise ValueError("file_obj, start_offset, and end_offset must be set to calculate length.")
+            
+            offset = self._start_offset
+            self._length = 0
+            while offset < self._end_offset:
+                self._file_obj.seek(offset)
+                line = self._file_obj.readline().strip()
+                if line:
+                    self._length += 1
+                offset = self._file_obj.tell()
+
+        return self._length
+
+    def __repr__(self):
+        return f"Item(col_index={self._col_index}, length={len(self)})"
+
+
+class Table:
+    def __init__(self, file_obj=None, start_offset=None, end_offset=None, header=None):
+        self._file_obj = file_obj
+        self._start_offset = start_offset
+        self._end_offset = end_offset
+        self.header = header
+        self._items: Optional[Dict[str, Item]] = None  # Lazy-loaded or set via data property
+
+    @property
+    def data(self) -> Dict[str, Item]:
+        if self._items is None:
+            if self._file_obj is None or self._start_offset is None or self._end_offset is None or self.header is None:
+                raise ValueError("file_obj, start_offset, end_offset, and header must be set to generate data.")
+            
+            # Generate the items lazily, ensuring memory efficiency
+            self._items = {
+                key: Item(self._file_obj, self._start_offset, self._end_offset, idx)
+                for idx, key in enumerate(self.header)
+            }
+        return self._items
+
+    @data.setter
+    def data(self, items: Dict[str, Item]):
+        if not all(isinstance(value, Item) for value in items.values()):
+            raise ValueError("All values in the data dictionary must be instances of Item.")
+        self._items = items
+
+    def __iter__(self):
+        return iter(self.data)
+
+
 class Category:
     """A class to represent a category in a data block."""
     def __init__(self, name: str, validator_factory: Optional[ValidatorFactory]):
