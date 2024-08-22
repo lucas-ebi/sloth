@@ -1,5 +1,7 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
+import shlex
+
 
 class ValidatorFactory:
     """A factory class for creating validators and cross-checkers."""
@@ -339,7 +341,8 @@ class MMCIFParser:
             self._in_loop = True
             self._loop_items = []
         elif line.startswith('_'):
-            parts = line.split(None, 1)
+            
+            parts = shlex.split(line)
             if len(parts) == 2:
                 item_full, value = parts
                 category, item = item_full.split('.', 1)
@@ -384,8 +387,9 @@ class MMCIFParser:
                         self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
                     self._current_data._add_item_value(item, value)
         elif self._in_loop:
+            # values = line.split()
             if not self._multi_line_value:
-                values = line.split()
+                values = shlex.split(line)
                 while len(self._current_row_values) < len(self._loop_items) and values:
                     value = values.pop(0)
                     if value.startswith(';'):
@@ -480,6 +484,8 @@ class MMCIFWriter:
         """
         if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
             return f"\n;{value.strip()}\n;\n"
+        if ' ' in value:
+            return f"'{value}' "
         return f"{value} "
 
 
