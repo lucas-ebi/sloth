@@ -393,12 +393,26 @@ class MMCIFParser:
                     self._current_data._add_item_value(item, value)
         elif self._in_loop:
             if not self._multi_line_value:
+                ### Extract the item names and their ranges
+                item_names = [item.split('.', 1)[1] for item in self._loop_items]
+                ### Extract the ranges of the values
+                offset = self._file_obj.tell() - len(line.strip())
+                ranges = []
+                start = 0
+                for i, char in enumerate(line):
+                    if char.isspace():
+                        if start != i:
+                            ranges.append((start + offset, i + offset))
+                        start = i + 1
+                if start < len(line):
+                    ranges.append((start + offset, len(line) + offset))
+                ### TODO: Create the Item objects
                 values = shlex.split(line)
                 while len(self._current_row_values) < len(self._loop_items) and values:
                     value = values.pop(0)
                     if value.startswith(';'):
                         self._multi_line_value = True
-                        self._multi_line_item_name = self._loop_items[len(self._current_row_values)].split('.', 1)[1]
+                        self._multi_line_item_name = item_names[len(self._current_row_values)]
                         self._multi_line_value_buffer.append(value[1:])
                         self._current_row_values.append(None)
                         break
