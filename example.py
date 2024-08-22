@@ -24,7 +24,7 @@ validator_factory = ValidatorFactory()
 handler = MMCIFHandler(atoms=True, validator_factory=validator_factory)
 
 # Parse the file with specific categories
-file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif', categories=['_database_2', '_atom_site'])
+file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif')#, categories=['_database_2', '_atom_site'])
 
 # Print data blocks
 print(f"\nData blocks: {file.blocks}")
@@ -68,7 +68,7 @@ with open('/Users/lucas/Desktop/em/modified_emd_33233.cif', 'w') as f:
     handler.write(file)
 
 # Verify the changes
-modified_file = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif', categories=['_database_2', '_atom_site'])
+modified_file = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif')#, categories=['_database_2', '_atom_site'])
 for data_block in modified_file:
     for category in data_block:
         print(f"Category: {category}")

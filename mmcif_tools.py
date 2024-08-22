@@ -273,7 +273,6 @@ class MMCIFParser:
         self._multi_line_value_buffer = []
         self._current_row_values = []
         self._value_counter = 0
-        self._atom_site_buffer = []  # Buffer for atom_site data
 
     def parse(self, file_obj: IO) -> MMCIFDataContainer:
         """
@@ -332,314 +331,101 @@ class MMCIFParser:
         if line.startswith('#'):
             return  # Ignore comments
         if line.startswith('data_'):
-            # If the line starts a new data block, call _start_new_data_block.
-            self._start_new_data_block(line)
+            self._current_block = line.split('_', 1)[1]
+            self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
+            self._current_category = None
+            self._in_loop = False
         elif line.startswith('loop_'):
-            # If the line starts a loop, call _start_loop.
-            self._start_loop()
+            self._in_loop = True
+            self._loop_items = []
         elif line.startswith('_'):
-            try:
-                # If the line defines an item, process the item.
-                self._process_item_simple(line)
-            except ValueError:
-                self._process_item_fallback(line)  # Process an item with fallback method
-        elif self._in_loop:
-            # If currently in a loop, process the loop data.
-            self._process_loop_data(line)
-        elif self._multi_line_value:
-            # If handling a multi-line value, continue handling it.
-            self._handle_multi_line_value(line)
-
-    def _start_new_data_block(self, line: str) -> None:
-        """
-        Starts a new data block.
-
-        Overview:
-        This method initializes a new data block and resets the current category and loop status.
-
-        Pseudocode:
-        - Extract the data block name from the line.
-        - Create a new DataBlock object and add it to the data blocks dictionary.
-        - Reset the current category and loop status.
-
-        :param line: The line containing the data block name.
-        :type line: str
-        :return: None
-        """
-        # Extract the data block name from the line.
-        self._current_block = line.split('_', 1)[1]
-        # Create a new DataBlock object and add it to the data blocks dictionary.
-        self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
-        # Reset the current category and loop status.
-        self._current_category = None
-        self._in_loop = False
-
-    def _start_loop(self) -> None:
-        """
-        Starts a loop.
-
-        Overview:
-        This method sets the loop status to true and initializes the loop items list.
-
-        Pseudocode:
-        - Set the loop status to true.
-        - Initialize the loop items list.
-
-        :return: None
-        """
-        # Set the loop status to true.
-        self._in_loop = True
-        # Initialize the loop items list.
-        self._loop_items = []
-
-    def _process_item_simple(self, line: str) -> None:
-        """
-        Processes a simple item line.
-
-        Overview:
-        This method extracts the category and item from the line, validates them, and adds the item
-        to the current category.
-
-        Pseudocode:
-        - Split the line into the item and value.
-        - Extract the category and item from the item name.
-        - If the category is not in the list of categories to read (if specified), skip it.
-        - Set the current category.
-        - Add the item value to the current category.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        # Split the line into the item and value.
-        parts = line.split(None, 1)
-        if len(parts) != 2:
-            raise ValueError("Invalid key-value pair")
-
-        item_full, value = parts
-        
-        # Extract the category and item from the item name.
-        category, item = item_full.split('.', 1)
-        if category.startswith('_atom_site') and not self.atoms:
-            return
-
-        if self.categories and category not in self.categories:
-            return
-
-        # Set the current category.
-        self._set_current_category(category)
-        # Add the item value to the current category.
-        self._handle_single_item_value(item, value.strip())
-
-    def _process_item_fallback(self, line: str) -> None:
-        """
-        Processes an item line with a fallback method if the simple method fails due to loop or multi-line values.
-
-        Overview:
-        This method handles cases where the simple item processing fails, such as when dealing with
-        looped items or multi-line values.
-
-        Pseudocode:
-        - Extract the full item name.
-        - Extract the category and item from the item name.
-        - If the category is not in the list of categories to read (if specified), skip it.
-        - If in a loop, add the item to the loop items list and set the current category.
-        - Otherwise, add the single item value to the current category.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        # Extract the full item name.
-        item_full = line.split(' ', 1)[0]
-        # Extract the category and item from the item name.
-        category, item = item_full.split('.', 1)
-        if category.startswith('_atom_site') and not self.atoms:
-            return
-
-        if self.categories and category not in self.categories:
-            return
-
-        if self._in_loop:
-            # If in a loop, add the item to the loop items list and set the current category.
-            self._loop_items.append(item_full)
-            self._set_current_category(category)
-        else:
-            # Otherwise, add the single item value to the current category.
-            value = line[len(item_full):].strip()
-            self._set_current_category(category)
-            self._handle_single_item_value(item, value)
-
-    def _process_loop_data(self, line: str) -> None:
-        """
-        Processes a line of data in a loop.
-
-        Overview:
-        This method handles the processing of looped data lines, adding values to the current row
-        and managing multi-line values.
-
-        Pseudocode:
-        - If not handling a multi-line value, process loop values.
-        - Otherwise, handle the multi-line value continuation.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        if not self._multi_line_value:
-            # If not handling a multi-line value, process loop values.
-            self._handle_loop_values(line)
-        else:
-            # Otherwise, handle the multi-line value continuation.
-            self._handle_multi_line_value(line)
-
-    def _handle_loop_values(self, line: str) -> None:
-        """
-        Handles the values in a loop.
-
-        Overview:
-        This method processes the values within a loop, managing multi-line values and adding them
-        to the current row.
-
-        Pseudocode:
-        - Split the line into values.
-        - While there are still items in the loop and values to process:
-            - If a value starts a multi-line value, handle it accordingly.
-            - Otherwise, add the value to the current row.
-        - If the current row is complete, add it to the category.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        # Split the line into values.
-        values = line.split()
-        while len(self._current_row_values) < len(self._loop_items) and values:
-            value = values.pop(0)
-            if value.startswith(';'):
-                # If a value starts a multi-line value, handle it accordingly.
-                self._multi_line_value = True
-                self._multi_line_item_name = self._loop_items[len(self._current_row_values)].split('.', 1)[1]
-                self._multi_line_value_buffer.append(value[1:])
-                self._current_row_values.append(None)
-                break
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                item_full, value = parts
+                category, item = item_full.split('.', 1)
+                if category.startswith('_atom_site') and not self.atoms:
+                    return
+                if self.categories and category not in self.categories:
+                    return
+                if self._current_category != category:
+                    self._current_category = category
+                    if self._current_category not in self._data_blocks[self._current_block]._categories:
+                        self._data_blocks[self._current_block]._categories[self._current_category] = Category(
+                            self._current_category, self.validator_factory)
+                    self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
+                if value.startswith(';'):
+                    self._multi_line_value = True
+                    self._multi_line_item_name = item
+                    self._multi_line_value_buffer = []
+                else:
+                    self._current_data._add_item_value(item, value.strip())
             else:
-                # Otherwise, add the value to the current row.
-                self._current_row_values.append(value)
-                self._value_counter += 1
-
-        if self._value_counter == len(self._loop_items):
-            # If the current row is complete, add it to the category.
-            self._add_loop_values_to_category()
-
-    def _handle_multi_line_value(self, line: str) -> None:
-        """
-        Handles a multi-line value.
-
-        Overview:
-        This method processes the continuation of a multi-line value, adding lines to the buffer
-        until the multi-line value is complete.
-
-        Pseudocode:
-        - If the line ends the multi-line value, finalize it.
-        - Otherwise, add the line to the multi-line buffer.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
-        if line == ';':
-            # If the line ends the multi-line value, finalize it.
-            self._multi_line_value = False
-            full_value = "\n".join(self._multi_line_value_buffer)
-            self._current_row_values[-1] = full_value
-            self._multi_line_value_buffer = []
-            self._value_counter += 1
-            if self._value_counter == len(self._loop_items):
-                self._add_loop_values_to_category()
-        else:
-            # Otherwise, add the line to the multi-line buffer.
-            self._multi_line_value_buffer.append(line)
-
-    def _add_loop_values_to_category(self) -> None:
-        """
-        Adds the values in the current row to the current category.
-
-        Overview:
-        This method finalizes the processing of the current row of looped values, adding each value
-        to the appropriate item in the current category.
-
-        Pseudocode:
-        - For each value in the current row:
-            - Add the value to the corresponding item in the current category.
-                - If atom site data, buffer the values.
-                - Otherwise, add the value to the current category.
-        - Reset the current row and value counter.
-
-        :return: None
-        """
-        # For each value in the current row:
-        for i, value in enumerate(self._current_row_values):
-            item_name = self._loop_items[i].split('.', 1)[1]
-            # Add the value to the corresponding item in the current category.
-            self._current_data._add_item_value(item_name, value)
-        # Reset the current row and value counter.
-        self._current_row_values = []
-        self._value_counter = 0
-
-    def _set_current_category(self, category: str) -> None:
-        """
-        Sets the current category.
-
-        Overview:
-        This method updates the current category being processed, creating a new Category object
-        if necessary.
-
-        Pseudocode:
-        - If the current category is different from the specified category:
-            - Update the current category.
-            - If the category does not exist in the current data block, create it.
-            - Set the current data to the specified category.
-
-        :param category: The category name.
-        :type category: str
-        :return: None
-        """
-        # If the current category is different from the specified category:
-        if self._current_category != category:
-            # Update the current category.
-            self._current_category = category
-            # If the category does not exist in the current data block, create it.
-            if self._current_category not in self._data_blocks[self._current_block]._categories:
-                self._data_blocks[self._current_block]._categories[self._current_category] = Category(
-                    self._current_category, self.validator_factory)
-            # Set the current data to the specified category.
-            self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
-
-    def _handle_single_item_value(self, item: str, value: str) -> None:
-        """
-        Handles a single item value.
-
-        Overview:
-        This method processes a single item value, handling multi-line values if necessary and
-        adding the value to the current category.
-
-        Pseudocode:
-        - If the value starts a multi-line value, initialize the buffer.
-        - Otherwise, add the value to the current category.
-        :param item: The item name.
-        :type item: str
-        :param value: The item value.
-        :type value: str
-        :return: None
-        """
-        if value.startswith(';'):
-            # If the value starts a multi-line value, initialize the buffer.
-            self._multi_line_value = True
-            self._multi_line_item_name = item
-            self._multi_line_value_buffer = []
-        else:  # Otherwise, add the value to the current category.
-            self._current_data._add_item_value(item, value)
+                item_full = parts[0]
+                category, item = item_full.split('.', 1)
+                if category.startswith('_atom_site') and not self.atoms:
+                    return
+                if self.categories and category not in self.categories:
+                    return
+                if self._in_loop:
+                    self._loop_items.append(item_full)
+                    if self._current_category != category:
+                        self._current_category = category
+                        if self._current_category not in self._data_blocks[self._current_block]._categories:
+                            self._data_blocks[self._current_block]._categories[self._current_category] = Category(
+                                self._current_category, self.validator_factory)
+                        self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
+                else:
+                    value = line[len(item_full):].strip()
+                    if self._current_category != category:
+                        self._current_category = category
+                        if self._current_category not in self._data_blocks[self._current_block]._categories:
+                            self._data_blocks[self._current_block]._categories[self._current_category] = Category(
+                                self._current_category, self.validator_factory)
+                        self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
+                    self._current_data._add_item_value(item, value)
+        elif self._in_loop:
+            if not self._multi_line_value:
+                values = line.split()
+                while len(self._current_row_values) < len(self._loop_items) and values:
+                    value = values.pop(0)
+                    if value.startswith(';'):
+                        self._multi_line_value = True
+                        self._multi_line_item_name = self._loop_items[len(self._current_row_values)].split('.', 1)[1]
+                        self._multi_line_value_buffer.append(value[1:])
+                        self._current_row_values.append(None)
+                        break
+                    else:
+                        self._current_row_values.append(value)
+                        self._value_counter += 1
+                if self._value_counter == len(self._loop_items):
+                    for i, val in enumerate(self._current_row_values):
+                        item_name = self._loop_items[i].split('.', 1)[1]
+                        self._current_data._add_item_value(item_name, val)
+                    self._current_row_values = []
+                    self._value_counter = 0
+            else:
+                if line == ';':
+                    self._multi_line_value = False
+                    full_value = "\n".join(self._multi_line_value_buffer)
+                    self._current_row_values[-1] = full_value
+                    self._multi_line_value_buffer = []
+                    self._value_counter += 1
+                    if self._value_counter == len(self._loop_items):
+                        for i, val in enumerate(self._current_row_values):
+                            item_name = self._loop_items[i].split('.', 1)[1]
+                            self._current_data._add_item_value(item_name, val)
+                        self._current_row_values = []
+                        self._value_counter = 0
+                else:
+                    self._multi_line_value_buffer.append(line)
+        elif self._multi_line_value:
+            if line == ';':
+                self._multi_line_value = False
+                full_value = "\n".join(self._multi_line_value_buffer)
+                self._current_data._add_item_value(self._multi_line_item_name, full_value)
+                self._multi_line_value_buffer = []
+            else:
+                self._multi_line_value_buffer.append(line)
 
 
 class MMCIFWriter:
