@@ -482,9 +482,9 @@ class MMCIFWriter:
         :return: The formatted value.
         :rtype: str
         """
-        if '\n' in value or value.startswith(' ') or value.startswith('_') or value.startswith(';'):
+        if '\n' in value or value.startswith(' ') or value.startswith(';'):
             return f"\n;{value.strip()}\n;\n"
-        if ' ' in value:
+        if ' ' in value or value.startswith('_') or value.startswith("'") or value.startswith('"'):
             return f"'{value}' "
         return f"{value} "
 
