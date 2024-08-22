@@ -1,6 +1,7 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
 import shlex
+import traceback
 
 
 class ValidatorFactory:
@@ -61,6 +62,11 @@ class Item:
     def __init__(self, name: str, file_obj: Optional[IO] = None, slices: Optional[List[Tuple[int, int]]] = None):
         self._file_obj = file_obj
         self._slices = slices
+    
+    def _add_slice(self, start: int, end: int) -> None:
+        if self._slices is None:
+            self._slices = []
+        self._slices.append((start, end))
 
     def __iter__(self):
         # Lazy loading values only when iteration begins
@@ -311,6 +317,7 @@ class MMCIFParser:
             print(f"Missing data block or category: {e}")
         except Exception as e:
             print(f"Error reading file: {e}")
+            traceback.print_exc()
 
         # Return the populated data container.
         return MMCIFDataContainer(self._data_blocks)
@@ -335,8 +342,12 @@ class MMCIFParser:
         :type line: str
         :return: None
         """
+        # Get the byte offset of the start of the line
+        offset = self._file_obj.tell() - len(line.strip())
+    
         if line.startswith('#'):
             return  # Ignore comments
+        
         if line.startswith('data_'):
             self._current_block = line.split('_', 1)[1]
             self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
@@ -346,11 +357,21 @@ class MMCIFParser:
             self._in_loop = True
             self._loop_items = []
         elif line.startswith('_'):
-            
-            parts = shlex.split(line)
-            if len(parts) == 2:
-                item_full, value = parts
+            # parts = shlex.split(line)
+            # if len(parts) == 2:
+            #     item_full, value = parts
+                        # Use shlex to split the line while respecting quoted substrings
+            lexer = shlex.shlex(line, posix=True)
+            lexer.whitespace_split = True
+            lexer.whitespace = ' \t\r\n'
+            tokens = list(lexer)
+            # print(f"Tokens: {tokens}")
+            if len(tokens) == 2:
+                # Assuming the value is the second token
+                item_full, value = tokens
                 category, item = item_full.split('.', 1)
+                value_range = (line.find(value, line.find(item_full)) + offset, len(line) + offset)
+                # print(f"Item: {item}, Value: {value}, Range: {value_range}")
                 if category.startswith('_atom_site') and not self.atoms:
                     return
                 if self.categories and category not in self.categories:
@@ -368,86 +389,135 @@ class MMCIFParser:
                 else:
                     self._current_data._add_item_value(item, value.strip())
             else:
-                item_full = parts[0]
+                # item_full = parts[0]
+                item_full = tokens[0]
+                # print(f"Tokens: {tokens}, Item Full: {item_full}")
                 category, item = item_full.split('.', 1)
+                # print(f"Category: {category}, Item: {item}")
                 if category.startswith('_atom_site') and not self.atoms:
+                    # print("Skipping atom site")
                     return
                 if self.categories and category not in self.categories:
+                    # print("Skipping category")
                     return
                 if self._in_loop:
+                    # print(f"Adding loop item: {item_full}")
                     self._loop_items.append(item_full)
                     if self._current_category != category:
+                        # print(f"Setting current category: {category}")
                         self._current_category = category
                         if self._current_category not in self._data_blocks[self._current_block]._categories:
                             self._data_blocks[self._current_block]._categories[self._current_category] = Category(
                                 self._current_category, self.validator_factory)
                         self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
                 else:
+                    print(f"Item Full: {item_full}")
                     value = line[len(item_full):].strip()
+                    value_range = (line.find(value, line.find(item_full)) + offset, len(line) + offset)
+                    print(f"Item: {item}, Value: {value}, Range: {value_range}")
                     if self._current_category != category:
                         self._current_category = category
                         if self._current_category not in self._data_blocks[self._current_block]._categories:
                             self._data_blocks[self._current_block]._categories[self._current_category] = Category(
                                 self._current_category, self.validator_factory)
                         self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
-                    self._current_data._add_item_value(item, value)
+                    # self._current_data._add_item_value(item, value)
+                    self._current_data._add_item_value(item, value_range)
         elif self._in_loop:
+            # print(f"\nProcessing loop line: {line}")
+            ### Extract the item names and their ranges
+            item_names = [item.split('.', 1)[1] for item in self._loop_items]
+            # print(f"Item Names: {item_names}")
+            ### Extract the ranges of the values
+            ranges = []
+            
+            # Use shlex to split the line while respecting quoted substrings
+            lexer = shlex.shlex(line, posix=True)
+            lexer.whitespace_split = True
+            lexer.whitespace = ' \t\r\n'
+            tokens = list(lexer)
+            
+            start = 0
+            for token in tokens:
+                start = line.find(token, start)
+                end = start + len(token)
+                ranges.append((start + offset, end + offset))
+                start = end
+            
+            # Handle any remaining characters after the last token
+            if start < len(line):
+                ranges.append((start + offset, len(line) + offset))
+            # print(f" Ranges: {ranges}")
+
             if not self._multi_line_value:
-                ### Extract the item names and their ranges
-                item_names = [item.split('.', 1)[1] for item in self._loop_items]
-                ### Extract the ranges of the values
-                offset = self._file_obj.tell() - len(line.strip())
-                ranges = []
-                start = 0
-                for i, char in enumerate(line):
-                    if char.isspace():
-                        if start != i:
-                            ranges.append((start + offset, i + offset))
-                        start = i + 1
-                if start < len(line):
-                    ranges.append((start + offset, len(line) + offset))
                 ### TODO: Create the Item objects
-                values = shlex.split(line)
-                while len(self._current_row_values) < len(self._loop_items) and values:
-                    value = values.pop(0)
-                    if value.startswith(';'):
+                # values = shlex.split(line)
+                while len(self._current_row_values) < len(self._loop_items) and ranges: # values:
+                    # value = values.pop(0)
+                    value_range = ranges.pop(0)
+                    # print(f"  Value Range: {value_range}")
+                    start_offset, end_offset = value_range
+                    # print(f"    Start Offset: {start_offset}, End Offset: {end_offset}")
+                    # if value.startswith(';'):
+                    if line.startswith(';'):
+                        # print("      Multi-line value")
                         self._multi_line_value = True
                         self._multi_line_item_name = item_names[len(self._current_row_values)]
-                        self._multi_line_value_buffer.append(value[1:])
+                        # self._multi_line_value_buffer.append(value[1:])
+                        self._multi_line_value_buffer.append((start_offset + 1, end_offset))
                         self._current_row_values.append(None)
                         break
                     else:
-                        self._current_row_values.append(value)
+                        # print("      Single-line value")
+                        # self._current_row_values.append(value)
+                        self._current_row_values.append((start_offset, end_offset))
                         self._value_counter += 1
                 if self._value_counter == len(self._loop_items):
+                    # print(f"  Current Row Values: {self._current_row_values}")
                     for i, val in enumerate(self._current_row_values):
                         item_name = self._loop_items[i].split('.', 1)[1]
                         self._current_data._add_item_value(item_name, val)
                     self._current_row_values = []
                     self._value_counter = 0
             else:
+                print(f"  Multi-line value: {line}")
                 if line == ';':
                     self._multi_line_value = False
-                    full_value = "\n".join(self._multi_line_value_buffer)
-                    self._current_row_values[-1] = full_value
+                    # full_value = "\n".join(self._multi_line_value_buffer)
+                    # self._current_row_values[-1] = full_value
+                    print(f"    Multi-line value buffer before: {self._multi_line_value_buffer}")
+                    start_offset, end_offset = self._multi_line_value_buffer[0][0], self._multi_line_value_buffer[-1][1]
+                    print(f"    Start Offset: {start_offset}, End Offset: {end_offset}")
+                    self._current_row_values[-1] = (start_offset, end_offset)
+                    print(f"    Current Row Values: {self._current_row_values}")
                     self._multi_line_value_buffer = []
                     self._value_counter += 1
+                    print(f"    Value Counter: {self._value_counter}, Loop Items: {len(self._loop_items)}")
                     if self._value_counter == len(self._loop_items):
-                        for i, val in enumerate(self._current_row_values):
-                            item_name = self._loop_items[i].split('.', 1)[1]
-                            self._current_data._add_item_value(item_name, val)
+                        print(f"    Adding row values: {self._current_row_values}")
+                        # for i, val in enumerate(self._current_row_values):
+                        #     item_name = self._loop_items[i].split('.', 1)[1]
+                        #     self._current_data._add_item_value(item_name, val)
+                        for item_name, (start_offset, end_offset) in zip(item_names, ranges):
+                            self._current_data._add_item_value(item_name, (start_offset, end_offset))
                         self._current_row_values = []
                         self._value_counter = 0
+                    else:
+                        print(f"    Loop Items: {self._loop_items}")
+                        print(f"    Item Full: {item_full}")
                 else:
-                    self._multi_line_value_buffer.append(line)
+                    # self._multi_line_value_buffer.append(line)
+                    self._multi_line_value_buffer.append((offset, len(line) + offset))
         elif self._multi_line_value:
             if line == ';':
                 self._multi_line_value = False
-                full_value = "\n".join(self._multi_line_value_buffer)
-                self._current_data._add_item_value(self._multi_line_item_name, full_value)
+                # full_value = "\n".join(self._multi_line_value_buffer)
+                # self._current_data._add_item_value(self._multi_line_item_name, full_value)
+                self._current_data._add_item_value(self._multi_line_item_name, self._multi_line_value_buffer[0][0], self._multi_line_value_buffer[-1][1])
                 self._multi_line_value_buffer = []
             else:
-                self._multi_line_value_buffer.append(line)
+                # self._multi_line_value_buffer.append(line)
+                self._multi_line_value_buffer.append(offset, len(line) + offset)
 
 
 class MMCIFWriter:
