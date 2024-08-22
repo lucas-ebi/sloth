@@ -724,7 +724,7 @@ class MMCIFWriter:
         :return: None
         """
         items = category._items
-        if len(items) > 1 and any(len(values) > 1 for values in items.values()):
+        if any(len(values) > 1 for values in items.values()):
             file_obj.write("loop_\n")
             for item_name in items.keys():
                 file_obj.write(f"{category_name}.{item_name}\n")
