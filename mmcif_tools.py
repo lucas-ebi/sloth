@@ -264,6 +264,7 @@ class MMCIFParser:
         self.atoms = atoms
         self.validator_factory = validator_factory
         self.categories = categories
+        self._file_obj = None
         self._data_blocks = {}
         self._current_block = None
         self._current_category = None
@@ -296,8 +297,12 @@ class MMCIFParser:
         :return: The data container.
         :rtype: MMCIFDataContainer
         """
+        self._file_obj = file_obj
         try:
-            for line in file_obj:
+            while True:
+                line = self._file_obj.readline()
+                if not line:
+                    break
                 # Process the line based on its type (data block, loop, item, etc.).
                 self._process_line(line.rstrip())
         except IndexError as e:
@@ -387,7 +392,6 @@ class MMCIFParser:
                         self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
                     self._current_data._add_item_value(item, value)
         elif self._in_loop:
-            # values = line.split()
             if not self._multi_line_value:
                 values = shlex.split(line)
                 while len(self._current_row_values) < len(self._loop_items) and values:
