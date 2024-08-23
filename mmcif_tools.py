@@ -418,31 +418,33 @@ class MMCIFParser:
             # Extract the item names and their ranges
             item_names = [item.split('.', 1)[1] for item in self._loop_items]
             
-            # Extract the ranges of the values
-            ranges = []
+            # # # TODO: Uncomment the following code to extract the ranges of the values
+            # # Extract the ranges of the values
+            # ranges = []
             
-            # Use shlex to split the line while respecting quoted substrings
-            lexer = shlex.shlex(line, posix=True)
-            lexer.whitespace_split = True
-            lexer.whitespace = ' \t\r\n'
-            tokens = list(lexer)
+            # # Use shlex to split the line while respecting quoted substrings
+            # lexer = shlex.shlex(line, posix=True)
+            # lexer.whitespace_split = True
+            # lexer.whitespace = ' \t\r\n'
+            # tokens = list(lexer)
             
-            start = 0
-            for token in tokens:
-                start = line.find(token, start)
-                end = start + len(token)
-                ranges.append((start + offset, end + offset))
-                start = end
+            # start = 0
+            # for token in tokens:
+            #     start = line.find(token, start)
+            #     end = start + len(token)
+            #     ranges.append((start + offset, end + offset))
+            #     start = end
             
-            # Handle any remaining characters after the last token
-            if start < len(line):
-                ranges.append((start + offset, len(line) + offset))
-            # print(f" Ranges: {ranges}")
+            # # Handle any remaining characters after the last token
+            # if start < len(line):
+            #     ranges.append((start + offset, len(line) + offset))
+            # # # NOTE: The code above is commented out because the ranges are not used in the current implementation
 
             if not self._multi_line_value:
                 ### TODO: Create the Item objects
                 values = shlex.split(line)
-                while len(self._current_row_values) < len(self._loop_items) and ranges: # values:
+                # while len(self._current_row_values) < len(self._loop_items) and ranges:
+                while len(self._current_row_values) < len(self._loop_items) and values:
                     value = values.pop(0)
                     # value_range = ranges.pop(0)
                     # start_offset, end_offset = value_range
@@ -464,7 +466,6 @@ class MMCIFParser:
                     self._current_row_values = []
                     self._value_counter = 0
             else:
-                print(f"  Multi-line value: {line}")
                 if line == ';':
                     self._multi_line_value = False
                     full_value = "\n".join(self._multi_line_value_buffer)
