@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
+from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Generator
 import io
 import mmap
 import shlex
@@ -60,11 +60,9 @@ class ValidatorFactory:
 
 class Item:
     """A class to represent an item in a Category."""
-    def __init__(self, name: str):  #, file_obj: Optional[IO] = None, slices: Optional[List[Tuple[int, int]]] = None):
+    def __init__(self, name: str):
         self._name = name
         self._values = []
-        # self._file_obj = file_obj
-        # self._slices = slices
 
     @property
     def name(self) -> str:
@@ -74,16 +72,7 @@ class Item:
     @property
     def values(self) -> List[str]:
         """Provides a list of values."""
-        # return self._values
-    #     if self._file_obj is None or self._slices is None:
-    #         return []
-    #     # return [self._load_value(start_offset, end_offset) for start_offset, end_offset in self._slices]
         return [value for value in self]
-
-    # def _add_slice(self, start: int, end: int) -> None:
-    #     if self._slices is None:
-    #         self._slices = []
-    #     self._slices.append((start, end))
 
     def _add_value(self, value: str, ) -> None:
         self._values.append(value)
@@ -91,46 +80,11 @@ class Item:
     def __setitem__(self, index: int, value: str) -> None:
         self._values[index] = value
 
-    # def _load_value(self, start_offset: int, end_offset: int) -> str:
-    #     if self._file_obj is None:
-    #         raise ValueError("file_obj must be set to load values.")
-        
-    #     bytes_to_read = end_offset - start_offset
-    #     self._file_obj.seek(start_offset - 1)
-    #     return self._file_obj.read(bytes_to_read).decode('utf-8').strip()
-
-    # def __getitem__(self, index: int) -> str:
-    #     if isinstance(index, slice):
-    #         start, stop, step = index.indices(len(self))
-    #         return [self._values[i] for i in range(start, stop, step)]
-    #     #     return [self._load_value(*self._slices[i]) for i in range(start, stop, step)]
-    #     # return self._load_value(*self._slices[index])
-    #     return self._values[index]
-
-    # def __setitem__(self, index: int, value: str) -> None:
-    #     if self._file_obj is None or self._slices is None:
-    #         raise ValueError("file_obj must be set to set values.")
-    #     if isinstance(index, slice):
-    #         start, stop, step = index.indices(len(self))
-    #         for i in range(start, stop, step):
-    #             self._file_obj.seek(self._slices[i][0] - 1)
-    #             self._file_obj.write(value.encode('utf-8'))
-    #     else:
-    #         start, end = self._slices[index]
-    #         self._file_obj.seek(start - 1)
-    #         self._file_obj.write(value.encode('utf-8'))
-
     def __iter__(self):
-        # # Lazy loading values only when iteration begins
-        # for start_offset, end_offset in self._slices:
-        #     yield self._load_value(start_offset, end_offset)
         for value in self._values:
             yield value
 
     def __len__(self):
-        # if self._slices is None:
-        #     return 0
-        # return len(self._slices)
         return len(self._values)
 
     def __repr__(self):
@@ -173,7 +127,7 @@ class Category:
         self._items[item_name] = value
 
     def __iter__(self):
-        return iter(self._items.items())
+        return iter(self._items.values())
 
     def __len__(self):
         return len(self._items)
@@ -192,25 +146,11 @@ class Category:
         """Provides read-only access to the data."""
         return self._items
 
-    def _add_item_value(self, item_name: str, value: str):  #  Optional[str] = None, value_range: Optional[Tuple[int, int]] = None, file_obj: Optional[IO] = None) -> None:
+    def _add_item_value(self, item_name: str, value: str):
         """Adds a value to the list of values for the given item name."""
-        # if not value and not value_range:
-        #     raise ValueError("Either value or value_range must be provided.")
-        
-        # if value_range and not file_obj:
-        #     raise ValueError("file_obj must be provided when value_range is set.")
-
         if item_name not in self._items:
-            # # self._items[item_name] = Item(item_name, file_obj, []) if value_range else []
-            # self._items[item_name] = []
             self._items[item_name] = Item(item_name)
     
-        # if value_range:
-        #     self._items[item_name]._add_slice(*value_range)
-        # else:
-        #     self._items[item_name].append(value)
-
-        # self._items[item_name].append(value)
         self._items[item_name]._add_value(value)
 
 
@@ -378,7 +318,6 @@ class MMCIFParser:
         :return: The data container.
         :rtype: MMCIFDataContainer
         """
-        # self._file_obj = file_obj
         self._file_obj = mmap.mmap(file_obj.fileno(), 0, access=mmap.ACCESS_READ)
         try:
             while True:
@@ -420,9 +359,6 @@ class MMCIFParser:
         :type line: str
         :return: None
         """
-        # # Get the byte offset of the start of the line
-        # offset = self._file_obj.tell() - len(line.strip())
-        
         if line.startswith('#'):
             return  # Ignore comments
         
@@ -435,16 +371,12 @@ class MMCIFParser:
             self._in_loop = True
             self._loop_items = []
         elif line.startswith('_'):
-            tokens = shlex.split(line)
-            # lexer = shlex.shlex(line, posix=True)
-            # lexer.whitespace_split = True
-            # lexer.whitespace = ' \t\r\n'
-            # tokens = list(lexer)
-            if len(tokens) == 2:
-                # Assuming the value is the second token
-                item_full, value = tokens
+            parts = shlex.split(line)
+            if 'gel filtration' in line:
+                print(f"\nParts: {parts}")
+            if len(parts) == 2:
+                item_full, value = parts
                 category, item = item_full.split('.', 1)
-                # value_range = (line.find(value, line.find(item_full)) + offset, len(line) + offset)
                 if category.startswith('_atom_site') and not self.atoms:
                     return
                 if self.categories and category not in self.categories:
@@ -460,11 +392,9 @@ class MMCIFParser:
                     self._multi_line_item_name = item
                     self._multi_line_value_buffer = []
                 else:
-                    self._current_data._add_item_value(item, value)
-                    # self._current_data._add_item_value(item, value.strip(), value_range, self._file_obj)
-                    # self._current_data._add_item_value(item, value_range=value_range, file_obj=self._file_obj)
+                    self._current_data._add_item_value(item, value.strip())
             else:
-                item_full = tokens[0]
+                item_full = parts[0]
                 category, item = item_full.split('.', 1)
                 if category.startswith('_atom_site') and not self.atoms:
                     return
@@ -480,7 +410,6 @@ class MMCIFParser:
                         self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
                 else:
                     value = line[len(item_full):].strip()
-                    # value_range = (line.find(value, line.find(item_full)) + offset, len(line) + offset)
                     if self._current_category != category:
                         self._current_category = category
                         if self._current_category not in self._data_blocks[self._current_block]._categories:
@@ -488,29 +417,12 @@ class MMCIFParser:
                                 self._current_category, self.validator_factory)
                         self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
                     self._current_data._add_item_value(item, value)
-                    # self._current_data._add_item_value(item, value, value_range, self._file_obj)
-                    # self._current_data._add_item_value(item, value_range=value_range, file_obj=self._file_obj)
         elif self._in_loop:            
             # Extract the item names and their ranges
             item_names = [item.split('.', 1)[1] for item in self._loop_items]
-
-            # # Use shlex to split the line while respecting quoted substrings
-            # lexer = shlex.shlex(line, posix=True)
-            # lexer.whitespace_split = True
-            # tokens = list(lexer)
-            
-            # # Extract the byte offsets of the tokens
-            # start = 0
-            # value_map = {}
-            # for token in tokens:
-            #     start = line.find(token, start)
-            #     end = start + len(token)
-            #     value_map[token] = (start + offset, end + offset)
-            #     start = end
             
             if not self._multi_line_value:
-                # # Create the Item objects
-                # values = tokens[:]
+                # Create the Item objects
                 values = shlex.split(line)
                 while len(self._current_row_values) < len(self._loop_items) and values:
                     value = values.pop(0)
@@ -526,30 +438,20 @@ class MMCIFParser:
                 if self._value_counter == len(self._loop_items):
                     for i, val in enumerate(self._current_row_values):
                         item_name = item_names[i]
-                        # TODO: Add value range
                         self._current_data._add_item_value(item_name, val)
+                    self._current_row_values = []
                     self._value_counter = 0
             else:
                 if line == ';':
                     self._multi_line_value = False
                     full_value = "\n".join(self._multi_line_value_buffer)
                     self._current_row_values[-1] = full_value
-                    # # Use shlex to find the start and end offsets of the multi-line value by subtracting the length of the value
-                    # lexer = shlex.shlex(line, posix=True)
-                    # lexer.whitespace_split = True
-                    # lexer.whitespace = ' \t\r\n'
-                    # tokens = list(lexer)
-                    # start_offset = line.find(tokens[0]) - sum(len(buffed) for buffed in self._multi_line_value_buffer) + offset
-                    # end_offset = len(line) + offset
-                    # value_range = (start_offset, end_offset)
                     self._multi_line_value_buffer = []
                     self._value_counter += 1
                     if self._value_counter == len(self._loop_items):
                         for i, val in enumerate(self._current_row_values):
                             item_name = self._loop_items[i].split('.', 1)[1]
                             self._current_data._add_item_value(item_name, val)
-                            # self._current_data._add_item_value(item_name, val, value_range, self._file_obj)
-                            # self._current_data._add_item_value(item_name, value_range=value_range, file_obj=self._file_obj)
                         self._current_row_values = []
                         self._value_counter = 0
                 else:
@@ -558,17 +460,7 @@ class MMCIFParser:
             if line == ';':
                 self._multi_line_value = False
                 full_value = "\n".join(self._multi_line_value_buffer)
-                # # Use shlex to find the start and end offsets of the multi-line value by subtracting the length of the value
-                # lexer = shlex.shlex(line, posix=True)
-                # lexer.whitespace_split = True
-                # lexer.whitespace = ' \t\r\n'
-                # tokens = list(lexer)
-                # start_offset = line.find(tokens[0]) - sum(len(buffed) for buffed in self._multi_line_value_buffer) + offset
-                # end_offset = len(line) + offset
-                # value_range = (start_offset, end_offset)
                 self._current_data._add_item_value(self._multi_line_item_name, full_value)
-                # self._current_data._add_item_value(self._multi_line_item_name, full_value, value_range, self._file_obj)
-                # self._current_data._add_item_value(self._multi_line_item_name, value_range=value_range, file_obj=self._file_obj)
                 self._multi_line_value_buffer = []
             else:
                 self._multi_line_value_buffer.append(line)

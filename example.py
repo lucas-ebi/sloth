@@ -56,8 +56,8 @@ for data_block in file:
         print(f"\nCategory: {category}")
         print(f"  Name: {category.name}")
         print(f"  Items: {category.items}")
-        for item_name, item_values in category:
-            print(f"  Item: {item_name}, Values: {[value for value in item_values][:5]}")
+        for item in category:
+            print(f"  Item: {item.name}, Values: {item.values[:5]}")
 
 # Apply the modification
 modify_data(file)
@@ -74,5 +74,6 @@ for data_block in modified_file:
         print(f"\nCategory: {category}")
         print(f"  Name: {category.name}")
         print(f"    Items: {category.items}")
-        for item, values in category:
-            print(f"      Item: {item}, Values: {[value for value in values][:5]}")
+        for item in category:
+            # print(f"      Item: {item}, Values: {[value for value in values][:5]}")
+            print(f"      Item: {item.name}, Values: {item.values[:5]}")
