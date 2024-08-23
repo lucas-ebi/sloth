@@ -58,39 +58,6 @@ class ValidatorFactory:
         return self.cross_checkers.get(category_pair)
 
 
-class Item:
-    """A class to represent an item in a Category."""
-    def __init__(self, name: str):
-        self._name = name
-        self._values = []
-
-    @property
-    def name(self) -> str:
-        """Provides the name of the item."""
-        return self._name
-    
-    @property
-    def values(self) -> List[str]:
-        """Provides a list of values."""
-        return [value for value in self]
-
-    def _add_value(self, value: str, ) -> None:
-        self._values.append(value)
-
-    def __setitem__(self, index: int, value: str) -> None:
-        self._values[index] = value
-
-    def __iter__(self):
-        for value in self._values:
-            yield value
-
-    def __len__(self):
-        return len(self._values)
-
-    def __repr__(self):
-        return f"Item(name={self.name}, length={len(self)})"
-
-
 class Category:
     """A class to represent a category in a data block."""
     
@@ -440,7 +407,6 @@ class MMCIFParser:
             item_names = [item.split('.', 1)[1] for item in self._loop_items]
             
             if not self._multi_line_value:
-                # Create the Item objects
                 values = shlex.split(line)
                 while len(self._current_row_values) < len(self._loop_items) and values:
                     value = values.pop(0)
