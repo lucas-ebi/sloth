@@ -93,9 +93,11 @@ class Item:
 
 class Category:
     """A class to represent a category in a data block."""
+    
     def __init__(self, name: str, validator_factory: Optional[ValidatorFactory]):
         self._name: str = name
-        self._items: Dict[str, List[str]] = {}
+        self._items: Dict[str, Generator[str, None, None]] = {}
+        self._loaded_items: Dict[str, List[str]] = {}
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
     
     @property
@@ -104,14 +106,14 @@ class Category:
         return self._name
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ('_name', '_items', '_validator_factory'):
+        if name in ('_name', '_items', '_loaded_items', '_validator_factory'):
             super().__setattr__(name, value)
         else:
-            self._items[name] = value
+            self._items[name] = self._lazy_load(value)
 
     def __getattr__(self, item_name: str) -> List[str]:
         if item_name in self._items:
-            return self._items[item_name]
+            return self.__getitem__(item_name)
         elif item_name == 'validate':
             return self._create_validator()
         else:
@@ -121,19 +123,30 @@ class Category:
         return self.Validator(self, self._validator_factory)
 
     def __getitem__(self, item_name: str) -> List[str]:
-        return self._items[item_name]
+        if item_name not in self._loaded_items:
+            self._loaded_items[item_name] = list(self._items[item_name])
+        return self._loaded_items[item_name]
 
     def __setitem__(self, item_name: str, value: List[str]) -> None:
-        self._items[item_name] = value
+        """
+        Allows item assignment to a category.
+
+        :param item_name: The name of the item to assign values to.
+        :type item_name: str
+        :param value: A list of values to assign to the item.
+        :type value: List[str]
+        :return: None
+        """
+        self._items[item_name] = self._lazy_load(value)
+        self._loaded_items.pop(item_name, None)  # Reset loaded items to force reloading
 
     def __iter__(self):
-        return iter(self._items.values())
+        return iter(self._loaded_items.values())
 
     def __len__(self):
         return len(self._items)
 
     def __repr__(self):
-        # Limit the output to avoid long print statements
         return f"Category(name={self.name}, items={list(self._items.keys())})"
 
     @property
@@ -144,15 +157,19 @@ class Category:
     @property
     def data(self) -> Dict[str, List[str]]:
         """Provides read-only access to the data."""
-        return self._items
+        return {name: self.__getitem__(name) for name in self._items}
+
+    def _lazy_load(self, values: List[str]) -> Generator[str, None, None]:
+        """Creates a generator for lazy loading item values."""
+        yield from values
 
     def _add_item_value(self, item_name: str, value: str):
         """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
-            self._items[item_name] = Item(item_name)
-    
-        self._items[item_name]._add_value(value)
-
+            self._items[item_name] = self._lazy_load([value])
+        else:
+            self._items[item_name] = self._lazy_load(self.__getitem__(item_name) + [value])
+        self._loaded_items.pop(item_name, None)  # Reset to force reload
 
     class Validator:
         """A class to validate a category."""
@@ -325,6 +342,7 @@ class MMCIFParser:
                 if not line:
                     break
                 # Process the line based on its type (data block, loop, item, etc.).
+                print(f"Line: {line}")
                 self._process_line(line)
         except IndexError as e:
             print(f"Error reading file: list index out of range - {e}")
