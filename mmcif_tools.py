@@ -142,11 +142,18 @@ class Category:
         """Provides read-only access to the data."""
         return self._items
 
-    def _add_item_value(self, item_name: str, value: str) -> None:
+    def _add_item_value(self, item_name: str, value: Optional[str] = None, value_range: Optional[Tuple[int, int]] = None) -> None:
         """Adds a value to the list of values for the given item name."""
+        if not value and not value_range:
+            raise ValueError("Either value or value_range must be provided.")
+
         if item_name not in self._items:
-            self._items[item_name] = []
-        self._items[item_name].append(value)
+            self._items[item_name] = Item(item_name, self._file_obj, []) if value_range else []
+    
+        if value_range:
+            self._items[item_name]._add_slice(*value_range)
+        else:
+            self._items[item_name].append(value)
 
 
     class Validator:
