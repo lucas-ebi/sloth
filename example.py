@@ -56,8 +56,8 @@ for data_block in file:
         print(f"\nCategory: {category}")
         print(f"  Name: {category.name}")
         print(f"  Items: {category.items}")
-        for item, values in category:
-            print(f"  Item: {item}, Values: {values[:5]}")
+        for item_name, item_values in category:
+            print(f"  Item: {item_name}, Values: {[value for value in item_values][:5]}")
 
 # Apply the modification
 modify_data(file)
@@ -71,8 +71,8 @@ with open('/Users/lucas/Desktop/em/modified_emd_33233.cif', 'w') as f:
 modified_file = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif')#, categories=['_database_2', '_atom_site'])
 for data_block in modified_file:
     for category in data_block:
-        print(f"Category: {category}")
+        print(f"\nCategory: {category}")
         print(f"  Name: {category.name}")
-        print(f"  Items: {category.items}")
+        print(f"    Items: {category.items}")
         for item, values in category:
-            print(f"  Item: {item}, Values: {values[:5]}")
+            print(f"      Item: {item}, Values: {[value for value in values][:5]}")
