@@ -72,6 +72,31 @@ class Category:
         """Provides the name of the category."""
         return self._name
 
+    @property
+    def items(self) -> List[str]:
+        """Provides a list of item names."""
+        return list(self._items.keys())
+
+    @property
+    def data(self) -> Dict[str, List[str]]:
+        """Provides read-only access to the data."""
+        return {name: self.__getitem__(name) for name in self._items}
+
+    def _lazy_load(self, values: List[str]) -> Generator[str, None, None]:
+        """Creates a generator for lazy loading item values."""
+        yield from values
+
+    def _add_item_value(self, item_name: str, value: str):
+        """Adds a value to the list of values for the given item name."""
+        if item_name not in self._items:
+            self._items[item_name] = self._lazy_load([value])
+        else:
+            self._items[item_name] = self._lazy_load(self.__getitem__(item_name) + [value])
+        self._loaded_items.pop(item_name, None)  # Reset to force reload
+
+    def _create_validator(self):
+        return self.Validator(self, self._validator_factory)
+
     def __setattr__(self, name: str, value: Any) -> None:
         if name in ('_name', '_items', '_loaded_items', '_validator_factory'):
             super().__setattr__(name, value)
@@ -85,9 +110,6 @@ class Category:
             return self._create_validator()
         else:
             raise AttributeError(f"'Category' object has no attribute '{item_name}'")
-
-    def _create_validator(self):
-        return self.Validator(self, self._validator_factory)
 
     def __getitem__(self, item_name: str) -> List[str]:
         if item_name not in self._loaded_items:
@@ -115,28 +137,6 @@ class Category:
 
     def __repr__(self):
         return f"Category(name={self.name}, items={list(self._items.keys())})"
-
-    @property
-    def items(self) -> List[str]:
-        """Provides a list of item names."""
-        return list(self._items.keys())
-
-    @property
-    def data(self) -> Dict[str, List[str]]:
-        """Provides read-only access to the data."""
-        return {name: self.__getitem__(name) for name in self._items}
-
-    def _lazy_load(self, values: List[str]) -> Generator[str, None, None]:
-        """Creates a generator for lazy loading item values."""
-        yield from values
-
-    def _add_item_value(self, item_name: str, value: str):
-        """Adds a value to the list of values for the given item name."""
-        if item_name not in self._items:
-            self._items[item_name] = self._lazy_load([value])
-        else:
-            self._items[item_name] = self._lazy_load(self.__getitem__(item_name) + [value])
-        self._loaded_items.pop(item_name, None)  # Reset to force reload
 
     class Validator:
         """A class to validate a category."""
