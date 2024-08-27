@@ -14,10 +14,16 @@ def modify_data(modified_file):
     # Assuming there is a category named '_database_2'
     category = data_block._database_2
 
-    # Modify an item in the category
-    database_ids = list(category.database_id)
-    database_ids[-1] = 'NEWDB'
-    category.database_id = iter(database_ids)
+    # Print category.database_id
+    print(f"\nCategory.database_id: {category.database_id}")
+
+    # Print the content of category.database_id as a list
+    print(f"\nCategory.database_id as list: {list(category.database_id)}")
+
+    # # Modify an item in the category
+    # database_ids = list(category.database_id)
+    # database_ids[-1] = 'NEWDB'
+    # category.database_id = iter(database_ids)
 
 # Initialize the ValidatorFactory and register validators
 validator_factory = ValidatorFactory()
@@ -58,8 +64,8 @@ for data_block in file:
         print(f"\nCategory: {category}")
         print(f"  Name: {category.name}")
         print(f"  Items: {category.items}")
-        for item in category:
-            print(f"  Item: {item.name}, Values: {item.values[:5]}")
+        for item, value in category.data.items():
+            print(f"    Item: {item}, Value: {value}")
 
 # Apply the modification
 modify_data(file)

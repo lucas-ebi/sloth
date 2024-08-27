@@ -64,9 +64,8 @@ class Category:
     def __init__(self, name: str, validator_factory: Optional[ValidatorFactory]):
         self._name: str = name
         self._items: Dict[str, Generator[str, None, None]] = {}
-        self._loaded_items: Dict[str, List[str]] = {}
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
-    
+
     @property
     def name(self) -> str:
         """Provides the name of the category."""
@@ -80,57 +79,50 @@ class Category:
     @property
     def data(self) -> Dict[str, List[str]]:
         """Provides read-only access to the data."""
-        return {name: self.__getitem__(name) for name in self._items}
+        return {name: list(self.__getitem__(name)) for name in self._items}
 
     def _lazy_load(self, values: List[str]) -> Generator[str, None, None]:
         """Creates a generator for lazy loading item values."""
         yield from values
 
-    def _add_item_value(self, item_name: str, value: str):
+    def _add_item_value(self, item_name: str, new_value: str):
         """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
-            self._items[item_name] = self._lazy_load([value])
+            # Create a new generator with the initial value
+            self._items[item_name] = self._lazy_load([new_value])
         else:
-            self._items[item_name] = self._lazy_load(self.__getitem__(item_name) + [value])
-        self._loaded_items.pop(item_name, None)  # Reset to force reload
+            # Combine the existing generator with the new value
+            self._items[item_name] = self._lazy_load([value for value in self._items[item_name]] + [new_value])
 
     def _create_validator(self):
         return self.Validator(self, self._validator_factory)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ('_name', '_items', '_loaded_items', '_validator_factory'):
+        if name in ('_name', '_items', '_validator_factory'):
             super().__setattr__(name, value)
         else:
             self._items[name] = self._lazy_load(value)
 
     def __getattr__(self, item_name: str) -> List[str]:
-        if item_name in self._items:
-            return self.__getitem__(item_name)
-        elif item_name == 'validate':
+        if item_name == 'validate':
             return self._create_validator()
-        else:
-            raise AttributeError(f"'Category' object has no attribute '{item_name}'")
+        elif item_name in self._items:
+            return self.__getitem__(item_name)
+        raise AttributeError(f"'Category' object has no attribute '{item_name}'")
 
-    def __getitem__(self, item_name: str) -> List[str]:
-        if item_name not in self._loaded_items:
-            self._loaded_items[item_name] = list(self._items[item_name])
-        return self._loaded_items[item_name]
+    def __getitem__(self, item_name: str) -> Generator[str, None, None]:
+        """Gets the generator for an item, creating or resetting it as necessary."""
+        if item_name in self._items:
+            return self._items[item_name]
+        raise KeyError(f"Item '{item_name}' not found in category '{self.name}'")
 
     def __setitem__(self, item_name: str, value: List[str]) -> None:
-        """
-        Allows item assignment to a category.
-
-        :param item_name: The name of the item to assign values to.
-        :type item_name: str
-        :param value: A list of values to assign to the item.
-        :type value: List[str]
-        :return: None
-        """
+        """Allows item assignment to a category."""
         self._items[item_name] = self._lazy_load(value)
-        self._loaded_items.pop(item_name, None)  # Reset loaded items to force reloading
 
     def __iter__(self):
-        return iter(self._loaded_items.values())
+        """Iterate over item names."""
+        return iter(self._items)
 
     def __len__(self):
         return len(self._items)
@@ -140,11 +132,11 @@ class Category:
 
     class Validator:
         """A class to validate a category."""
-        def __init__(self, category: 'Category', factory: ValidatorFactory):
+        def __init__(self, category: 'Category', factory: 'ValidatorFactory'):
             self._category: 'Category' = category
-            self._factory: ValidatorFactory = factory
+            self._factory: 'ValidatorFactory' = factory
             self._other_category: Optional['Category'] = None
-        
+
         def __call__(self) -> 'Category.Validator':
             validator = self._factory.get_validator(self._category.name)
             if validator:
@@ -152,16 +144,9 @@ class Category:
             else:
                 print(f"No validator registered for category '{self._category.name}'")
             return self
-        
-        def against(self, other_category: 'Category') -> 'Category.Validator':
-            """
-            Cross-checks the current category against another category.
 
-            :param other_category: The other category to cross-check against.
-            :type other_category: Category
-            :return: The validator object.
-            :rtype: Category.Validator
-            """
+        def against(self, other_category: 'Category') -> 'Category.Validator':
+            """Cross-checks the current category against another category."""
             self._other_category = other_category
             cross_checker = self._factory.get_cross_checker((self._category.name, other_category.name))
             if cross_checker:
