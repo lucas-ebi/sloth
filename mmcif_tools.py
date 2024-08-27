@@ -56,34 +56,40 @@ class ValidatorFactory:
         return self.cross_checkers.get(category_pair)
 
 
-class Item:
-    """A class to represent an item in a Category."""
-    def __init__(self, name: str, file_obj: Optional[IO] = None, slices: Optional[List[Tuple[int, int]]] = None):
-        self._file_obj = file_obj
-        self._slices = slices
+# class Item: # TODO: Implement this class for lazy loading of values
+#     """A class to represent an item in a Category."""
+#     def __init__(self, name: str, file_obj: Optional[IO] = None, slices: Optional[List[Tuple[int, int]]] = None):
+#         self._name = name
+#         self._file_obj = file_obj
+#         self._slices = slices
 
-    def __iter__(self):
-        # Lazy loading values only when iteration begins
-        return self._load_values()
+#     @property
+#     def name(self) -> str:
+#         """Provides read-only access to the item name."""
+#         return self._name
 
-    def _load_values(self):
-        if self._file_obj is None or self._slices is None:
-            raise ValueError("file_obj and slices must be set to load values.")
+#     def _load_values(self):
+#         if self._file_obj is None or self._slices is None:
+#             raise ValueError("file_obj and slices must be set to load values.")
 
-        for item, offsets in slices.items():
-            for start_offset, end_offset in offsets:
-                bytes_to_read = end_offset - start_offset
-                content.seek(start_offset - 1) # Adjust the offset
-                value = content.read(bytes_to_read).decode('utf-8').strip()
-                yield value
+#         for item, offsets in slices.items():
+#             for start_offset, end_offset in offsets:
+#                 bytes_to_read = end_offset - start_offset
+#                 content.seek(start_offset - 1) # Adjust the offset
+#                 value = content.read(bytes_to_read).decode('utf-8').strip()
+#                 yield value
 
-    def __len__(self):
-        if self._slices is None:
-            return 0
-        return len(self._slices)
+#     def __iter__(self):
+#         # Lazy loading values only when iteration begins
+#         return self._load_values()
 
-    def __repr__(self):
-        return f"Item(name={self.name}, length={len(self)})"
+#     def __len__(self):
+#         if self._slices is None:
+#             return 0
+#         return len(self._slices)
+
+#     def __repr__(self):
+#         return f"Item(name={self.name}, length={len(self)})"
 
 
 class Category:
@@ -136,7 +142,7 @@ class Category:
         """Provides read-only access to the data."""
         return self._items
 
-    def _add_item_value(self, item_name: str, value: str) -> None:
+    def _add_item_value(self, item_name: str, value: str) -> None: # TODO: Implement lazy loading of values
         """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
             self._items[item_name] = []
@@ -393,20 +399,9 @@ class MMCIFParser:
                     self._current_data._add_item_value(item, value)
         elif self._in_loop:
             if not self._multi_line_value:
-                ### Extract the item names and their ranges
+                ### Extract the item names from the loop items
                 item_names = [item.split('.', 1)[1] for item in self._loop_items]
-                ### Extract the ranges of the values
-                offset = self._file_obj.tell() - len(line.strip())
-                ranges = []
-                start = 0
-                for i, char in enumerate(line):
-                    if char.isspace():
-                        if start != i:
-                            ranges.append((start + offset, i + offset))
-                        start = i + 1
-                if start < len(line):
-                    ranges.append((start + offset, len(line) + offset))
-                ### TODO: Create the Item objects
+                ### TODO: Implement getting byte offsets for lazy loading of values
                 values = shlex.split(line)
                 while len(self._current_row_values) < len(self._loop_items) and values:
                     value = values.pop(0)
