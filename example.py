@@ -1,3 +1,4 @@
+import argparse
 from mmcif_tools import MMCIFHandler, ValidatorFactory
 
 # Example validators and cross-checkers
@@ -6,73 +7,71 @@ def category_validator(category_name):
 
 def cross_checker(category_name_1, category_name_2):
     print(f"\nCross-checking categories: {category_name_1} and {category_name_2}")
-    
-def modify_data(modified_file):
-    # Assuming there is a data block named '7XJP'
-    data_block = modified_file['7XJP']  # Replace '7XJP' with the actual block name
 
-    # Assuming there is a category named '_database_2'
-    category = data_block['_database_2']  # Replace '_database_2' with the actual category name
+def modify_data(file):
+    block = file.blocks[0]
+    if '_database_2' in block:
+        category = block['_database_2']
+        if 'database_id' in category._items:
+            category._items['database_id'][-1] = 'NEWDB'
+            print("\nModified '_database_2.database_id' to 'NEWDB'")
+        else:
+            print("No 'database_id' found in '_database_2'")
+    else:
+        print("No '_database_2' category found")
 
-    # Modify an item in the category
-    category._items['database_id'][-1] = 'NEWDB'
+def main():
+    parser = argparse.ArgumentParser(
+        description="mmCIF CLI tool for parsing, validating, modifying, and writing files.",
+        epilog="Example usage:\n  python example.py emd_33233.cif emd_33233-modified.cif --categories _database_2 _atom_site --validate",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("input", help="Path to input mmCIF file")
+    parser.add_argument("output", help="Path to write modified mmCIF file")
+    parser.add_argument("--categories", nargs="+", help="List of categories to include", default=None)
+    parser.add_argument("--validate", action="store_true", help="Run validation on selected categories")
+    args = parser.parse_args()
 
-# Initialize the ValidatorFactory and register validators
-validator_factory = ValidatorFactory()
+    # Setup
+    validator_factory = ValidatorFactory()
+    handler = MMCIFHandler(atoms=True, validator_factory=validator_factory)
 
-# Initialize the handler
-handler = MMCIFHandler(atoms=True, validator_factory=validator_factory)
+    # Parse input
+    print(f"\nParsing: {args.input}")
+    file = handler.parse(args.input, categories=args.categories)
 
-# Parse the file with specific categories
-file = handler.parse('/Users/lucas/Desktop/em/emd_33233.cif')#, categories=['_database_2', '_atom_site'])
+    print(f"\nParsed Data Blocks: {file.blocks}")
 
-# Print data blocks
-print(f"\nData blocks: {file.blocks}")
+    # Optionally validate
+    if args.validate:
+        block = file.blocks[0]
+        if '_database_2' in block and '_atom_site' in block:
+            cat = block['_database_2']
+            other_cat = block['_atom_site']
+            validator_factory.register_validator(cat.name, category_validator)
+            validator_factory.register_cross_checker((cat.name, other_cat.name), cross_checker)
+            cat.validate()
+            cat.validate.against(other_cat)
+        else:
+            print("Skipping validation — required categories missing.")
 
-# Print file content
-print(f"\nFile content: {file.data}")
+    # Modify
+    modify_data(file)
 
-# Accessing the DataBlock named '7XJP'
-print(f"\nData Block: {file.data_7XJP}")
+    # Write to output
+    print(f"\nWriting modified file to: {args.output}")
+    with open(args.output, 'w') as f:
+        handler.file_obj = f
+        handler.write(file)
 
-# Accessing the first DataBlock in the file
-print(f"\nFirst Data Block: {file.data[0]}")
+    # Confirm
+    print("\nVerifying output...")
+    modified_file = handler.parse(args.output)
+    for block in modified_file:
+        for category in block:
+            print(f"Category: {category.name}")
+            for item, values in category:
+                print(f"  Item: {item}, Values: {values[:5]}")
 
-category = file.data_7XJP._database_2
-other_category = file.data_7XJP._atom_site
-
-# Register the validators and cross-checkers
-validator_factory.register_validator(category.name, category_validator)
-validator_factory.register_cross_checker((category.name, other_category.name), cross_checker)
-
-# Validate the category
-category.validate()
-
-# Cross-validate the categories
-category.validate.against(other_category)
-
-for data_block in file:
-    for category in data_block:
-        print(f"\nCategory: {category}")
-        print(f"  Name: {category.name}")
-        print(f"  Items: {category.items}")
-        for item, values in category:
-            print(f"  Item: {item}, Values: {values[:5]}")
-
-# Apply the modification
-modify_data(file)
-
-# Write the updated content back to a new mmCIF file
-with open('/Users/lucas/Desktop/em/modified_emd_33233.cif', 'w') as f:
-    handler.file_obj = f
-    handler.write(file)
-
-# Verify the changes
-modified_file = handler.parse('/Users/lucas/Desktop/em/modified_emd_33233.cif')#, categories=['_database_2', '_atom_site'])
-for data_block in modified_file:
-    for category in data_block:
-        print(f"Category: {category}")
-        print(f"  Name: {category.name}")
-        print(f"  Items: {category.items}")
-        for item, values in category:
-            print(f"  Item: {item}, Values: {values[:5]}")
+if __name__ == "__main__":
+    main()

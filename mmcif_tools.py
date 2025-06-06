@@ -257,16 +257,6 @@ class MMCIFParser:
     """A class to parse an mmCIF file and return a data container."""
 
     def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
-        """
-        Initializes the MMCIFParser.
-
-        :param atoms: Flag indicating whether to include atom site data.
-        :type atoms: bool
-        :param validator_factory: Factory for creating validators.
-        :type validator_factory: Optional[ValidatorFactory]
-        :param categories: List of categories to parse, parses all if None.
-        :type categories: Optional[List[str]]
-        """
         self.atoms = atoms
         self.validator_factory = validator_factory
         self.categories = categories
@@ -284,32 +274,12 @@ class MMCIFParser:
         self._value_counter = 0
 
     def parse(self, file_obj: IO) -> MMCIFDataContainer:
-        """
-        Reads a file object and returns a data container.
-
-        Overview:
-        This method reads through the mmCIF file content line by line, processing each line to extract
-        data blocks, categories, and items. It handles simple items, loops, and multi-line values.
-
-        Pseudocode:
-        - Initialize an empty data container.
-        - For each line in the file:
-            - Process the line based on its type (data block, loop, item, etc.).
-            - Add the processed data to the appropriate structures.
-        - Return the populated data container.
-
-        :param file_obj: The file object to read from.
-        :type file_obj: IO
-        :return: The data container.
-        :rtype: MMCIFDataContainer
-        """
         self._file_obj = file_obj
         try:
             while True:
                 line = self._file_obj.readline()
                 if not line:
                     break
-                # Process the line based on its type (data block, loop, item, etc.).
                 self._process_line(line.rstrip())
         except IndexError as e:
             print(f"Error reading file: list index out of range - {e}")
@@ -318,131 +288,117 @@ class MMCIFParser:
         except Exception as e:
             print(f"Error reading file: {e}")
 
-        # Return the populated data container.
         return MMCIFDataContainer(self._data_blocks)
 
     def _process_line(self, line: str) -> None:
-        """
-        Processes a line from the mmCIF file.
-
-        Overview:
-        This method determines the type of the given line and calls the appropriate handler
-        function to process the line and extract relevant data.
-
-        Pseudocode:
-        - If the line is a comment, ignore it.
-        - If the line starts a new data block, call _start_new_data_block.
-        - If the line starts a loop, call _start_loop.
-        - If the line defines an item, process the item.
-        - If currently in a loop, process the loop data.
-        - If handling a multi-line value, continue handling it.
-
-        :param line: The line to process.
-        :type line: str
-        :return: None
-        """
         if line.startswith('#'):
-            return  # Ignore comments
-        if line.startswith('data_'):
-            self._current_block = line.split('_', 1)[1]
-            self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
-            self._current_category = None
-            self._in_loop = False
+            return
+        elif line.startswith('data_'):
+            self._handle_data_block(line)
         elif line.startswith('loop_'):
-            self._in_loop = True
-            self._loop_items = []
+            self._start_loop()
         elif line.startswith('_'):
-            
-            parts = shlex.split(line)
-            if len(parts) == 2:
-                item_full, value = parts
-                category, item = item_full.split('.', 1)
-                if category.startswith('_atom_site') and not self.atoms:
-                    return
-                if self.categories and category not in self.categories:
-                    return
-                if self._current_category != category:
-                    self._current_category = category
-                    if self._current_category not in self._data_blocks[self._current_block]._categories:
-                        self._data_blocks[self._current_block]._categories[self._current_category] = Category(
-                            self._current_category, self.validator_factory)
-                    self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
+            self._handle_item_line(line)
+        elif self._in_loop:
+            self._handle_loop_value_line(line)
+        elif self._multi_line_value:
+            self._handle_non_loop_multiline(line)
+
+    def _handle_data_block(self, line: str):
+        self._current_block = line.split('_', 1)[1]
+        self._data_blocks[self._current_block] = DataBlock(self._current_block, {})
+        self._current_category = None
+        self._in_loop = False
+
+    def _start_loop(self):
+        self._in_loop = True
+        self._loop_items = []
+
+    def _handle_item_line(self, line: str):
+        parts = shlex.split(line)
+        if len(parts) == 2:
+            self._handle_simple_item(*parts)
+        else:
+            self._handle_loop_item(parts[0], line[len(parts[0]):].strip())
+
+    def _handle_simple_item(self, item_full: str, value: str):
+        category, item = item_full.split('.', 1)
+        if not self._should_include_category(category):
+            return
+        self._ensure_current_data(category)
+        if value.startswith(';'):
+            self._multi_line_value = True
+            self._multi_line_item_name = item
+            self._multi_line_value_buffer = []
+        else:
+            self._current_data._add_item_value(item, value.strip())
+
+    def _handle_loop_item(self, item_full: str, value: str):
+        category, item = item_full.split('.', 1)
+        if not self._should_include_category(category):
+            return
+        if self._in_loop:
+            self._loop_items.append(item_full)
+            self._ensure_current_data(category)
+        else:
+            self._ensure_current_data(category)
+            self._current_data._add_item_value(item, value)
+
+    def _handle_loop_value_line(self, line: str):
+        item_names = [item.split('.', 1)[1] for item in self._loop_items]
+        if not self._multi_line_value:
+            values = shlex.split(line)
+            while len(self._current_row_values) < len(self._loop_items) and values:
+                value = values.pop(0)
                 if value.startswith(';'):
                     self._multi_line_value = True
-                    self._multi_line_item_name = item
-                    self._multi_line_value_buffer = []
+                    self._multi_line_item_name = item_names[len(self._current_row_values)]
+                    self._multi_line_value_buffer.append(value[1:])
+                    self._current_row_values.append(None)
+                    break
                 else:
-                    self._current_data._add_item_value(item, value.strip())
-            else:
-                item_full = parts[0]
-                category, item = item_full.split('.', 1)
-                if category.startswith('_atom_site') and not self.atoms:
-                    return
-                if self.categories and category not in self.categories:
-                    return
-                if self._in_loop:
-                    self._loop_items.append(item_full)
-                    if self._current_category != category:
-                        self._current_category = category
-                        if self._current_category not in self._data_blocks[self._current_block]._categories:
-                            self._data_blocks[self._current_block]._categories[self._current_category] = Category(
-                                self._current_category, self.validator_factory)
-                        self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
-                else:
-                    value = line[len(item_full):].strip()
-                    if self._current_category != category:
-                        self._current_category = category
-                        if self._current_category not in self._data_blocks[self._current_block]._categories:
-                            self._data_blocks[self._current_block]._categories[self._current_category] = Category(
-                                self._current_category, self.validator_factory)
-                        self._current_data = self._data_blocks[self._current_block]._categories[self._current_category]
-                    self._current_data._add_item_value(item, value)
-        elif self._in_loop:
-            if not self._multi_line_value:
-                ### Extract the item names from the loop items
-                item_names = [item.split('.', 1)[1] for item in self._loop_items]
-                ### TODO: Implement getting byte offsets for lazy loading of values
-                values = shlex.split(line)
-                while len(self._current_row_values) < len(self._loop_items) and values:
-                    value = values.pop(0)
-                    if value.startswith(';'):
-                        self._multi_line_value = True
-                        self._multi_line_item_name = item_names[len(self._current_row_values)]
-                        self._multi_line_value_buffer.append(value[1:])
-                        self._current_row_values.append(None)
-                        break
-                    else:
-                        self._current_row_values.append(value)
-                        self._value_counter += 1
-                if self._value_counter == len(self._loop_items):
-                    for i, val in enumerate(self._current_row_values):
-                        item_name = self._loop_items[i].split('.', 1)[1]
-                        self._current_data._add_item_value(item_name, val)
-                    self._current_row_values = []
-                    self._value_counter = 0
-            else:
-                if line == ';':
-                    self._multi_line_value = False
-                    full_value = "\n".join(self._multi_line_value_buffer)
-                    self._current_row_values[-1] = full_value
-                    self._multi_line_value_buffer = []
+                    self._current_row_values.append(value)
                     self._value_counter += 1
-                    if self._value_counter == len(self._loop_items):
-                        for i, val in enumerate(self._current_row_values):
-                            item_name = self._loop_items[i].split('.', 1)[1]
-                            self._current_data._add_item_value(item_name, val)
-                        self._current_row_values = []
-                        self._value_counter = 0
-                else:
-                    self._multi_line_value_buffer.append(line)
-        elif self._multi_line_value:
+            self._maybe_commit_loop_row()
+        else:
             if line == ';':
                 self._multi_line_value = False
                 full_value = "\n".join(self._multi_line_value_buffer)
-                self._current_data._add_item_value(self._multi_line_item_name, full_value)
+                self._current_row_values[-1] = full_value
                 self._multi_line_value_buffer = []
+                self._value_counter += 1
+                self._maybe_commit_loop_row()
             else:
                 self._multi_line_value_buffer.append(line)
+
+    def _maybe_commit_loop_row(self):
+        if self._value_counter == len(self._loop_items):
+            for i, val in enumerate(self._current_row_values):
+                item_name = self._loop_items[i].split('.', 1)[1]
+                self._current_data._add_item_value(item_name, val)
+            self._current_row_values = []
+            self._value_counter = 0
+
+    def _handle_non_loop_multiline(self, line: str):
+        if line == ';':
+            self._multi_line_value = False
+            full_value = "\n".join(self._multi_line_value_buffer)
+            self._current_data._add_item_value(self._multi_line_item_name, full_value)
+            self._multi_line_value_buffer = []
+        else:
+            self._multi_line_value_buffer.append(line)
+
+    def _should_include_category(self, category: str) -> bool:
+        return not (category.startswith('_atom_site') and not self.atoms) and \
+               (not self.categories or category in self.categories)
+
+    def _ensure_current_data(self, category: str):
+        if self._current_category != category:
+            self._current_category = category
+            if category not in self._data_blocks[self._current_block]._categories:
+                self._data_blocks[self._current_block]._categories[category] = Category(
+                    category, self.validator_factory)
+            self._current_data = self._data_blocks[self._current_block]._categories[category]
 
 
 class MMCIFWriter:
