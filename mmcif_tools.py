@@ -512,14 +512,14 @@ class MMCIFTree:
         self.container = container
         self.trees = {}  # block_name -> tree info
         for block_name, block in container._data_blocks.items():
-            relationships = self._optimized_infer_foreign_keys(block)
-            self._optimized_relocate_categories(block, relationships)
+            relationships = self._infer_foreign_keys(block)
+            self._relocate_categories(block, relationships)
             self.trees[block_name] = {
                 "block": block,
                 "relationships": relationships
             }
 
-    def _optimized_infer_foreign_keys(self, block: DataBlock):
+    def _infer_foreign_keys(self, block: DataBlock):
         key_index = {}
         foreign_key_map = defaultdict(list)
         for name, cat in block.categories.items():
@@ -558,7 +558,7 @@ class MMCIFTree:
             })
         return relationships
 
-    def _optimized_relocate_categories(self, block: DataBlock, relationships):
+    def _relocate_categories(self, block: DataBlock, relationships):
         if not relationships:
             return
         in_degree = defaultdict(int)
