@@ -1,7 +1,9 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
 import shlex
-
+import json
+from collections import defaultdict, deque
+from functools import lru_cache
 
 class ValidatorFactory:
     """A factory class for creating validators and cross-checkers."""
@@ -504,3 +506,175 @@ class MMCIFHandler:
     def file_obj(self, file_obj):
         """Sets the file object."""
         self._file_obj = file_obj
+
+class MMCIFTree:
+    def __init__(self, container: MMCIFDataContainer):
+        self.container = container
+        self.trees = {}  # block_name -> tree info
+        for block_name, block in container._data_blocks.items():
+            relationships = self._optimized_infer_foreign_keys(block)
+            self._optimized_relocate_categories(block, relationships)
+            self.trees[block_name] = {
+                "block": block,
+                "relationships": relationships
+            }
+
+    def _optimized_infer_foreign_keys(self, block: DataBlock):
+        key_index = {}
+        foreign_key_map = defaultdict(list)
+        for name, cat in block.categories.items():
+            keys = []
+            items = cat.items
+            key_candidates = [
+                item for item in items
+                if item in {'id', 'identifier'}
+                or item == f"{name}_id"
+                or item.endswith('_id')
+            ]
+            for item in key_candidates:
+                if item in {'id', 'identifier'} or item == f"{name}_id":
+                    keys.append(item)
+                    foreign_key_map[item].append(name)
+                elif item.endswith('_id'):
+                    foreign_key_map[item].append(item[:-3])
+            if keys:
+                key_index[name] = keys
+
+        relationships = []
+        valid_pairs = {
+            (child_name, item, parent_name)
+            for child_name, child_cat in block.categories.items()
+            for item in child_cat.items
+            if item in foreign_key_map
+            for parent_name in foreign_key_map[item]
+            if parent_name != child_name and parent_name in key_index
+        }
+        for child_name, item, parent_name in valid_pairs:
+            relationships.append({
+                "parent": parent_name,
+                "child": child_name,
+                "local_item": item,
+                "remote_item": key_index[parent_name][0]
+            })
+        return relationships
+
+    def _optimized_relocate_categories(self, block: DataBlock, relationships):
+        if not relationships:
+            return
+        in_degree = defaultdict(int)
+        children_of = defaultdict(list)
+        for cat in block.categories:
+            in_degree[cat] = 0
+        for rel in relationships:
+            children_of[rel['parent']].append(rel)
+            in_degree[rel['child']] += 1
+        queue = deque([cat for cat, deg in in_degree.items() if deg == 0])
+        processed_order = []
+        while queue:
+            parent_name = queue.popleft()
+            processed_order.append(parent_name)
+            for rel in children_of.get(parent_name, []):
+                child_name = rel['child']
+                in_degree[child_name] -= 1
+                if in_degree[child_name] == 0:
+                    queue.append(child_name)
+        assigned = set()
+        attr_defaults = {
+            '__name__': lambda cat, name: name,
+            '__path__': lambda cat, name: [name],
+            '__foreign_keys__': lambda cat, name: []
+        }
+        for cat_name in processed_order:
+            if cat_name not in block.categories:
+                continue
+            cat = block.categories[cat_name]
+            for attr, default_fn in attr_defaults.items():
+                if not hasattr(cat, attr):
+                    setattr(cat, attr, default_fn(cat, cat_name))
+            if not hasattr(cat, "__id_index__"):
+                for item in ('id', f"{cat_name}_id", "identifier"):
+                    if item in cat.items:
+                        idx = cat.items.index(item)
+                        rows = list(zip(*(cat.data[i] for i in cat.items)))
+                        cat.__id_index__ = {row[idx]: row for row in rows}
+                        break
+            child_rels = children_of.get(cat_name, [])
+            for rel in child_rels:
+                child_name = rel["child"]
+                if child_name in assigned:
+                    continue
+                child = block.categories[child_name]
+                setattr(cat, child_name, child)
+                child.__parent__ = cat
+                child.__foreign_keys__.append((
+                    rel["local_item"],
+                    rel["parent"],
+                    rel["remote_item"]
+                ))
+                child.__name__ = getattr(child, "__name__", child_name)
+                child.__path__ = getattr(child, "__path__", cat.__path__ + [child_name])
+                assigned.add(child_name)
+        for child_name in assigned:
+            block.categories.pop(child_name, None)
+
+    @lru_cache(maxsize=128)
+    def get_category_by_path(self, block_name, *parts):
+        block = self.container[block_name]
+        current = block
+        for part in parts:
+            current = getattr(current, part, None)
+            if current is None:
+                return None
+        return current
+
+    def print_tree(self, block_name, category=None, level=0):
+        block = self.container[block_name]
+        if category is None:
+            for cat in block.categories.values():
+                self.print_tree(block_name, cat, level)
+            return
+        indent = "  " * level
+        print(f"{indent}- {getattr(category, '__name__', category.name)}")
+        for attr in dir(category):
+            child = getattr(category, attr)
+            if isinstance(child, Category) and getattr(child, '__parent__', None) is category:
+                self.print_tree(block_name, child, level + 1)
+
+    def to_dict(self):
+        return {
+            block_name: {
+                'categories': {
+                    name: self._category_to_dict(cat)
+                    for name, cat in block.categories.items()
+                },
+                'relationships': tree['relationships'],
+                'root_categories': list(block.categories.keys())
+            }
+            for block_name, tree in self.trees.items()
+            for block in [tree['block']]
+        }
+
+    def _category_to_dict(self, category):
+        cat_dict = {
+            'name': getattr(category, '__name__', category.name),
+            'path': getattr(category, '__path__', None),
+            'items': category.items,
+            'rows': list(zip(*(category.data[i] for i in category.items))),
+            'id_index': list(getattr(category, '__id_index__', {}).items()),
+            'foreign_keys': getattr(category, '__foreign_keys__', []),
+            'children': {
+                attr: self._category_to_dict(getattr(category, attr))
+                for attr in dir(category)
+                if isinstance(getattr(category, attr), Category)
+                and getattr(getattr(category, attr), '__parent__', None) is category
+            }
+        }
+        return cat_dict
+
+    def to_json(self, indent=None):
+        return json.dumps(self.to_dict(), indent=indent, default=self._json_default)
+
+    def _json_default(self, obj):
+        if isinstance(obj, (set, frozenset)):
+            return list(obj)
+        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
