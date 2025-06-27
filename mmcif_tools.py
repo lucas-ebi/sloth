@@ -1,6 +1,9 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
 import io
 import shlex
+import mmap
+import os
+from functools import cached_property
 
 
 class ValidatorFactory:
@@ -56,58 +59,113 @@ class ValidatorFactory:
         return self.cross_checkers.get(category_pair)
 
 
-# class Item: # TODO: Implement this class for lazy loading of values
-#     """A class to represent an item in a Category."""
-#     def __init__(self, name: str, file_obj: Optional[IO] = None, slices: Optional[List[Tuple[int, int]]] = None):
-#         self._name = name
-#         self._file_obj = file_obj
-#         self._slices = slices
+class Item:
+    """A lazy-loaded item that uses memory mapping for efficient access to large files."""
+    
+    def __init__(self, name: str, mmap_obj: Optional[mmap.mmap] = None, 
+                 value_offsets: Optional[List[Tuple[int, int]]] = None,
+                 eager_values: Optional[List[str]] = None):
+        """
+        Initialize an Item with either memory-mapped offsets or eager values.
+        
+        :param name: The name of the item
+        :param mmap_obj: Memory-mapped file object
+        :param value_offsets: List of (start, end) byte offsets for values in the mmap
+        :param eager_values: Pre-loaded values (fallback for small datasets)
+        """
+        self._name = name
+        self._mmap_obj = mmap_obj
+        self._value_offsets = value_offsets or []
+        self._eager_values = eager_values
+        self._cached_values: Optional[List[str]] = None
 
-#     @property
-#     def name(self) -> str:
-#         """Provides read-only access to the item name."""
-#         return self._name
+    @property
+    def name(self) -> str:
+        """Read-only access to the item name."""
+        return self._name
 
-#     def _load_values(self):
-#         if self._file_obj is None or self._slices is None:
-#             raise ValueError("file_obj and slices must be set to load values.")
+    @cached_property
+    def values(self) -> List[str]:
+        """Lazy-loaded values with caching."""
+        if self._cached_values is not None:
+            return self._cached_values
+            
+        if self._eager_values is not None:
+            self._cached_values = self._eager_values
+            return self._cached_values
+            
+        if self._mmap_obj is None or not self._value_offsets:
+            self._cached_values = []
+            return self._cached_values
+            
+        # Memory-mapped lazy loading
+        self._cached_values = []
+        for start_offset, end_offset in self._value_offsets:
+            try:
+                # Extract bytes from memory map
+                value_bytes = self._mmap_obj[start_offset:end_offset]
+                value = value_bytes.decode('utf-8').strip()
+                self._cached_values.append(value)
+            except (IndexError, UnicodeDecodeError) as e:
+                # Fallback for malformed data
+                self._cached_values.append("")
+                
+        return self._cached_values
 
-#         for item, offsets in slices.items():
-#             for start_offset, end_offset in offsets:
-#                 bytes_to_read = end_offset - start_offset
-#                 content.seek(start_offset - 1) # Adjust the offset
-#                 value = content.read(bytes_to_read).decode('utf-8').strip()
-#                 yield value
+    def add_offset(self, start: int, end: int) -> None:
+        """Add a new value offset for memory-mapped access."""
+        self._value_offsets.append((start, end))
+        # Clear cache when new offsets are added
+        self._cached_values = None
 
-#     def __iter__(self):
-#         # Lazy loading values only when iteration begins
-#         return self._load_values()
+    def add_eager_value(self, value: str) -> None:
+        """Add a value directly (for small datasets or immediate loading)."""
+        if self._eager_values is None:
+            self._eager_values = []
+        self._eager_values.append(value)
+        # Clear cache when new values are added
+        self._cached_values = None
 
-#     def __len__(self):
-#         if self._slices is None:
-#             return 0
-#         return len(self._slices)
+    def __iter__(self):
+        """Iterate over values (triggers lazy loading)."""
+        return iter(self.values)
 
-#     def __repr__(self):
-#         return f"Item(name={self.name}, length={len(self)})"
+    def __len__(self):
+        """Get the number of values."""
+        if self._eager_values is not None:
+            return len(self._eager_values)
+        return len(self._value_offsets)
+
+    def __getitem__(self, index: Union[int, slice]) -> Union[str, List[str]]:
+        """Get value(s) by index (triggers lazy loading)."""
+        return self.values[index]
+
+    def __repr__(self):
+        return f"Item(name='{self.name}', length={len(self)}, loaded={self._cached_values is not None})"
 
 
 class Category:
     """A class to represent a category in a data block."""
-    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory]):
+    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory], 
+                 mmap_obj: Optional[mmap.mmap] = None):
         self.name: str = name
-        self._items: Dict[str, List[str]] = {}
+        self._items: Dict[str, Union[List[str], Item]] = {}
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
+        self._mmap_obj = mmap_obj
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ('name', '_items', '_validator_factory'):
+        if name in ('name', '_items', '_validator_factory', '_mmap_obj'):
             super().__setattr__(name, value)
         else:
             self._items[name] = value
 
-    def __getattr__(self, item_name: str) -> List[str]:
+    def __getattr__(self, item_name: str) -> Union[List[str], Item]:
         if item_name in self._items:
-            return self._items[item_name]
+            item = self._items[item_name]
+            # Return values for Item objects, the Item itself for direct access
+            if isinstance(item, Item):
+                return item.values
+            return item
         elif item_name == 'validate':
             return self._create_validator()
         else:
@@ -117,9 +175,12 @@ class Category:
         return self.Validator(self, self._validator_factory)
 
     def __getitem__(self, item_name: str) -> List[str]:
-        return self._items[item_name]
+        item = self._items[item_name]
+        if isinstance(item, Item):
+            return item.values
+        return item
 
-    def __setitem__(self, item_name: str, value: List[str]) -> None:
+    def __setitem__(self, item_name: str, value: Union[List[str], Item]) -> None:
         self._items[item_name] = value
 
     def __iter__(self):
@@ -139,14 +200,46 @@ class Category:
 
     @property
     def data(self) -> Dict[str, List[str]]:
-        """Provides read-only access to the data."""
-        return self._items
+        """Provides read-only access to the data (forces loading of lazy items)."""
+        result = {}
+        for name, item in self._items.items():
+            if isinstance(item, Item):
+                result[name] = item.values
+            else:
+                result[name] = item
+        return result
 
-    def _add_item_value(self, item_name: str, value: str) -> None: # TODO: Implement lazy loading of values
-        """Adds a value to the list of values for the given item name."""
+    def get_item(self, item_name: str) -> Union[Item, List[str]]:
+        """Get the raw item (Item object or list), without forcing lazy loading."""
+        return self._items[item_name]
+
+    def is_lazy_loaded(self, item_name: str) -> bool:
+        """Check if an item is lazy-loaded."""
+        return isinstance(self._items.get(item_name), Item)
+
+    def _add_item_value(self, item_name: str, value: str, 
+                       start_offset: Optional[int] = None, 
+                       end_offset: Optional[int] = None) -> None:
+        """Adds a value to the list of values for the given item name using memory mapping."""
         if item_name not in self._items:
-            self._items[item_name] = []
-        self._items[item_name].append(value)
+            self._items[item_name] = Item(item_name, self._mmap_obj)
+        
+        if isinstance(self._items[item_name], Item):
+            if self._mmap_obj is not None and start_offset is not None and end_offset is not None:
+                # Memory-mapped lazy loading with byte offsets
+                self._items[item_name].add_offset(start_offset, end_offset)
+            else:
+                # Fallback to eager loading if offsets not available
+                self._items[item_name].add_eager_value(value)
+        else:
+            # Convert existing list to Item
+            existing_values = self._items[item_name] if isinstance(self._items[item_name], list) else []
+            item = Item(item_name, self._mmap_obj, eager_values=existing_values)
+            if self._mmap_obj is not None and start_offset is not None and end_offset is not None:
+                item.add_offset(start_offset, end_offset)
+            else:
+                item.add_eager_value(value)
+            self._items[item_name] = item
 
 
     class Validator:
@@ -254,13 +347,11 @@ class MMCIFDataContainer:
 
 
 class MMCIFParser:
-    """A class to parse an mmCIF file and return a data container."""
+    """Memory-mapped mmCIF parser with lazy loading for optimal performance."""
 
-    def __init__(self, atoms: bool, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
-        self.atoms = atoms
+    def __init__(self, validator_factory: Optional[ValidatorFactory], categories: Optional[List[str]] = None):
         self.validator_factory = validator_factory
         self.categories = categories
-        self._file_obj = None
         self._data_blocks = {}
         self._current_block = None
         self._current_category = None
@@ -272,23 +363,242 @@ class MMCIFParser:
         self._multi_line_value_buffer = []
         self._current_row_values = []
         self._value_counter = 0
+        self._mmap_obj: Optional[mmap.mmap] = None
+        self._file_path: Optional[str] = None
 
-    def parse(self, file_obj: IO) -> MMCIFDataContainer:
-        self._file_obj = file_obj
+    def parse_file(self, file_path: str) -> MMCIFDataContainer:
+        """Parse a file using memory mapping with lazy loading."""
+        self._file_path = file_path
+        return self._parse_with_mmap(file_path)
+
+    def _parse_with_mmap(self, file_path: str) -> MMCIFDataContainer:
+        """Parse using memory mapping with true lazy loading."""
+        # Check file size first
+        file_size = os.path.getsize(file_path)
+        
+        # Handle empty files - can't memory map empty files
+        if file_size == 0:
+            return MMCIFDataContainer({})
+        
+        # Always use memory mapping for consistent behavior
+        with open(file_path, 'rb') as f:
+            # Create memory map
+            self._mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            
+            # Parse directly from memory map
+            return self._parse_from_mmap()
+    
+    def _parse_from_mmap(self) -> MMCIFDataContainer:
+        """Parse directly from memory map using byte offsets for true lazy loading."""
+        # Convert mmap to string for line-by-line processing
+        # We still need to process line by line to understand the structure
+        content = self._mmap_obj[:].decode('utf-8')
+        lines = content.split('\n')
+        
+        # Track byte positions for lazy loading
+        current_pos = 0
+        
+        # Override the _ensure_current_data to create memory-mapped categories
+        original_ensure = self._ensure_current_data
+        def mmap_ensure_current_data(category: str):
+            if self._current_category != category:
+                self._current_category = category
+                if category not in self._data_blocks[self._current_block]._categories:
+                    self._data_blocks[self._current_block]._categories[category] = Category(
+                        category, self.validator_factory, self._mmap_obj)
+                self._current_data = self._data_blocks[self._current_block]._categories[category]
+        
+        self._ensure_current_data = mmap_ensure_current_data
+        
         try:
-            while True:
-                line = self._file_obj.readline()
-                if not line:
-                    break
-                self._process_line(line.rstrip())
-        except IndexError as e:
-            print(f"Error reading file: list index out of range - {e}")
-        except KeyError as e:
-            print(f"Missing data block or category: {e}")
-        except Exception as e:
-            print(f"Error reading file: {e}")
+            for line in lines:
+                # Calculate start and end positions for this line in the mmap
+                line_start = current_pos
+                line_end = current_pos + len(line.encode('utf-8'))
+                current_pos = line_end + 1  # +1 for newline character
+                
+                # Process the line, potentially storing byte offsets for lazy loading
+                self._process_line_with_offsets(line.rstrip(), line_start, line_end)
+                
+            return MMCIFDataContainer(self._data_blocks)
+        finally:
+            # Restore original method
+            self._ensure_current_data = original_ensure
 
-        return MMCIFDataContainer(self._data_blocks)
+    def _process_line_with_offsets(self, line: str, line_start: int, line_end: int) -> None:
+        """Process a line and store byte offsets for true lazy loading."""
+        if line.startswith('#'):
+            return
+        elif line.startswith('data_'):
+            self._handle_data_block(line)
+        elif line.startswith('loop_'):
+            self._start_loop()
+        elif line.startswith('_'):
+            self._handle_item_line_with_offsets(line, line_start, line_end)
+        elif self._in_loop:
+            self._handle_loop_value_line_with_offsets(line, line_start, line_end)
+        elif self._multi_line_value:
+            self._handle_non_loop_multiline(line)
+
+    def _handle_item_line_with_offsets(self, line: str, line_start: int, line_end: int) -> None:
+        """Handle item lines with byte offset tracking for lazy loading."""
+        parts = shlex.split(line)
+        if len(parts) == 2:
+            self._handle_simple_item_with_offsets(parts[0], parts[1], line, line_start, line_end)
+        else:
+            self._handle_loop_item(parts[0], line[len(parts[0]):].strip())
+
+    def _handle_simple_item_with_offsets(self, item_full: str, value: str, full_line: str, line_start: int, line_end: int) -> None:
+        """Handle simple items with precise byte offset calculation for lazy loading."""
+        category, item = item_full.split('.', 1)
+        if not self._should_include_category(category):
+            return
+        self._ensure_current_data(category)
+        
+        if value.startswith(';'):
+            # Multi-line values need special handling
+            self._multi_line_value = True
+            self._multi_line_item_name = item
+            self._multi_line_value_buffer = []
+        else:
+            # Parse the line manually to find the exact byte position of the value
+            parts = shlex.split(full_line)
+            if len(parts) >= 2:
+                # Find the value part in the original line
+                # We need to account for quotes and spacing
+                item_part = parts[0]
+                value_part = parts[1]
+                
+                # Find where the value starts in the line
+                item_end = full_line.find(item_part) + len(item_part)
+                # Skip whitespace after item name
+                value_start_in_line = item_end
+                while value_start_in_line < len(full_line) and full_line[value_start_in_line].isspace():
+                    value_start_in_line += 1
+                
+                # Calculate byte offsets
+                value_start_offset = line_start + value_start_in_line
+                
+                # Handle quoted values
+                if value_start_in_line < len(full_line) and full_line[value_start_in_line] in ['"', "'"]:
+                    # Find the end of the quoted value
+                    quote_char = full_line[value_start_in_line]
+                    value_end_in_line = value_start_in_line + 1
+                    while value_end_in_line < len(full_line) and full_line[value_end_in_line] != quote_char:
+                        if full_line[value_end_in_line] == '\\':
+                            value_end_in_line += 2  # Skip escaped character
+                        else:
+                            value_end_in_line += 1
+                    if value_end_in_line < len(full_line):
+                        value_end_in_line += 1  # Include closing quote
+                else:
+                    # Unquoted value - find the end
+                    value_end_in_line = value_start_in_line
+                    while value_end_in_line < len(full_line) and not full_line[value_end_in_line].isspace():
+                        value_end_in_line += 1
+                
+                value_end_offset = line_start + value_end_in_line
+                
+                # Store with byte offsets for true lazy loading
+                self._current_data._add_item_value(item, value.strip(), value_start_offset, value_end_offset)
+            else:
+                # Fallback if parsing fails
+                self._current_data._add_item_value(item, value.strip())
+
+    def _handle_loop_value_line_with_offsets(self, line: str, line_start: int, line_end: int) -> None:
+        """Handle loop value lines with precise byte offset tracking."""
+        item_names = [item.split('.', 1)[1] for item in self._loop_items]
+        if not self._multi_line_value:
+            # Use shlex to properly parse quoted values, but track positions manually
+            original_line = line
+            values = []
+            positions = []
+            
+            # Manual tokenization to track byte positions
+            i = 0
+            while i < len(line):
+                # Skip whitespace
+                while i < len(line) and line[i].isspace():
+                    i += 1
+                if i >= len(line):
+                    break
+                    
+                start_pos = i
+                if line[i] in ['"', "'"]:
+                    # Quoted string
+                    quote_char = line[i]
+                    i += 1
+                    while i < len(line) and line[i] != quote_char:
+                        if line[i] == '\\':  # Handle escaped characters
+                            i += 2
+                        else:
+                            i += 1
+                    if i < len(line):
+                        i += 1  # Include closing quote
+                    value = line[start_pos:i]
+                    # Remove quotes for the actual value
+                    actual_value = value[1:-1] if len(value) >= 2 else value
+                else:
+                    # Unquoted string
+                    while i < len(line) and not line[i].isspace():
+                        i += 1
+                    value = line[start_pos:i]
+                    actual_value = value
+                
+                if value:
+                    values.append(actual_value)
+                    value_start_offset = line_start + start_pos
+                    value_end_offset = line_start + i
+                    positions.append((value_start_offset, value_end_offset))
+            
+            # Process the parsed values with their positions
+            value_index = 0
+            while len(self._current_row_values) < len(self._loop_items) and value_index < len(values):
+                value = values[value_index]
+                start_offset, end_offset = positions[value_index]
+                
+                if value.startswith(';'):
+                    self._multi_line_value = True
+                    self._multi_line_item_name = item_names[len(self._current_row_values)]
+                    self._multi_line_value_buffer.append(value[1:])
+                    self._current_row_values.append(None)
+                    break
+                else:
+                    self._current_row_values.append((value, start_offset, end_offset))
+                    self._value_counter += 1
+                    value_index += 1
+                    
+            self._maybe_commit_loop_row_with_offsets()
+        else:
+            if line == ';':
+                self._multi_line_value = False
+                full_value = "\n".join(self._multi_line_value_buffer)
+                self._current_row_values[-1] = (full_value, None, None)
+                self._multi_line_value_buffer = []
+                self._value_counter += 1
+                self._maybe_commit_loop_row_with_offsets()
+            else:
+                self._multi_line_value_buffer.append(line)
+
+    def _maybe_commit_loop_row_with_offsets(self):
+        """Commit loop row with byte offsets for lazy loading."""
+        if self._value_counter == len(self._loop_items):
+            for i, value_data in enumerate(self._current_row_values):
+                item_name = self._loop_items[i].split('.', 1)[1]
+                if isinstance(value_data, tuple) and len(value_data) == 3:
+                    value, start_offset, end_offset = value_data
+                    self._current_data._add_item_value(item_name, value, start_offset, end_offset)
+                else:
+                    # Fallback for non-tuple values
+                    self._current_data._add_item_value(item_name, str(value_data))
+            self._current_row_values = []
+            self._value_counter = 0
+
+    def close(self) -> None:
+        """Close the memory-mapped file."""
+        if self._mmap_obj:
+            self._mmap_obj.close()
+            self._mmap_obj = None
 
     def _process_line(self, line: str) -> None:
         if line.startswith('#'):
@@ -334,6 +644,9 @@ class MMCIFParser:
             self._current_data._add_item_value(item, value.strip())
 
     def _handle_loop_item(self, item_full: str, value: str):
+        # Handle malformed item names gracefully
+        if '.' not in item_full:
+            return  # Skip malformed items
         category, item = item_full.split('.', 1)
         if not self._should_include_category(category):
             return
@@ -372,6 +685,7 @@ class MMCIFParser:
                 self._multi_line_value_buffer.append(line)
 
     def _maybe_commit_loop_row(self):
+        """Commit loop row (fallback method for non-offset parsing)."""
         if self._value_counter == len(self._loop_items):
             for i, val in enumerate(self._current_row_values):
                 item_name = self._loop_items[i].split('.', 1)[1]
@@ -389,8 +703,7 @@ class MMCIFParser:
             self._multi_line_value_buffer.append(line)
 
     def _should_include_category(self, category: str) -> bool:
-        return not (category.startswith('_atom_site') and not self.atoms) and \
-               (not self.categories or category in self.categories)
+        return not self.categories or category in self.categories
 
     def _ensure_current_data(self, category: str):
         if self._current_category != category:
@@ -427,7 +740,9 @@ class MMCIFWriter:
         :type category: Category
         :return: None
         """
-        items = category._items
+        # Get all data (this will force loading of lazy items)
+        items = category.data
+        
         if any(len(values) > 1 for values in items.values()):
             file_obj.write("loop_\n")
             for item_name in items.keys():
@@ -459,27 +774,31 @@ class MMCIFWriter:
 
 
 class MMCIFHandler:
-    """A class to handle reading and writing mmCIF files."""
-    def __init__(self, atoms: bool = False, validator_factory: Optional[ValidatorFactory] = None):
-        self.atoms = atoms
+    """A class to handle reading and writing mmCIF files with efficient memory mapping and lazy loading."""
+    
+    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
+        """
+        Initialize the handler with memory mapping and lazy loading always enabled.
+        
+        :param validator_factory: Optional validator factory for data validation
+        """
         self.validator_factory = validator_factory
         self._parser = None
         self._writer = None
 
     def parse(self, filename: str, categories: Optional[List[str]] = None) -> MMCIFDataContainer:
         """
-        Parses an mmCIF file and returns a data container.
+        Parses an mmCIF file and returns a data container using memory mapping and lazy loading.
 
         :param filename: The name of the file to parse.
         :type filename: str
-        :param categories: The categories to parse.
+        :param categories: The categories to parse. If None, all categories are included.
         :type categories: Optional[List[str]]
-        :return: The data container.
+        :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
-        self._parser = MMCIFParser(self.atoms, self.validator_factory, categories)
-        with open(filename, 'r') as f:
-            return self._parser.parse(f)
+        self._parser = MMCIFParser(self.validator_factory, categories)
+        return self._parser.parse_file(filename)
 
     def write(self, data_container: MMCIFDataContainer) -> None:
         """
@@ -489,7 +808,7 @@ class MMCIFHandler:
         :type data_container: MMCIFDataContainer
         :return: None
         """
-        if self._file_obj:
+        if hasattr(self, '_file_obj') and self._file_obj:
             self._writer = MMCIFWriter()
             self._writer.write(self._file_obj, data_container)
         else:

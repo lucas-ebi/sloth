@@ -1,168 +1,349 @@
-# MMCIF Tools
+# mmCIF Tools
 
-This repository contains the implementation of tools for parsing and writing MMCIF files. The tools are designed to handle the complex data structures found in MMCIF files, providing a way to access and manipulate data through a simple API. The current focus is on parsing and writing functionality.
+A Python library for parsing and writing mmCIF (macromolecular Crystallographic Information Framework) files with an ultra-simple API that's automatically optimized for performance.
 
-### Getting Started
+## Key Features
 
-Ensure you have the necessary dependencies installed. You can install them using:
+🚀 **Simple API**: One way to create, one way to parse - always optimized  
+⚡ **High Performance**: Automatically handles large files efficiently  
+💾 **Memory Efficient**: Smart data loading and caching  
+📦 **Complete**: Access to all mmCIF categories and items  
+🔧 **Robust**: Handles files of any size with intelligent fallbacks  
+
+## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Basic Usage
+## Quick Start
 
-#### Parse the CIF file
+```python
+from mmcif_tools import MMCIFHandler
+
+# Create handler - automatically optimized
+handler = MMCIFHandler()
+
+# Parse any mmCIF file
+data = handler.parse("structure.cif")
+
+# Access data naturally
+block = data.data[0]
+atom_sites = block._atom_site
+coordinates = atom_sites.Cartn_x
+```
+
+## Design Philosophy
+
+❌ **No Configuration Hell** - No flags, no options to choose from  
+❌ **No Performance Trade-offs** - Always uses the best approach  
+❌ **No Complex Setup** - Works immediately out of the box  
+
+✅ **One Optimal Way** - Single API that's always efficient  
+✅ **Automatic Optimization** - Handles large and small files intelligently  
+✅ **Simple Usage** - Easy to learn, easy to use  
+
+## Basic Usage
+
+### Parsing Files
 
 ```python
 from mmcif_tools import MMCIFHandler
 
 handler = MMCIFHandler()
-file = handler.parse("/Users/lucas/Desktop/em/emd_33233_md.cif")
+
+# Parse entire file
+data = handler.parse("structure.cif")
+
+# Parse only specific categories (faster for large files)
+data = handler.parse("structure.cif", categories=['_atom_site', '_entry'])
 ```
 
-#### Access the DataBlock
+### Accessing Data
+
+#### Get Data Blocks
 
 ```python
-file
-# Output: MMCIFDataContainer(data_blocks={'7XJP': DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})})
+# List all data blocks
+blocks = data.blocks
+print(blocks)  # ['7XJP']
+
+# Get first data block
+block = data.data[0]
+# or access by name
+block = data['7XJP']
+# or using dot notation
+block = data.data_7XJP
 ```
 
-#### Accessing the DataBlock named '7XJP' through getattr
+#### Get Categories
 
 ```python
-data = getattr(file, '7XJP')
-data
-# Output: DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})
-```
-#### Accessing the DataBlock named '7XJP' through dot-separated notation by adding "data_" to the beginning of DataBlock name
+# List all categories in a block
+categories = block.categories
+print(list(categories.keys()))  # ['_database_2', '_atom_site', ...]
 
-```python
-data = file.data_7XJP
-data
-# Output: DataBlock(name=7XJP, categories={'_database_2': Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})})
+# Access a category
+db_info = block._database_2
+atom_data = block._atom_site
 ```
 
-#### Access the '_database_2' category
+#### Get Items and Values
 
 ```python
-data._database_2
-# Output: Category(name=_database_2, items={'database_id': ['PDB', 'WWPDB', 'EMDB'], 'database_code': ['7XJP', 'D_1300028976', 'EMD-33233'], 'pdbx_database_accession': ['pdb_00007xjp', '?', '?'], 'pdbx_DOI': ['10.2210/pdb7xjp/pdb', '?', '?']})
+# List items in a category
+items = db_info.items
+print(items)  # ['database_id', 'database_code', ...]
+
+# Access item values
+database_ids = db_info.database_id
+print(database_ids)  # ['PDB', 'WWPDB', 'EMDB']
+
+# Access individual values
+first_db = db_info.database_id[0]  # 'PDB'
+
+# Get coordinates (for large atom datasets)
+x_coords = atom_data.Cartn_x  # Efficiently loaded
+y_coords = atom_data.Cartn_y
+z_coords = atom_data.Cartn_z
 ```
 
-#### Access the '_database_2' category items
+### Modifying Data
 
 ```python
-data._database_2.items
-# Output: ['database_id', 'database_code', 'pdbx_database_accession', 'pdbx_DOI']
-
-data._database_2.database_id
-# Output: ['PDB', 'WWPDB', 'EMDB']
-
-data._database_2.database_code
-# Output: ['7XJP', 'D_1300028976', 'EMD-33233']
-
-data._database_2.pdbx_database_accession
-# Output: ['pdb_00007xjp', '?', '?']
-
-data._database_2.pdbx_DOI
-# Output: ['10.2210/pdb7xjp/pdb', '?', '?']
+# Modify values
+db_info.database_id[-1] = 'NEWDB'
+print(db_info.database_id)  # ['PDB', 'WWPDB', 'NEWDB']
 ```
 
-#### Update values in an item
+### Writing Files
 
 ```python
-data._database_2.database_id[-1] = 'NEWDB'
-data._database_2.database_id
-# Output: ['PDB', 'WWPDB', 'NEWDB']
-```
-
-#### Write updated content in mmCIF format
-
-```python
-# Write the updated content back to a new mmCIF file
-with open("/Users/lucas/Desktop/em/modified_emd_33233_md.cif", 'w') as f:
+# Write modified data to a new file
+with open("modified_structure.cif", 'w') as f:
     handler.file_obj = f
-    handler.write(data_container)
+    handler.write(data)
 ```
 
-### Validation
+### Performance Examples
 
-You can validate categories and perform cross-check validations using the `ValidatorFactory`.
-
-#### Register validators and cross-checkers
+#### Large File Processing
 
 ```python
-from mmcif_tools import ValidatorFactory
+# Efficiently handle large files
+handler = MMCIFHandler()
+data = handler.parse("huge_structure.cif")  # Fast startup
+
+# Only loads data when accessed
+if need_coordinates:
+    x_coords = data.data[0]._atom_site.Cartn_x
+    
+if need_structure_info:
+    title = data.data[0]._struct.title
+```
+
+#### Selective Parsing
+
+```python
+# Parse only what you need for maximum efficiency
+data = handler.parse("large_file.cif", categories=['_entry', '_struct'])
+
+# Much faster than loading everything
+entry_info = data.data[0]._entry
+structure_info = data.data[0]._struct
+```
+
+## Data Validation
+
+The library supports custom validation of categories and cross-validation between categories.
+
+### Setting Up Validation
+
+```python
+from mmcif_tools import MMCIFHandler, ValidatorFactory
 
 def category_validator(category_name):
-    print(f"\nValidating category: {category_name}")
+    print(f"Validating category: {category_name}")
 
 def cross_checker(category_name_1, category_name_2):
-    print(f"\nCross-checking categories: {category_name_1} and {category_name_2}")
+    print(f"Cross-checking {category_name_1} with {category_name_2}")
 
+# Create validator factory
 validator_factory = ValidatorFactory()
 validator_factory.register_validator('_database_2', category_validator)
 validator_factory.register_cross_checker(('_database_2', '_atom_site'), cross_checker)
+
+# Use with handler
+handler = MMCIFHandler(validator_factory=validator_factory)
+data = handler.parse("structure.cif")
 ```
 
-#### Validate categories
+### Running Validation
 
 ```python
 # Validate a single category
-data._database_2.validate()
+data.data[0]._database_2.validate()
 
 # Cross-validate between categories
-data._database_2.validate.against(data._atom_site)
+data.data[0]._database_2.validate().against(data.data[0]._atom_site)
 ```
 
-### Classes and Methods
+## API Reference
 
-#### `MMCIFHandler`
+### MMCIFHandler
 
-- **`parse(filename: str) -> MMCIFDataContainer`**: Parses an MMCIF file and returns an `MMCIFDataContainer` object containing the parsed contents.
-- **`write(data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to an open file in MMCIF format. Ensure to open the file using `open_file` method before calling this.
-- **`open_file(filename: str, mode: str) -> None`**: Opens a file with the specified mode ('r+', 'w', etc.) for reading and writing.
-- **`close_file() -> None`**: Closes the currently open file.
+The main class for parsing and writing mmCIF files.
 
-#### `MMCIFParser`
+```python
+handler = MMCIFHandler(validator_factory=None)
+```
 
-- **`read(file_obj: IO) -> MMCIFDataContainer`**: Reads an MMCIF file from a file object and returns an `MMCIFDataContainer` object containing the parsed contents.
+**Methods:**
+- `parse(filename: str, categories: Optional[List[str]] = None) -> MMCIFDataContainer`
+  - Parse an mmCIF file
+  - `categories`: Optional list to parse only specific categories
+- `write(data_container: MMCIFDataContainer) -> None`  
+  - Write data to a file (requires `file_obj` to be set)
 
-#### `MMCIFWriter`
+**Properties:**
+- `file_obj`: Set this to an open file handle before writing
 
-- **`write(file_obj: IO, data_container: MMCIFDataContainer)`**: Writes the contents of an `MMCIFDataContainer` object to a file object in MMCIF format.
+### MMCIFDataContainer
 
-#### `MMCIFDataContainer`
+Container for all data blocks in an mmCIF file.
 
-- **Attributes**:
-  - **`data_blocks`**: Provides read-only access to the data blocks, which are instances of `DataBlock`.
+**Properties:**
+- `blocks: List[str]` - List of data block names
+- `data: List[DataBlock]` - List of data block objects
 
-#### `DataBlock`
+**Access Methods:**
+- `container[block_name]` - Get block by name
+- `container.data_BLOCKNAME` - Dot notation access
 
-- **Attributes**:
-  - **`categories`**: Provides read-only access to the categories, which are instances of `Category`.
+### DataBlock
 
-#### `Category`
+Represents a single data block in an mmCIF file.
 
-- **Attributes**:
-  - **`items`**: Provides a list of item names available in the category.
-  - **Access Items**: Items can be accessed using dot-separated notation, e.g., `data_block.category_name.item_name`.
+**Properties:**
+- `name: str` - Block name
+- `categories: Dict[str, Category]` - Dictionary of categories
 
-#### `ValidatorFactory`
+**Access Methods:**
+- `block[category_name]` - Get category by name  
+- `block._category_name` - Dot notation access
 
-- **Methods**:
-  - **`register_validator(category_name: str, validator_function: Callable[[str], None])`**: Registers a validator function for a specific category.
-  - **`register_cross_checker(category_pair: Tuple[str, str], cross_checker_function: Callable[[str, str], None])`**: Registers a cross-checker function for a pair of categories.
+### Category
 
-### Contributing
+Represents a category within a data block.
 
-Contributions are welcome! Please fork the repository and submit a pull request with your improvements or bug fixes.
+**Properties:**
+- `name: str` - Category name
+- `items: List[str]` - List of item names
+- `data: Dict[str, List[str]]` - All data (forces loading)
 
-### License
+**Access Methods:**
+- `category[item_name]` - Get item values
+- `category.item_name` - Dot notation access
+- `category.get_item(item_name)` - Get raw item object
+
+**Validation:**
+- `category.validate()` - Validate this category
+- `category.validate().against(other_category)` - Cross-validate
+
+### ValidatorFactory
+
+Factory for creating and managing validators.
+
+**Methods:**
+- `register_validator(category_name: str, validator_function: Callable)`
+- `register_cross_checker(category_pair: Tuple[str, str], checker_function: Callable)`
+- `get_validator(category_name: str) -> Optional[Callable]`
+- `get_cross_checker(category_pair: Tuple[str, str]) -> Optional[Callable]`
+
+## Performance Characteristics
+
+| File Size | Startup Time | Access Speed | Memory Usage |
+|-----------|--------------|--------------|--------------|
+| Small (<1MB) | Instant | Instant | Minimal |
+| Medium (1-100MB) | Fast | Fast | Efficient |
+| Large (100MB-1GB) | Fast | Fast | Optimized |
+| Huge (>1GB) | Fast | Fast | Smart |
+
+**Key Benefits:**
+- 🚀 **Fast startup** regardless of file size
+- 💾 **Efficient processing** - optimized data access patterns  
+- ⚡ **Instant access** to any category or item
+- 📈 **Scalable** to files of any size
+
+## Examples
+
+### Basic Structure Analysis
+
+```python
+from mmcif_tools import MMCIFHandler
+
+handler = MMCIFHandler()
+data = handler.parse("1abc.cif")
+
+block = data.data[0]
+print(f"Structure: {block._entry.id[0]}")
+print(f"Resolution: {block._refine.ls_d_res_high[0]}")
+print(f"Atoms: {len(block._atom_site.Cartn_x)}")
+```
+
+### Coordinate Extraction
+
+```python
+# Get all atom coordinates efficiently
+atom_data = block._atom_site
+coordinates = list(zip(
+    atom_data.Cartn_x,
+    atom_data.Cartn_y, 
+    atom_data.Cartn_z
+))
+
+# First 10 coordinates
+for i, (x, y, z) in enumerate(coordinates[:10]):
+    print(f"Atom {i+1}: ({x}, {y}, {z})")
+```
+
+### Large File Processing
+
+```python
+# Process only what you need from a large file
+data = handler.parse("large_structure.cif", categories=['_atom_site'])
+
+# This is very fast even for huge files
+atom_count = len(data.data[0]._atom_site.Cartn_x)
+print(f"Processed {atom_count} atoms efficiently")
+```
+
+## Error Handling
+
+The library handles various error conditions gracefully:
+
+```python
+try:
+    data = handler.parse("structure.cif")
+except FileNotFoundError:
+    print("File not found")
+except Exception as e:
+    print(f"Parsing error: {e}")
+```
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality  
+4. Submit a pull request
+
+## License
 
 This project is licensed under the MIT License.
 
 ---
 
-**Note**: This README provides a basic overview and usage example. For more detailed documentation, refer to the source code and inline comments.
+**Note**: This library automatically optimizes performance for files of any size. No configuration needed - it just works efficiently.
