@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-mmCIF Tools - Command Line Example
+SLOTH Demo - Lazy by design. Fast by default.
 
 Demonstrates parsing, validation, modification, and writing of mmCIF files
-using the simple, always-optimized API.
+using SLOTH's ultra-simple API that's automatically optimized for performance.
 """
 
 import argparse
 import os
-from mmcif_tools import MMCIFHandler, ValidatorFactory
+from . import MMCIFHandler, ValidatorFactory
 
 
 def category_validator(category_name):
@@ -90,13 +90,13 @@ ATOM   3    C  12.345 22.678 32.901
 
 def main():
     parser = argparse.ArgumentParser(
-        description="mmCIF Tools - Simple CLI for parsing, validating, and modifying mmCIF files",
+        description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
         epilog="""
 Examples:
-  python example.py input.cif output.cif
-  python example.py input.cif output.cif --categories _database_2 _atom_site
-  python example.py input.cif output.cif --validate
-  python example.py --demo  # Create and process a sample file
+  python demo.py input.cif output.cif
+  python demo.py input.cif output.cif --categories _database_2 _atom_site
+  python demo.py input.cif output.cif --validate
+  python demo.py --demo  # Create and process a sample file
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -111,8 +111,9 @@ Examples:
     
     # Handle demo mode
     if args.demo:
-        print("🚀 mmCIF Tools Demo")
-        print("=" * 20)
+        print("🦥 SLOTH Demo")
+        print("Lazy by design. Fast by default.")
+        print("=" * 40)
         
         sample_file = demo_with_sample_file()
         args.input = sample_file
