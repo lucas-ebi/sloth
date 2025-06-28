@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sloth-mmcif"
+version = "0.1.0"
+description = "SLOTH: Structural Loader with On-demand Tokenization and Handling - Lazy by design. Fast by default."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Lucas", email = "lucas@example.com" }
+]
+maintainers = [
+    { name = "Lucas", email = "lucas@example.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["mmcif", "cif", "crystallography", "structural-biology", "parser", "pdb"]
+dependencies = [
+    "msgpack",
+]
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/lucas/sloth"
+Documentation = "https://github.com/lucas/sloth#readme"
+Repository = "https://github.com/lucas/sloth.git"
+"Bug Tracker" = "https://github.com/lucas/sloth/issues"
+Changelog = "https://github.com/lucas/sloth/releases"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+    "twine",
+    "build",
+]
+test = [
+    "pytest>=6.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+sloth-demo = "sloth.demo:main"
+
+[tool.setuptools]
+packages = ["sloth"]
+
+[tool.setuptools.package-data]
+sloth = ["*.py"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

@@ -1,0 +1,10 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include sloth *.py
+recursive-exclude tests *
+recursive-exclude .github *
+exclude demo_*.cif
+exclude *.pyc
+global-exclude __pycache__
+global-exclude *.py[co]

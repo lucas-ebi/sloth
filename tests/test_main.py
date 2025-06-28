@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive test suite for mmCIF Tools.
+Comprehensive test suite for Sloth.
 
 Tests all core functionality including parsing, writing, validation,
 and data manipulation using the simple, always-optimized API.
@@ -11,7 +11,7 @@ import tempfile
 import os
 import mmap
 from unittest.mock import mock_open, patch
-from mmcif_tools import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, Item, ValidatorFactory
+from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, Item, ValidatorFactory
 
 class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """

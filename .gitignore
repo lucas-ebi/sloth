@@ -1,3 +1,8 @@
+# Demo files
+demo_*.cif
+demo_modified.cif
+demo_structure.cif
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -1,8 +1,21 @@
-# mmCIF Tools
+# 🦥 SLOTH
+
+![SLOTH: Lazy by Design, Fast by Default](https://img.shields.io/badge/SLOTH-Lazy%20by%20Design%2C%20Fast%20by%20Default-blueviolet?logo=python&logoColor=white)
+[![PyPI version](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
+[![Python versions](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
+[![Built in Python](https://img.shields.io/badge/Built%20in-Python.%20No%20Templates.%20No%20Regrets.-brightgreen?logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/github/license/lucas/sloth.svg)](https://github.com/lucas/sloth/blob/main/LICENSE)
+
+**SLOTH** is a memory-mapped, lazily-loaded mmCIF parser written in pure Python.  
+It loads what you need, when you need it — no more, no less.
+
+> 🧠 *Lazy by design. Fast by default.*
+
+**S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling
 
 A Python library for parsing and writing mmCIF (macromolecular Crystallographic Information Framework) files with an ultra-simple API that's automatically optimized for performance.
 
-## Key Features
+## ✨ Key Features
 
 🚀 **Simple API**: One way to create, one way to parse - always optimized  
 ⚡ **High Performance**: Automatically handles large files efficiently  
@@ -10,16 +23,68 @@ A Python library for parsing and writing mmCIF (macromolecular Crystallographic 
 📦 **Complete**: Access to all mmCIF categories and items  
 🔧 **Robust**: Handles files of any size with intelligent fallbacks  
 
-## Installation
+## 🧠 Philosophy
+
+*"Why rush when you can prefetch?"*  
+*"Not everything needs to be a C++ monument."*  
+*"Built in Python. Because being clever beats being loud."*
+
+SLOTH embraces the art of doing just enough, just in time. No bloated dependencies, no over-engineered abstractions — just smart, lazy evaluation that gets faster the more you use it.
+
+## 📦 Installation
 
 ```bash
-pip install -r requirements.txt
+pip install sloth-mmcif
+```
+
+### Development Installation
+
+```bash
+git clone https://github.com/lucas/sloth.git
+cd sloth
+pip install -e ".[dev]"
+```
+
+## 📦 Package Development
+
+### Building the Package
+
+```bash
+# Install build dependencies
+pip install build twine
+
+# Build the package
+python -m build
+
+# Check the package
+twine check dist/*
+```
+
+### Running Tests
+
+```bash
+# Install in development mode
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Run the demo
+python -m sloth.demo --demo
+```
+
+### Publishing to PyPI
+
+```bash
+# Build and upload (requires PyPI credentials)
+python -m build
+twine upload dist/*
 ```
 
 ## Quick Start
 
 ```python
-from mmcif_tools import MMCIFHandler
+from sloth import MMCIFHandler
 
 # Create handler - automatically optimized
 handler = MMCIFHandler()
@@ -48,7 +113,7 @@ coordinates = atom_sites.Cartn_x
 ### Parsing Files
 
 ```python
-from mmcif_tools import MMCIFHandler
+from sloth import MMCIFHandler
 
 handler = MMCIFHandler()
 
@@ -160,7 +225,7 @@ The library supports custom validation of categories and cross-validation betwee
 ### Setting Up Validation
 
 ```python
-from mmcif_tools import MMCIFHandler, ValidatorFactory
+from sloth import MMCIFHandler, ValidatorFactory
 
 def category_validator(category_name):
     print(f"Validating category: {category_name}")
@@ -280,7 +345,7 @@ Factory for creating and managing validators.
 ### Basic Structure Analysis
 
 ```python
-from mmcif_tools import MMCIFHandler
+from sloth import MMCIFHandler
 
 handler = MMCIFHandler()
 data = handler.parse("1abc.cif")
@@ -331,7 +396,7 @@ except Exception as e:
     print(f"Parsing error: {e}")
 ```
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please:
 
