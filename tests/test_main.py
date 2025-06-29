@@ -17,7 +17,13 @@ import yaml
 from pathlib import Path
 from io import StringIO
 from unittest.mock import mock_open, patch
-from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFImporter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory, DataSourceFormat, FormatLoader, JsonLoader, XmlLoader, YamlLoader, PickleLoader, CsvLoader, DictToMMCIFConverter
+from sloth import (
+    MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFImporter, 
+    MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory, 
+    DataSourceFormat, FormatLoader, JsonLoader, XmlLoader, YamlLoader, 
+    PickleLoader, CsvLoader, DictToMMCIFConverter,
+    SchemaValidatorFactory, ValidationError, JSONSchemaValidator
+)
 
 class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """
@@ -2002,6 +2008,8 @@ class TestFormatLoaderIntegration(unittest.TestCase):
         container = MMCIFImporter.from_csv_files(self.csv_dir)
         self.assertEqual(len(container.blocks), 1)
         
+       
+        
         # Get the block name that contains our data
         block_names = container.blocks
         self.assertTrue(len(block_names) > 0, "No blocks found in container")
@@ -2057,5 +2065,117 @@ class TestFormatLoaderIntegration(unittest.TestCase):
             MMCIFImporter.auto_detect_format(unsupported_file)
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestSchemaValidation(unittest.TestCase):
+    """Test suite for schema validation functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        # Create a temporary directory for test files
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Load the JSON schema
+        schema_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sloth', 'schemas', 'mmcif_json_schema.json')
+        with open(schema_file, 'r') as f:
+            self.schema = json.load(f)
+        
+        # Create valid test data
+        self.valid_data = {
+            "block1": {
+                "_category1": {
+                    "item1": "value1",
+                    "item2": 123
+                },
+                "_category2": [
+                    {"col1": "row1", "col2": 456},
+                    {"col1": "row2", "col2": 789}
+                ]
+            }
+        }
+        
+        # Create invalid test data (empty category)
+        self.invalid_data = {
+            "block1": {
+                "_category1": {}  # Empty category, should fail validation
+            }
+        }
+        
+        # Create JSON validator
+        from sloth.schemas import JSONSchemaValidator
+        self.validator = JSONSchemaValidator(self.schema)
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        shutil.rmtree(self.temp_dir)
+    
+    def test_valid_json_data(self):
+        """Test that valid JSON data passes validation."""
+        is_valid = self.validator.is_valid(self.valid_data)
+        self.assertTrue(is_valid, "Valid data should pass is_valid check")
+        
+        result = self.validator.validate(self.valid_data)
+        self.assertTrue(result["valid"], "Valid data should pass validate()")
+        self.assertEqual(result["errors"], [], "Valid data should have no errors")
+    
+    def test_invalid_json_data(self):
+        """Test that invalid JSON data fails validation."""
+        from sloth.schemas import ValidationError
+        
+        is_valid = self.validator.is_valid(self.invalid_data)
+        self.assertFalse(is_valid, "Invalid data should fail is_valid check")
+        
+        with self.assertRaises(ValidationError) as context:
+            self.validator.validate(self.invalid_data)
+        
+        self.assertIn("is not valid", str(context.exception), 
+                     "Validation error should indicate invalid data")
+    
+    def test_empty_data(self):
+        """Test validation with empty data."""
+        from sloth.schemas import ValidationError
+        
+        empty_data = {}
+        is_valid = self.validator.is_valid(empty_data)
+        self.assertFalse(is_valid, "Empty data should fail is_valid check")
+        
+        with self.assertRaises(ValidationError) as context:
+            self.validator.validate(empty_data)
+    
+    def test_data_with_empty_array(self):
+        """Test validation of data with empty arrays."""
+        from sloth.schemas import ValidationError
+        
+        data_with_empty_array = {
+            "block1": {
+                "_category1": []  # Empty array, should fail validation
+            }
+        }
+        
+        is_valid = self.validator.is_valid(data_with_empty_array)
+        self.assertFalse(is_valid, "Data with empty array should fail is_valid check")
+        
+        with self.assertRaises(ValidationError) as context:
+            self.validator.validate(data_with_empty_array)
+    
+    def test_integration_with_mmcif_handler(self):
+        """Test schema validation integration with MMCIFHandler."""
+        # Create temporary JSON files
+        valid_json_path = os.path.join(self.temp_dir, "valid.json")
+        invalid_json_path = os.path.join(self.temp_dir, "invalid.json")
+        
+        with open(valid_json_path, 'w') as f:
+            json.dump(self.valid_data, f)
+        
+        with open(invalid_json_path, 'w') as f:
+            json.dump(self.invalid_data, f)
+        
+        # Test with valid data
+        handler = MMCIFHandler()
+        valid_container = handler.import_from_json(valid_json_path, schema_validator=self.validator)
+        self.assertIsNotNone(valid_container, "Valid data should be imported successfully")
+        
+        # Test with invalid data
+        with self.assertRaises(ValidationError) as context:
+            handler.import_from_json(invalid_json_path, schema_validator=self.validator)
+        
+        self.assertIn("is not valid", str(context.exception), 
+                     "Importing invalid data should raise ValidationError")

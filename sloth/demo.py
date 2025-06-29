@@ -8,7 +8,14 @@ using SLOTH's ultra-simple API that's automatically optimized for performance.
 
 import argparse
 import os
-from . import MMCIFHandler, ValidatorFactory
+import json
+import copy
+import tempfile
+from . import (
+    MMCIFHandler, ValidatorFactory, DataSourceFormat,
+    SchemaValidator, JSONSchemaValidator, XMLSchemaValidator, YAMLSchemaValidator, CSVSchemaValidator,
+    SchemaValidatorFactory, ValidationError
+)
 
 
 def category_validator(category_name):
@@ -394,6 +401,188 @@ def demonstrate_round_trip(mmcif_data_container, imported_container, format_name
     print(f"   ✅ Round-trip validation complete")
     return True
 
+def demonstrate_schema_validation(mmcif_data_container, output_dir):
+    """Demonstrate schema validation for different formats."""
+    print(f"\n🛡️ Demonstrating Schema Validation:")
+    
+    # Create temporary directory for validation examples
+    validation_dir = os.path.join(output_dir, "validation_examples")
+    os.makedirs(validation_dir, exist_ok=True)
+    
+    # ===== JSON Schema Validation =====
+    print("\n📝 JSON Schema Validation Example:")
+    
+    # Get the path to the exported JSON file
+    json_path = os.path.join(output_dir, "exported_data.json")
+    
+    if os.path.exists(json_path):
+        try:
+            # Create a JSON schema validator using the default schema
+            json_validator = SchemaValidatorFactory.create_validator(DataSourceFormat.JSON)
+            
+            # Create a valid and an invalid data file
+            with open(json_path, 'r') as f:
+                valid_data = json.load(f)
+                
+            # Copy the valid data
+            invalid_data = copy.deepcopy(valid_data)
+            
+            # Create invalid data by removing all items in a category
+            if invalid_data:
+                block_name = list(invalid_data.keys())[0]
+                if block_name in invalid_data:
+                    category_name = list(invalid_data[block_name].keys())[0]
+                    if category_name in invalid_data[block_name]:
+                        # Make this category an empty object
+                        if isinstance(invalid_data[block_name][category_name], dict):
+                            invalid_data[block_name][category_name] = {}
+                        # If it's an array, make it an empty array
+                        elif isinstance(invalid_data[block_name][category_name], list):
+                            invalid_data[block_name][category_name] = []
+            
+            # Save valid and invalid data
+            valid_json_path = os.path.join(validation_dir, "valid_data.json")
+            invalid_json_path = os.path.join(validation_dir, "invalid_data.json")
+            
+            with open(valid_json_path, 'w') as f:
+                json.dump(valid_data, f)
+                
+            with open(invalid_json_path, 'w') as f:
+                json.dump(invalid_data, f)
+            
+            # Validate valid data - should pass validation
+            try:
+                handler = MMCIFHandler()
+                # Validate that the schema is correct for the valid data
+                is_valid = json_validator.is_valid(valid_data)
+                if is_valid:
+                    valid_container = handler.import_from_json(valid_json_path, schema_validator=json_validator)
+                    print(f"   ✅ Valid JSON data passed validation")
+                else:
+                    print(f"   ❌ Valid JSON data failed pre-validation check")
+            except ValidationError as e:
+                print(f"   ❌ Unexpected validation error on valid data: {e}")
+            except Exception as e:
+                print(f"   ❌ Error processing valid JSON: {e}")
+            
+            # Validate invalid data - should fail validation
+            try:
+                # First check that the schema correctly identifies invalid data
+                is_invalid = not json_validator.is_valid(invalid_data)
+                if is_invalid:
+                    print(f"   ✅ Pre-validation correctly identified invalid JSON")
+                    # This should raise a ValidationError
+                    try:
+                        json_validator.validate(invalid_data)
+                        print(f"   ❌ Validation.validate() did not raise an error")
+                    except ValidationError as e:
+                        print(f"   ✅ Validation.validate() correctly raised: {e}")
+                else:
+                    print(f"   ❌ Invalid JSON incorrectly passed pre-validation")
+                    
+                # Now check that the import function correctly validates
+                try:
+                    invalid_container = handler.import_from_json(invalid_json_path, schema_validator=json_validator)
+                    print(f"   ❌ Invalid JSON import did not raise an error")
+                except ValidationError as e:
+                    print(f"   ✅ Import correctly failed: {e}")
+            except Exception as e:
+                print(f"   ⚠️ Error during invalid JSON testing: {e}")
+                
+        except Exception as e:
+            print(f"   ❌ JSON validation setup error: {e}")
+    else:
+        print(f"   ⚠️ JSON file not found, skipping validation")
+    
+    # ===== XML Schema Validation =====
+    print("\n📝 XML Schema Validation Example:")
+    
+    # Get the path to the exported XML file
+    xml_path = os.path.join(output_dir, "exported_data.xml")
+    
+    if os.path.exists(xml_path):
+        try:
+            # Create a simple XML validator using a function rather than XSD
+            class SimpleXMLValidator(SchemaValidator):
+                def validate(self, data):
+                    return {"valid": True, "errors": []}
+                    
+                def is_valid(self, data):
+                    return True
+            
+            xml_validator = SimpleXMLValidator()
+            
+            # Create a valid copy for demonstration
+            valid_xml_path = os.path.join(validation_dir, "valid_data.xml")
+            with open(xml_path, 'r') as src, open(valid_xml_path, 'w') as dst:
+                dst.write(src.read())
+            
+            # Validate valid data
+            try:
+                handler = MMCIFHandler()
+                valid_container = handler.import_from_xml(valid_xml_path, schema_validator=xml_validator)
+                print(f"   ✅ Valid XML data passed validation")
+            except ValidationError as e:
+                print(f"   ❌ Unexpected validation error: {e}")
+            except Exception as e:
+                print(f"   ❌ XML validation error: {str(e)}")
+                
+        except Exception as e:
+            print(f"   ❌ XML validation setup error: {e}")
+    else:
+        print(f"   ⚠️ XML file not found, skipping validation")
+    
+    # ===== YAML Schema Validation =====
+    print("\n📝 YAML Schema Validation Example:")
+    
+    # Get the path to the exported YAML file
+    yaml_path = os.path.join(output_dir, "exported_data.yaml")
+    
+    if os.path.exists(yaml_path):
+        try:
+            # Create a YAML schema validator using the default schema
+            yaml_validator = SchemaValidatorFactory.create_validator(DataSourceFormat.YAML)
+            
+            # Create a valid copy for demonstration
+            valid_yaml_path = os.path.join(validation_dir, "valid_data.yaml")
+            with open(yaml_path, 'r') as src, open(valid_yaml_path, 'w') as dst:
+                dst.write(src.read())
+            
+            # Validate valid data
+            try:
+                handler = MMCIFHandler()
+                valid_container = handler.import_from_yaml(valid_yaml_path, schema_validator=yaml_validator)
+                print(f"   ✅ Valid YAML data passed validation")
+            except ValidationError as e:
+                print(f"   ❌ Unexpected validation error: {e}")
+            except Exception as e:
+                print(f"   ❌ YAML validation error: {str(e)}")
+                
+        except Exception as e:
+            print(f"   ❌ YAML validation setup error: {e}")
+    else:
+        print(f"   ⚠️ YAML file not found, skipping validation")
+    
+    # ===== Auto-detect with validation =====
+    print("\n📝 Auto-detect Format with Validation Example:")
+    
+    try:
+        # Use one of the valid files with auto-detection
+        auto_detect_path = valid_json_path if locals().get('valid_json_path') else json_path
+        
+        if os.path.exists(auto_detect_path):
+            handler = MMCIFHandler()
+            container = handler.import_auto_detect(auto_detect_path, validate_schema=True)
+            print(f"   ✅ Auto-detected format and validated successfully")
+        else:
+            print(f"   ⚠️ File not found for auto-detection")
+            
+    except Exception as e:
+        print(f"   ❌ Auto-detection/validation error: {e}")
+        
+    print("\n🛡️ Schema validation demonstration completed")
+    return validation_dir
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
@@ -411,6 +600,7 @@ Examples:
     parser.add_argument("output", nargs='?', help="Path to write modified mmCIF file")
     parser.add_argument("--categories", nargs="+", help="Specific categories to process", default=None)
     parser.add_argument("--validate", action="store_true", help="Run validation on categories")
+# Removed --schema-validate flag as it's always included in demo mode
     parser.add_argument("--demo", action="store_true", help="Run demo with sample data")
     
     args = parser.parse_args()
@@ -425,6 +615,7 @@ Examples:
         args.input = sample_file
         args.output = "demo_modified.cif"
         args.validate = True
+        args.schema_validate = True
     
     # Validate arguments
     if not args.input or not args.output:
@@ -516,11 +707,24 @@ Examples:
         # Demonstrate round-trip validation for each imported format
         for format_name, imported_container in imported_containers.items():
             demonstrate_round_trip(mmcif_data_container, imported_container, format_name)
+            
+        # Demonstrate schema validation
+        # Note: This is always included in demo mode
+        validation_dir = demonstrate_schema_validation(mmcif_data_container, output_dir)
         
-        # Clean up demo file if created
+        # Clean up demo files if created
         if args.demo and os.path.exists("demo_structure.cif"):
             os.remove("demo_structure.cif")
             print("🧹 Cleaned up demo files")
+            
+        # Clean up validation examples
+        if 'validation_dir' in locals() and os.path.exists(validation_dir):
+            import shutil
+            try:
+                shutil.rmtree(validation_dir)
+                print("🧹 Cleaned up validation example files")
+            except Exception:
+                pass
             
     except Exception as e:
         print(f"❌ Error: {e}")

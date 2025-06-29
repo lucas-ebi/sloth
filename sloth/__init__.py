@@ -31,6 +31,17 @@ from .main import (
     DictToMMCIFConverter
 )
 from .version import __version__
+from .schemas import (
+    SchemaValidator,
+    JSONSchemaValidator,
+    XMLSchemaValidator,
+    YAMLSchemaValidator,
+    CSVSchemaValidator,
+    ValidationError,
+    ValidationSeverity,
+    SchemaValidatorFactory,
+    default_mmcif_json_schema
+)
 
 __all__ = [
     'MMCIFHandler',
@@ -52,5 +63,14 @@ __all__ = [
     'PickleLoader',
     'CsvLoader',
     'DictToMMCIFConverter',
+    'SchemaValidator',
+    'JSONSchemaValidator',
+    'XMLSchemaValidator',
+    'YAMLSchemaValidator',
+    'CSVSchemaValidator',
+    'ValidationError',
+    'ValidationSeverity',
+    'SchemaValidatorFactory',
+    'default_mmcif_json_schema',
     '__version__'
 ]
