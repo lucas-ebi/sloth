@@ -1,4 +1,8 @@
-# 🦥 SLOTH
+# 🦥 SLOTH - **S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling
+
+> 🧠 *Lazy by design. Fast by default.*
+
+A Python library for parsing and writing mmCIF (macromolecular Crystallographic Information Framework) files with an ultra-simple API that's automatically optimized for performance.
 
 ![SLOTH: Lazy by Design, Fast by Default](https://img.shields.io/badge/SLOTH-Lazy%20by%20Design%2C%20Fast%20by%20Default-blueviolet?logo=python&logoColor=white)
 [![PyPI version](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
@@ -8,12 +12,6 @@
 
 **SLOTH** is a memory-mapped, lazily-loaded mmCIF parser written in pure Python.  
 It loads what you need, when you need it — no more, no less.
-
-> 🧠 *Lazy by design. Fast by default.*
-
-**S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling
-
-A Python library for parsing and writing mmCIF (macromolecular Crystallographic Information Framework) files with an ultra-simple API that's automatically optimized for performance.
 
 ## ✨ Key Features
 
