@@ -36,9 +36,9 @@ _database_2.database_code    7XJP
             temp_file = f.name
         
         try:
-            data_container = self.handler.parse(temp_file)
-            self.assertEqual(len(data_container), 1)
-            self.assertIn("empty", data_container.blocks)
+            mmcif_data_container = self.handler.parse(temp_file)
+            self.assertEqual(len(mmcif_data_container), 1)
+            self.assertIn("empty", mmcif_data_container.blocks)
         finally:
             os.unlink(temp_file)
 
@@ -52,9 +52,9 @@ _database_2.database_code    7XJP
             temp_file = f.name
         
         try:
-            data_container = self.handler.parse(temp_file, categories=['_database_2'])
-            self.assertIn("7XJP", data_container.blocks)
-            data_block = data_container["7XJP"]
+            mmcif_data_container = self.handler.parse(temp_file, categories=['_database_2'])
+            self.assertIn("7XJP", mmcif_data_container.blocks)
+            data_block = mmcif_data_container["7XJP"]
             self.assertIn("_database_2", data_block.categories)
             category = data_block["_database_2"]
             self.assertEqual(category["database_id"], ["PDB"])
@@ -70,13 +70,13 @@ class TestMMCIFWriter(unittest.TestCase):
         })
         self.data_block["_database_2"]._add_item_value("database_id", "PDB")
         self.data_block["_database_2"]._add_item_value("database_code", "7XJP")
-        self.data_container = MMCIFDataContainer(data_blocks={"7XJP": self.data_block})
+        self.mmcif_data_container = MMCIFDataContainer(data_blocks={"7XJP": self.data_block})
         self.writer = MMCIFWriter()
 
     @patch("builtins.open", new_callable=mock_open)
     def test_write_file(self, mock_file):
         with open("dummy.cif", "w") as f:
-            self.writer.write(f, self.data_container)
+            self.writer.write(f, self.mmcif_data_container)
         mock_file().write.assert_any_call("data_7XJP\n")
         mock_file().write.assert_any_call("#\n")
         mock_file().write.assert_any_call("_database_2.database_id PDB \n")
@@ -106,9 +106,9 @@ _database_2.database_code    7XJP
             temp_file = f.name
         
         try:
-            data_container = self.handler.parse(temp_file, categories=['_database_2'])
-            self.assertIn("7XJP", data_container.blocks)
-            data_block = data_container["7XJP"]
+            mmcif_data_container = self.handler.parse(temp_file, categories=['_database_2'])
+            self.assertIn("7XJP", mmcif_data_container.blocks)
+            data_block = mmcif_data_container["7XJP"]
             self.assertIn("_database_2", data_block.categories)
             category = data_block["_database_2"]
             self.assertEqual(category["database_id"], ["PDB"])
@@ -123,10 +123,10 @@ _database_2.database_code    7XJP
         })
         data_block["_database_2"]._add_item_value("database_id", "PDB")
         data_block["_database_2"]._add_item_value("database_code", "7XJP")
-        data_container = MMCIFDataContainer(data_blocks={"7XJP": data_block})
+        mmcif_data_container = MMCIFDataContainer(data_blocks={"7XJP": data_block})
         with open("dummy.cif", "w") as f:
             self.handler.file_obj = f
-            self.handler.write(data_container)
+            self.handler.write(mmcif_data_container)
         mock_file().write.assert_any_call("data_7XJP\n")
         mock_file().write.assert_any_call("#\n")
         mock_file().write.assert_any_call("_database_2.database_id PDB \n")
@@ -372,13 +372,13 @@ ATOM   4    O  O   21.346 8.963  21.523
         handler = MMCIFHandler()
         
         # Parse the test file
-        data_container = handler.parse(self.temp_file.name)
+        mmcif_data_container = handler.parse(self.temp_file.name)
         
         # Verify structure
-        self.assertEqual(list(data_container.blocks), ["TEST"])
+        self.assertEqual(list(mmcif_data_container.blocks), ["TEST"])
         
         # Get test block
-        block = data_container.data[0]
+        block = mmcif_data_container.data[0]
         
         # Verify data was parsed correctly
         if '_atom_site' in block.categories:

@@ -812,9 +812,9 @@ class Row:
 
 class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
-    def write(self, file_obj: IO, data_container: MMCIFDataContainer) -> None:
+    def write(self, file_obj: IO, mmcif_data_container: MMCIFDataContainer) -> None:
         try:
-            for data_block in data_container:
+            for data_block in mmcif_data_container:
                 file_obj.write(f"data_{data_block.name}\n")
                 file_obj.write("#\n")
                 for category_name in data_block.categories:
@@ -897,17 +897,17 @@ class MMCIFHandler:
         self._parser = MMCIFParser(self.validator_factory, categories)
         return self._parser.parse_file(filename)
 
-    def write(self, data_container: MMCIFDataContainer) -> None:
+    def write(self, mmcif_data_container: MMCIFDataContainer) -> None:
         """
         Writes a data container to a file.
 
-        :param data_container: The data container to write.
-        :type data_container: MMCIFDataContainer
+        :param mmcif_data_container: The data container to write.
+        :type mmcif_data_container: MMCIFDataContainer
         :return: None
         """
         if hasattr(self, '_file_obj') and self._file_obj:
             self._writer = MMCIFWriter()
-            self._writer.write(self._file_obj, data_container)
+            self._writer.write(self._file_obj, mmcif_data_container)
         else:
             raise IOError("File is not open for writing")
 
