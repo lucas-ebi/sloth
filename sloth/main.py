@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
+from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator
 import io
 import shlex
 import mmap
@@ -174,11 +174,46 @@ class Category:
     def _create_validator(self):
         return self.Validator(self, self._validator_factory)
 
-    def __getitem__(self, item_name: str) -> List[str]:
-        item = self._items[item_name]
-        if isinstance(item, Item):
-            return item.values
-        return item
+    def __getitem__(self, key: Union[str, int, slice]) -> Union[List[str], 'Row', List['Row']]:
+        """
+        Access values by item name or row index/slice.
+        
+        If key is a string, return all values for that item (column-wise access).
+        If key is an integer or slice, return Row(s) (row-wise access).
+        """
+        if isinstance(key, str):
+            # Existing behavior - column access by item name
+            item = self._items[key]
+            if isinstance(item, Item):
+                return item.values
+            return item
+        elif isinstance(key, int):
+            # New behavior - row access by index
+            row_count = self.row_count
+            
+            if row_count == 0:
+                raise IndexError("Cannot access rows in empty category")
+                
+            # Handle negative indices
+            if key < 0:
+                key = row_count + key
+                
+            if key < 0 or key >= row_count:
+                raise IndexError(f"Row index {key} is out of range (0-{row_count-1})")
+                
+            return Row(self, key)
+        elif isinstance(key, slice):
+            # New behavior - multiple rows access by slice
+            row_count = self.row_count
+            
+            if row_count == 0:
+                return []
+                
+            # Get the indices from the slice
+            indices = range(*key.indices(row_count))
+            return [Row(self, i) for i in indices]
+        else:
+            raise TypeError(f"Category indices must be strings, integers or slices, not {type(key).__name__}")
 
     def __setitem__(self, item_name: str, value: Union[List[str], Item]) -> None:
         self._items[item_name] = value
@@ -208,6 +243,23 @@ class Category:
             else:
                 result[name] = item
         return result
+
+    @property
+    def row_count(self) -> int:
+        """Returns the number of rows in this category."""
+        if not self._items:
+            return 0
+        
+        # Get the length of the first item to determine row count
+        any_item = next(iter(self._items.values()))
+        if isinstance(any_item, Item):
+            return len(any_item)
+        return len(any_item)
+        
+    @property
+    def rows(self) -> List['Row']:
+        """Returns all rows in this category."""
+        return self[:] if self.row_count > 0 else []
 
     def get_item(self, item_name: str) -> Union[Item, List[str]]:
         """Get the raw item (Item object or list), without forcing lazy loading."""
@@ -303,8 +355,13 @@ class DataBlock:
         return f"DataBlock(name={self.name}, categories={self._categories})"
 
     @property
-    def categories(self) -> Dict[str, Category]:
-        """Provides read-only access to the categories."""
+    def categories(self) -> List[str]:
+        """Provides a list of category names in the data block."""
+        return list(self._categories.keys())
+
+    @property
+    def data(self) -> Dict[str, Category]:
+        """Provides read-only access to the category objects."""
         return self._categories
 
 
@@ -714,14 +771,54 @@ class MMCIFParser:
             self._current_data = self._data_blocks[self._current_block]._categories[category]
 
 
+class Row:
+    """Represents a single row of data in a Category."""
+    
+    def __init__(self, category: 'Category', row_index: int):
+        self._category = category
+        self._row_index = row_index
+        
+    def __getattr__(self, item_name: str) -> str:
+        """Allow dot notation access to item values in this row."""
+        if item_name in self._category._items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                return values[self._row_index]
+            raise IndexError(f"Row index {self._row_index} is out of range")
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
+    
+    def __getitem__(self, item_name: str) -> str:
+        """Allow dictionary-style access to item values in this row."""
+        if item_name in self._category._items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                return values[self._row_index]
+            raise KeyError(f"Item '{item_name}' at index {self._row_index} not found")
+        raise KeyError(item_name)
+    
+    def __repr__(self):
+        return f"Row({self._row_index}, {self._category.name})"
+    
+    @property
+    def data(self) -> Dict[str, str]:
+        """Return all item values for this row as a dictionary."""
+        result = {}
+        for item_name in self._category.items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                result[item_name] = values[self._row_index]
+        return result
+
+
 class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
-    def write(self, file_obj: IO, data_container: MMCIFDataContainer) -> None:
+    def write(self, file_obj: IO, mmcif_data_container: MMCIFDataContainer) -> None:
         try:
-            for data_block in data_container:
+            for data_block in mmcif_data_container:
                 file_obj.write(f"data_{data_block.name}\n")
                 file_obj.write("#\n")
-                for category_name, category in data_block.categories.items():
+                for category_name in data_block.categories:
+                    category = data_block.data[category_name]
                     if isinstance(category, Category):
                         self._write_category(file_obj, category_name, category)
                         file_obj.write("#\n")
@@ -800,17 +897,17 @@ class MMCIFHandler:
         self._parser = MMCIFParser(self.validator_factory, categories)
         return self._parser.parse_file(filename)
 
-    def write(self, data_container: MMCIFDataContainer) -> None:
+    def write(self, mmcif_data_container: MMCIFDataContainer) -> None:
         """
         Writes a data container to a file.
 
-        :param data_container: The data container to write.
-        :type data_container: MMCIFDataContainer
+        :param mmcif_data_container: The data container to write.
+        :type mmcif_data_container: MMCIFDataContainer
         :return: None
         """
         if hasattr(self, '_file_obj') and self._file_obj:
             self._writer = MMCIFWriter()
-            self._writer.write(self._file_obj, data_container)
+            self._writer.write(self._file_obj, mmcif_data_container)
         else:
             raise IOError("File is not open for writing")
 
