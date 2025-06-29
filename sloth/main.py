@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO
+from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator
 import io
 import shlex
 import mmap
@@ -174,11 +174,46 @@ class Category:
     def _create_validator(self):
         return self.Validator(self, self._validator_factory)
 
-    def __getitem__(self, item_name: str) -> List[str]:
-        item = self._items[item_name]
-        if isinstance(item, Item):
-            return item.values
-        return item
+    def __getitem__(self, key: Union[str, int, slice]) -> Union[List[str], 'Row', List['Row']]:
+        """
+        Access values by item name or row index/slice.
+        
+        If key is a string, return all values for that item (column-wise access).
+        If key is an integer or slice, return Row(s) (row-wise access).
+        """
+        if isinstance(key, str):
+            # Existing behavior - column access by item name
+            item = self._items[key]
+            if isinstance(item, Item):
+                return item.values
+            return item
+        elif isinstance(key, int):
+            # New behavior - row access by index
+            row_count = self.row_count
+            
+            if row_count == 0:
+                raise IndexError("Cannot access rows in empty category")
+                
+            # Handle negative indices
+            if key < 0:
+                key = row_count + key
+                
+            if key < 0 or key >= row_count:
+                raise IndexError(f"Row index {key} is out of range (0-{row_count-1})")
+                
+            return Row(self, key)
+        elif isinstance(key, slice):
+            # New behavior - multiple rows access by slice
+            row_count = self.row_count
+            
+            if row_count == 0:
+                return []
+                
+            # Get the indices from the slice
+            indices = range(*key.indices(row_count))
+            return [Row(self, i) for i in indices]
+        else:
+            raise TypeError(f"Category indices must be strings, integers or slices, not {type(key).__name__}")
 
     def __setitem__(self, item_name: str, value: Union[List[str], Item]) -> None:
         self._items[item_name] = value
@@ -208,6 +243,23 @@ class Category:
             else:
                 result[name] = item
         return result
+
+    @property
+    def row_count(self) -> int:
+        """Returns the number of rows in this category."""
+        if not self._items:
+            return 0
+        
+        # Get the length of the first item to determine row count
+        any_item = next(iter(self._items.values()))
+        if isinstance(any_item, Item):
+            return len(any_item)
+        return len(any_item)
+        
+    @property
+    def rows(self) -> List['Row']:
+        """Returns all rows in this category."""
+        return self[:] if self.row_count > 0 else []
 
     def get_item(self, item_name: str) -> Union[Item, List[str]]:
         """Get the raw item (Item object or list), without forcing lazy loading."""
@@ -717,6 +769,45 @@ class MMCIFParser:
                 self._data_blocks[self._current_block]._categories[category] = Category(
                     category, self.validator_factory)
             self._current_data = self._data_blocks[self._current_block]._categories[category]
+
+
+class Row:
+    """Represents a single row of data in a Category."""
+    
+    def __init__(self, category: 'Category', row_index: int):
+        self._category = category
+        self._row_index = row_index
+        
+    def __getattr__(self, item_name: str) -> str:
+        """Allow dot notation access to item values in this row."""
+        if item_name in self._category._items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                return values[self._row_index]
+            raise IndexError(f"Row index {self._row_index} is out of range")
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
+    
+    def __getitem__(self, item_name: str) -> str:
+        """Allow dictionary-style access to item values in this row."""
+        if item_name in self._category._items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                return values[self._row_index]
+            raise KeyError(f"Item '{item_name}' at index {self._row_index} not found")
+        raise KeyError(item_name)
+    
+    def __repr__(self):
+        return f"Row({self._row_index}, {self._category.name})"
+    
+    @property
+    def data(self) -> Dict[str, str]:
+        """Return all item values for this row as a dictionary."""
+        result = {}
+        for item_name in self._category.items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                result[item_name] = values[self._row_index]
+        return result
 
 
 class MMCIFWriter:

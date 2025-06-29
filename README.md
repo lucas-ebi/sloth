@@ -167,9 +167,18 @@ print(items)  # ['database_id', 'database_code', ...]
 database_ids = db_info.database_id
 print(database_ids)  # ['PDB', 'WWPDB', 'EMDB']
 
-# Access individual values
+# Access individual values (column-wise)
 first_db = db_info.database_id[0]  # 'PDB'
 
+# Access row-wise (new 2D slicing)
+first_row = db_info[0]              # Row object for first row
+print(first_row.database_id)        # Same as db_info.database_id[0]
+print(first_row.data)            # All values as a dictionary
+
+# Get multiple rows
+for row in db_info[:3]:             # First three rows
+    print(row.database_id)
+    
 # Get coordinates (for large atom datasets)
 x_coords = atom_data.Cartn_x  # Efficiently loaded
 y_coords = atom_data.Cartn_y
@@ -309,15 +318,31 @@ Represents a category within a data block.
 - `name: str` - Category name
 - `items: List[str]` - List of item names
 - `data: Dict[str, List[str]]` - All data (forces loading)
+- `row_count: int` - Number of rows in the category
+- `rows: List[Row]` - All rows in the category
 
 **Access Methods:**
-- `category[item_name]` - Get item values
-- `category.item_name` - Dot notation access
+- `category[item_name]` - Get item values (column-wise access)
+- `category[index]` - Get a specific row (row-wise access) 
+- `category[start:end]` - Get multiple rows (slice access)
+- `category.item_name` - Dot notation for column access
 - `category.get_item(item_name)` - Get raw item object
+- `category.iterrows()` - Iterator over (index, row) pairs
 
 **Validation:**
 - `category.validate()` - Validate this category
 - `category.validate().against(other_category)` - Cross-validate
+
+### Row
+
+Represents a single row of data in a Category.
+
+**Properties:**
+- `data: Dict[str, str]` - Dictionary of all item values for this row
+
+**Access Methods:**
+- `row.item_name` - Get value for specific item in this row
+- `row[item_name]` - Dictionary-style access to values
 
 ### ValidatorFactory
 
