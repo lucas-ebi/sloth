@@ -227,3 +227,73 @@ class TestJSONSchemaValidation(unittest.TestCase):
         self.assertIn("is not valid", str(context.exception), 
                      "Importing invalid data should raise ValidationError")
 
+
+class TestYAMLSchemaValidation(unittest.TestCase):
+    """Test suite for YAML schema validation functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.valid_yaml = """
+block1:
+    _category1:
+        item1: value1
+        item2: 123
+    _category2:
+        - col1: row1
+          col2: 456
+        - col1: row2
+          col2: 789
+"""
+        self.invalid_yaml = """
+block1:
+    _category1: []  # Empty category, should fail validation
+"""
+        # Create YAML validator
+        self.validator = SchemaValidatorFactory.create_validator(DataSourceFormat.YAML)
+    
+    def test_valid_yaml_data(self):
+        """Test that valid YAML data passes validation."""
+        result = self.validator.validate(self.valid_yaml)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["errors"], [])
+    
+    def test_invalid_yaml_data(self):
+        """Test that invalid YAML data fails validation."""
+        with self.assertRaises(ValidationError) as context:
+            self.validator.validate(self.invalid_yaml)
+        # The exact error message may vary depending on the validation library
+        # but should indicate that the empty array is invalid
+        self.assertTrue(any(phrase in str(context.exception) for phrase in 
+                          ["is too short", "is not valid", "empty array"]), 
+                      f"Error message '{str(context.exception)}' should indicate invalid data")
+    
+    def test_empty_yaml(self):
+        """Test validation with empty YAML."""
+        with self.assertRaises(ValidationError) as context:
+            self.validator.validate("")
+    
+    def test_integration_with_mmcif_handler(self):
+        """Test YAML validation integration with MMCIFHandler."""
+        from sloth import MMCIFHandler
+        
+        with tempfile.NamedTemporaryFile(suffix='.yaml', mode='w') as f:
+            f.write(self.valid_yaml)
+            f.flush()
+            
+            handler = MMCIFHandler()
+            valid_container = handler.import_from_yaml(f.name, schema_validator=self.validator)
+            self.assertIsNotNone(valid_container)
+
+
+if __name__ == '__main__':
+    unittest.main()
+# Note: The test cases assume that the mmCIF XML schema and JSON schema files are
+# located in the sloth/schemas directory relative to the test file.
+# Adjust the paths as necessary based on your project structure.
+# The tests also assume that the XML and JSON schemas are correctly defined and
+# that the XML and JSON data samples provided match the expected structure.
+# Ensure that the sloth.schemas module is correctly implemented with the necessary
+# classes and methods for schema validation.
+# The tests cover various scenarios including valid data, missing required attributes,
+# incorrect structure, and empty data. They also test the integration with the
+# MMCIFHandler for importing data from JSON files.
