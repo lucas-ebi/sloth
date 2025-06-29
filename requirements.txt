@@ -1,5 +1,6 @@
 # Core dependencies
 msgpack
+jsonschema>=4.20.0
 
 # Optional dependencies for MMCIFExporter
 pyyaml>=6.0
