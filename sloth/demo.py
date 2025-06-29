@@ -31,8 +31,8 @@ def modify_data(data_container):
     print(f"📋 Working with block: {block.name}")
     
     # Try to modify database information
-    if '_database_2' in block.data:
-        category = block._database_2
+    if '_database_2' in block.categories:
+        category = block.data['_database_2']
         if hasattr(category, 'database_id') and category.database_id:
             original = category.database_id[-1]
             category.database_id[-1] = 'MODIFIED_DB'
@@ -87,6 +87,77 @@ ATOM   3    C  12.345 22.678 32.901
     
     print(f"📝 Created sample file: {sample_file}")
     return sample_file
+
+def demonstrate_2d_slicing(data_container):
+    """Demonstrate the new 2D slicing functionality and Row access patterns."""
+    if not data_container.data:
+        print("❌ No data blocks found")
+        return
+    
+    block = data_container.data[0]
+    print(f"\n🔢 Demonstrating 2D slicing functionality:")
+    
+    # Find an appropriate category with multiple rows for demonstration
+    demo_categories = ['_atom_site', '_entity_poly_seq', '_struct_conn']
+    demo_category = None
+    
+    for cat_name in demo_categories:
+        if cat_name in block.categories and cat_name in block.data:
+            category = block.data[cat_name]
+            if category.row_count >= 3:  # Need at least 3 rows for good demo
+                demo_category = category
+                print(f"   Using category: {cat_name} with {category.row_count} rows")
+                break
+    
+    if not demo_category:
+        print("   No suitable category found with multiple rows for demonstration")
+        return
+    
+    print("\n📊 Column-wise access (traditional way):")
+    # Show all item names in the category
+    print(f"   Available items: {', '.join(demo_category.items)}")
+    
+    # Get the first two item names for demonstration
+    item_names = demo_category.items[:2]
+    for item_name in item_names:
+        values = demo_category[item_name]
+        print(f"   {item_name}: {values[:3]} {'...' if len(values) > 3 else ''}")
+    
+    print("\n📋 Row-wise access (new 2D slicing):")
+    # Show first row with attribute access
+    first_row = demo_category[0]
+    print(f"   Row 0 (attribute access):")
+    for item_name in item_names:
+        print(f"     {item_name}: {getattr(first_row, item_name)}")
+    
+    # Show second row with dictionary access
+    second_row = demo_category[1]
+    print(f"   Row 1 (dictionary access):")
+    for item_name in item_names:
+        print(f"     {item_name}: {second_row[item_name]}")
+        
+    # Show row.data
+    print(f"   Row 0 as dictionary (row.data):")
+    row_data = first_row.data
+    for item_name, value in list(row_data.items())[:3]:
+        print(f"     {item_name}: {value}")
+    if len(row_data) > 3:
+        print(f"     ... and {len(row_data) - 3} more items")
+    
+    # Show row slicing
+    if demo_category.row_count >= 3:
+        print(f"\n📑 Row slicing example:")
+        rows = demo_category[0:3]
+        print(f"   Slicing category[0:3] returns {len(rows)} rows")
+        for i, row in enumerate(rows):
+            print(f"   Row {i}: {item_names[0]}={row[item_names[0]]}, {item_names[1]}={row[item_names[1]]}")
+    
+    print("\n💡 Usage Tips:")
+    print("   1. Use category['item_name'] for column access")
+    print("   2. Use category[index] for single row access")
+    print("   3. Access row values with row.item_name or row['item_name']")
+    print("   4. Get all row values as a dictionary with row.data")
+    print("   5. Slice multiple rows with category[start:end]")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -152,7 +223,7 @@ Examples:
             block = data_container.data[0]
             
             # Register validators for available categories
-            available_categories = list(block.categories.keys())[:2]  # First 2 for demo
+            available_categories = block.categories[:2]  # First 2 for demo
             for cat_name in available_categories:
                 validator_factory.register_validator(cat_name, category_validator)
             
@@ -165,16 +236,19 @@ Examples:
             print(f"🔍 Running validation...")
             for cat_name in available_categories:
                 if cat_name in block.categories:
-                    category = block.categories[cat_name]
+                    category = block.data[cat_name]
                     category.validate()
             
             # Run cross-validation if available
             if len(available_categories) >= 2:
                 cat1_name, cat2_name = available_categories[0], available_categories[1]
                 if cat1_name in block.categories and cat2_name in block.categories:
-                    cat1 = block.categories[cat1_name]
-                    cat2 = block.categories[cat2_name]
+                    cat1 = block.data[cat1_name]
+                    cat2 = block.data[cat2_name]
                     cat1.validate().against(cat2)
+        
+        # Demonstrate 2D slicing
+        demonstrate_2d_slicing(data_container)
         
         # Modify data
         print(f"\n✏️  Modifying data...")
@@ -192,6 +266,10 @@ Examples:
         print(f"\n🔍 Verifying output...")
         verify_data = handler.parse(args.output)
         print(f"✅ Output file contains {len(verify_data.data)} data block(s)")
+        
+        # Demonstrate 2D slicing if available
+        if hasattr(handler, 'demonstrate_2d_slicing'):
+            demonstrate_2d_slicing(data_container)
         
         # Clean up demo file if created
         if args.demo and os.path.exists("demo_structure.cif"):

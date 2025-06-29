@@ -817,7 +817,8 @@ class MMCIFWriter:
             for data_block in data_container:
                 file_obj.write(f"data_{data_block.name}\n")
                 file_obj.write("#\n")
-                for category_name, category in data_block.categories.items():
+                for category_name in data_block.categories:
+                    category = data_block.data[category_name]
                     if isinstance(category, Category):
                         self._write_category(file_obj, category_name, category)
                         file_obj.write("#\n")

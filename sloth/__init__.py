@@ -16,6 +16,7 @@ from .main import (
     MMCIFDataContainer,
     DataBlock,
     Category,
+    Row,
     Item,
     ValidatorFactory
 )

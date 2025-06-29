@@ -11,7 +11,7 @@ import tempfile
 import os
 import mmap
 from unittest.mock import mock_open, patch
-from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, Item, ValidatorFactory
+from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory
 
 class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """
@@ -215,6 +215,124 @@ class TestItemAndCategory(unittest.TestCase):
         # Check values
         self.assertEqual(category.item1, ["value1", "value2"])
         self.assertEqual(category.item2, ["valueA"])
+        
+    def test_row_access(self):
+        """Test row-wise access to Category."""
+        category = Category("test_category", None)
+        
+        # Add multiple rows of data
+        category._add_item_value("name", "John")
+        category._add_item_value("name", "Alice")
+        category._add_item_value("name", "Bob")
+        
+        category._add_item_value("age", "25")
+        category._add_item_value("age", "30")
+        category._add_item_value("age", "22")
+        
+        category._add_item_value("city", "New York")
+        category._add_item_value("city", "Boston")
+        category._add_item_value("city", "Chicago")
+        
+        # Test single row access
+        row0 = category[0]
+        self.assertEqual(row0.name, "John")
+        self.assertEqual(row0.age, "25")
+        self.assertEqual(row0.city, "New York")
+        
+        # Test dictionary access to row
+        self.assertEqual(row0["name"], "John")
+        self.assertEqual(row0["age"], "25")
+        self.assertEqual(row0["city"], "New York")
+        
+        # Test row.data property
+        row_data = row0.data
+        self.assertIsInstance(row_data, dict)
+        self.assertEqual(row_data, {"name": "John", "age": "25", "city": "New York"})
+        
+        # Test negative index
+        row_last = category[-1]
+        self.assertEqual(row_last.name, "Bob")
+        
+        # Test invalid row index
+        with self.assertRaises(IndexError):
+            invalid_row = category[5]
+        
+        # Test invalid item name
+        with self.assertRaises(KeyError):
+            invalid_value = row0["invalid"]
+            
+        with self.assertRaises(AttributeError):
+            invalid_value = row0.invalid
+    
+    def test_row_slicing(self):
+        """Test row slicing of Category."""
+        category = Category("test_category", None)
+        
+        # Add multiple rows of data
+        for i in range(5):
+            category._add_item_value("id", str(i))
+            category._add_item_value("value", f"value_{i}")
+        
+        # Test slicing
+        rows = category[1:4]
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].id, "1")
+        self.assertEqual(rows[1].id, "2")
+        self.assertEqual(rows[2].id, "3")
+        
+        # Test slice with step
+        rows = category[0:5:2]
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].id, "0")
+        self.assertEqual(rows[1].id, "2")
+        self.assertEqual(rows[2].id, "4")
+        
+        # Test empty slice
+        empty_rows = category[5:10]
+        self.assertEqual(len(empty_rows), 0)
+    
+    def test_row_count_and_rows(self):
+        """Test row_count and rows properties."""
+        category = Category("test_category", None)
+        
+        # Empty category
+        self.assertEqual(category.row_count, 0)
+        self.assertEqual(len(category.rows), 0)
+        
+        # Add rows
+        category._add_item_value("id", "1")
+        category._add_item_value("id", "2")
+        category._add_item_value("id", "3")
+        
+        self.assertEqual(category.row_count, 3)
+        self.assertEqual(len(category.rows), 3)
+        
+        # Verify all rows are Row instances
+        for row in category.rows:
+            self.assertIsInstance(row, Row)
+    
+    def test_combined_column_row_access(self):
+        """Test combination of column and row access."""
+        category = Category("test_category", None)
+        
+        # Add data
+        category._add_item_value("x", "1")
+        category._add_item_value("x", "2")
+        category._add_item_value("y", "10")
+        category._add_item_value("y", "20")
+        
+        # Column access
+        self.assertEqual(category["x"], ["1", "2"])
+        
+        # Row access
+        self.assertEqual(category[0].x, "1")
+        self.assertEqual(category[0].y, "10")
+        self.assertEqual(category[1].x, "2")
+        self.assertEqual(category[1].y, "20")
+        
+        # Mixed use - get a value using both approaches
+        self.assertEqual(category["x"][0], category[0].x)
+        self.assertEqual(category["y"][1], category[1].y)
 
 
 class TestFileProcessing(unittest.TestCase):
@@ -386,7 +504,7 @@ by the lazy loading system.
         
         # Check that atom_site category exists
         if '_atom_site' in block.categories:
-            atom_site_category = block.categories['_atom_site']
+            atom_site_category = block.data['_atom_site']
             
             # Get the raw item (should be Item instance)
             if 'Cartn_x' in atom_site_category._items:
