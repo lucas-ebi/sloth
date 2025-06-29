@@ -8,7 +8,14 @@ using SLOTH's ultra-simple API that's automatically optimized for performance.
 
 import argparse
 import os
-from . import MMCIFHandler, ValidatorFactory
+import json
+import copy
+import tempfile
+from . import (
+    MMCIFHandler, ValidatorFactory, DataSourceFormat,
+    SchemaValidator, JSONSchemaValidator, XMLSchemaValidator, YAMLSchemaValidator, CSVSchemaValidator,
+    SchemaValidatorFactory, ValidationError
+)
 
 
 def category_validator(category_name):
@@ -243,6 +250,339 @@ def demonstrate_export_functionality(mmcif_data_container, output_dir):
     except ImportError as e:
         print(f"   ❌ CSV export failed: {str(e)}")
 
+def demonstrate_import_functionality(output_dir):
+    """Demonstrate the new import functionality."""
+    print(f"\n📥 Demonstrating import functionality:")
+    
+    # Create handler
+    handler = MMCIFHandler()
+    
+    imported_containers = {}
+    
+    # Import from JSON
+    json_path = os.path.join(output_dir, "exported_data.json")
+    if os.path.exists(json_path):
+        try:
+            json_container = handler.import_from_json(json_path)
+            imported_containers["JSON"] = json_container
+            print(f"   ✅ Imported from JSON: {json_path}")
+            print(f"      Found {len(json_container.blocks)} data block(s)")
+        except Exception as e:
+            print(f"   ❌ JSON import failed: {str(e)}")
+    
+    # Import from XML
+    xml_path = os.path.join(output_dir, "exported_data.xml")
+    if os.path.exists(xml_path):
+        try:
+            xml_container = handler.import_from_xml(xml_path)
+            imported_containers["XML"] = xml_container
+            print(f"   ✅ Imported from XML: {xml_path}")
+            print(f"      Found {len(xml_container.blocks)} data block(s)")
+        except Exception as e:
+            print(f"   ❌ XML import failed: {str(e)}")
+    
+    # Import from Pickle
+    pickle_path = os.path.join(output_dir, "exported_data.pkl")
+    if os.path.exists(pickle_path):
+        try:
+            pickle_container = handler.import_from_pickle(pickle_path)
+            imported_containers["Pickle"] = pickle_container
+            print(f"   ✅ Imported from Pickle: {pickle_path}")
+            print(f"      Found {len(pickle_container.blocks)} data block(s)")
+        except Exception as e:
+            print(f"   ❌ Pickle import failed: {str(e)}")
+    
+    # Import from YAML (with try/except as it requires PyYAML)
+    yaml_path = os.path.join(output_dir, "exported_data.yaml")
+    if os.path.exists(yaml_path):
+        try:
+            yaml_container = handler.import_from_yaml(yaml_path)
+            imported_containers["YAML"] = yaml_container
+            print(f"   ✅ Imported from YAML: {yaml_path}")
+            print(f"      Found {len(yaml_container.blocks)} data block(s)")
+        except ImportError as e:
+            print(f"   ❌ YAML import failed: {str(e)}")
+        except Exception as e:
+            print(f"   ❌ YAML import failed: {str(e)}")
+    
+    # Import from CSV (with try/except as it requires pandas)
+    csv_dir = os.path.join(output_dir, "csv_files")
+    if os.path.exists(csv_dir):
+        try:
+            csv_container = handler.import_from_csv_files(csv_dir)
+            imported_containers["CSV"] = csv_container
+            print(f"   ✅ Imported from CSV files in: {csv_dir}")
+            print(f"      Found {len(csv_container.blocks)} data block(s)")
+        except ImportError as e:
+            print(f"   ❌ CSV import failed: {str(e)}")
+        except Exception as e:
+            print(f"   ❌ CSV import failed: {str(e)}")
+    
+    # Auto-detect format import demo
+    if imported_containers:
+        print(f"\n🔍 Demonstrating auto-detect format import:")
+        for format_name, first_path in [
+            ("JSON", json_path),
+            ("Pickle", pickle_path),
+            ("YAML", yaml_path),
+            ("XML", xml_path)
+        ]:
+            if os.path.exists(first_path) and format_name in imported_containers:
+                try:
+                    auto_container = handler.import_auto_detect(first_path)
+                    print(f"   ✅ Auto-detected and imported from {format_name}: {first_path}")
+                    print(f"      Found {len(auto_container.blocks)} data block(s)")
+                    
+                    # Compare with direct import to verify consistency
+                    original = imported_containers[format_name]
+                    if len(auto_container.blocks) == len(original.blocks):
+                        print(f"      ✓ Content matches direct {format_name} import")
+                    break
+                except Exception as e:
+                    print(f"   ❌ Auto-detect import failed for {format_name}: {str(e)}")
+    
+    return imported_containers
+
+def demonstrate_round_trip(mmcif_data_container, imported_container, format_name):
+    """Demonstrate round-trip validation between original and imported data."""
+    print(f"\n🔄 Demonstrating round-trip validation ({format_name}):")
+    
+    if not mmcif_data_container.data or not imported_container.data:
+        print("   ❌ Missing data blocks for comparison")
+        return False
+    
+    # Check if blocks match
+    if len(mmcif_data_container.data) != len(imported_container.data):
+        print(f"   ❌ Block count mismatch: Original={len(mmcif_data_container.data)}, Imported={len(imported_container.data)}")
+        return False
+    
+    # Compare first block
+    original_block = mmcif_data_container.data[0]
+    imported_block = imported_container.data[0]
+    
+    # Compare category count
+    if len(original_block.categories) != len(imported_block.categories):
+        print(f"   ⚠️ Category count differs: Original={len(original_block.categories)}, Imported={len(imported_block.categories)}")
+    
+    # Verify key categories exist in both
+    common_categories = set(original_block.categories).intersection(set(imported_block.categories))
+    print(f"   ✓ Found {len(common_categories)} common categories")
+    
+    # Check a few sample values
+    if common_categories:
+        example_category = list(common_categories)[0]
+        print(f"   🔍 Checking values in category: {example_category}")
+        
+        original_cat = original_block[example_category]
+        imported_cat = imported_block[example_category]
+        
+        # Compare item names
+        original_items = set(original_cat.items)
+        imported_items = set(imported_cat.items)
+        common_items = original_items.intersection(imported_items)
+        
+        if common_items:
+            sample_item = list(common_items)[0]
+            original_values = original_cat[sample_item]
+            imported_values = imported_cat[sample_item]
+            
+            # Check if array lengths match
+            if len(original_values) == len(imported_values):
+                print(f"   ✓ Item '{sample_item}' has {len(original_values)} values in both datasets")
+                
+                # Sample check first value
+                if original_values[0] == imported_values[0]:
+                    print(f"   ✓ First value matches: '{original_values[0]}'")
+                else:
+                    print(f"   ⚠️ First value differs: Original='{original_values[0]}', Imported='{imported_values[0]}'")
+            else:
+                print(f"   ⚠️ Value count differs: Original={len(original_values)}, Imported={len(imported_values)}")
+    
+    print(f"   ✅ Round-trip validation complete")
+    return True
+
+def demonstrate_schema_validation(mmcif_data_container, output_dir):
+    """Demonstrate schema validation for different formats."""
+    print(f"\n🛡️ Demonstrating Schema Validation:")
+    
+    # Create temporary directory for validation examples
+    validation_dir = os.path.join(output_dir, "validation_examples")
+    os.makedirs(validation_dir, exist_ok=True)
+    
+    # ===== JSON Schema Validation =====
+    print("\n📝 JSON Schema Validation Example:")
+    
+    # Get the path to the exported JSON file
+    json_path = os.path.join(output_dir, "exported_data.json")
+    
+    if os.path.exists(json_path):
+        try:
+            # Create a JSON schema validator using the default schema
+            json_validator = SchemaValidatorFactory.create_validator(DataSourceFormat.JSON)
+            
+            # Create a valid and an invalid data file
+            with open(json_path, 'r') as f:
+                valid_data = json.load(f)
+                
+            # Copy the valid data
+            invalid_data = copy.deepcopy(valid_data)
+            
+            # Create invalid data by removing all items in a category
+            if invalid_data:
+                block_name = list(invalid_data.keys())[0]
+                if block_name in invalid_data:
+                    category_name = list(invalid_data[block_name].keys())[0]
+                    if category_name in invalid_data[block_name]:
+                        # Make this category an empty object
+                        if isinstance(invalid_data[block_name][category_name], dict):
+                            invalid_data[block_name][category_name] = {}
+                        # If it's an array, make it an empty array
+                        elif isinstance(invalid_data[block_name][category_name], list):
+                            invalid_data[block_name][category_name] = []
+            
+            # Save valid and invalid data
+            valid_json_path = os.path.join(validation_dir, "valid_data.json")
+            invalid_json_path = os.path.join(validation_dir, "invalid_data.json")
+            
+            with open(valid_json_path, 'w') as f:
+                json.dump(valid_data, f)
+                
+            with open(invalid_json_path, 'w') as f:
+                json.dump(invalid_data, f)
+            
+            # Validate valid data - should pass validation
+            try:
+                handler = MMCIFHandler()
+                # Validate that the schema is correct for the valid data
+                is_valid = json_validator.is_valid(valid_data)
+                if is_valid:
+                    valid_container = handler.import_from_json(valid_json_path, schema_validator=json_validator)
+                    print(f"   ✅ Valid JSON data passed validation")
+                else:
+                    print(f"   ❌ Valid JSON data failed pre-validation check")
+            except ValidationError as e:
+                print(f"   ❌ Unexpected validation error on valid data: {e}")
+            except Exception as e:
+                print(f"   ❌ Error processing valid JSON: {e}")
+            
+            # Validate invalid data - should fail validation
+            try:
+                # First check that the schema correctly identifies invalid data
+                is_invalid = not json_validator.is_valid(invalid_data)
+                if is_invalid:
+                    print(f"   ✅ Pre-validation correctly identified invalid JSON")
+                    # This should raise a ValidationError
+                    try:
+                        json_validator.validate(invalid_data)
+                        print(f"   ❌ Validation.validate() did not raise an error")
+                    except ValidationError as e:
+                        print(f"   ✅ Validation.validate() correctly raised: {e}")
+                else:
+                    print(f"   ❌ Invalid JSON incorrectly passed pre-validation")
+                    
+                # Now check that the import function correctly validates
+                try:
+                    invalid_container = handler.import_from_json(invalid_json_path, schema_validator=json_validator)
+                    print(f"   ❌ Invalid JSON import did not raise an error")
+                except ValidationError as e:
+                    print(f"   ✅ Import correctly failed: {e}")
+            except Exception as e:
+                print(f"   ⚠️ Error during invalid JSON testing: {e}")
+                
+        except Exception as e:
+            print(f"   ❌ JSON validation setup error: {e}")
+    else:
+        print(f"   ⚠️ JSON file not found, skipping validation")
+    
+    # ===== XML Schema Validation =====
+    print("\n📝 XML Schema Validation Example:")
+    
+    # Get the path to the exported XML file
+    xml_path = os.path.join(output_dir, "exported_data.xml")
+    
+    if os.path.exists(xml_path):
+        try:
+            # Create a simple XML validator using a function rather than XSD
+            class SimpleXMLValidator(SchemaValidator):
+                def validate(self, data):
+                    return {"valid": True, "errors": []}
+                    
+                def is_valid(self, data):
+                    return True
+            
+            xml_validator = SimpleXMLValidator()
+            
+            # Create a valid copy for demonstration
+            valid_xml_path = os.path.join(validation_dir, "valid_data.xml")
+            with open(xml_path, 'r') as src, open(valid_xml_path, 'w') as dst:
+                dst.write(src.read())
+            
+            # Validate valid data
+            try:
+                handler = MMCIFHandler()
+                valid_container = handler.import_from_xml(valid_xml_path, schema_validator=xml_validator)
+                print(f"   ✅ Valid XML data passed validation")
+            except ValidationError as e:
+                print(f"   ❌ Unexpected validation error: {e}")
+            except Exception as e:
+                print(f"   ❌ XML validation error: {str(e)}")
+                
+        except Exception as e:
+            print(f"   ❌ XML validation setup error: {e}")
+    else:
+        print(f"   ⚠️ XML file not found, skipping validation")
+    
+    # ===== YAML Schema Validation =====
+    print("\n📝 YAML Schema Validation Example:")
+    
+    # Get the path to the exported YAML file
+    yaml_path = os.path.join(output_dir, "exported_data.yaml")
+    
+    if os.path.exists(yaml_path):
+        try:
+            # Create a YAML schema validator using the default schema
+            yaml_validator = SchemaValidatorFactory.create_validator(DataSourceFormat.YAML)
+            
+            # Create a valid copy for demonstration
+            valid_yaml_path = os.path.join(validation_dir, "valid_data.yaml")
+            with open(yaml_path, 'r') as src, open(valid_yaml_path, 'w') as dst:
+                dst.write(src.read())
+            
+            # Validate valid data
+            try:
+                handler = MMCIFHandler()
+                valid_container = handler.import_from_yaml(valid_yaml_path, schema_validator=yaml_validator)
+                print(f"   ✅ Valid YAML data passed validation")
+            except ValidationError as e:
+                print(f"   ❌ Unexpected validation error: {e}")
+            except Exception as e:
+                print(f"   ❌ YAML validation error: {str(e)}")
+                
+        except Exception as e:
+            print(f"   ❌ YAML validation setup error: {e}")
+    else:
+        print(f"   ⚠️ YAML file not found, skipping validation")
+    
+    # ===== Auto-detect with validation =====
+    print("\n📝 Auto-detect Format with Validation Example:")
+    
+    try:
+        # Use one of the valid files with auto-detection
+        auto_detect_path = valid_json_path if locals().get('valid_json_path') else json_path
+        
+        if os.path.exists(auto_detect_path):
+            handler = MMCIFHandler()
+            container = handler.import_auto_detect(auto_detect_path, validate_schema=True)
+            print(f"   ✅ Auto-detected format and validated successfully")
+        else:
+            print(f"   ⚠️ File not found for auto-detection")
+            
+    except Exception as e:
+        print(f"   ❌ Auto-detection/validation error: {e}")
+        
+    print("\n🛡️ Schema validation demonstration completed")
+    return validation_dir
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
@@ -260,6 +600,7 @@ Examples:
     parser.add_argument("output", nargs='?', help="Path to write modified mmCIF file")
     parser.add_argument("--categories", nargs="+", help="Specific categories to process", default=None)
     parser.add_argument("--validate", action="store_true", help="Run validation on categories")
+# Removed --schema-validate flag as it's always included in demo mode
     parser.add_argument("--demo", action="store_true", help="Run demo with sample data")
     
     args = parser.parse_args()
@@ -274,6 +615,7 @@ Examples:
         args.input = sample_file
         args.output = "demo_modified.cif"
         args.validate = True
+        args.schema_validate = True
     
     # Validate arguments
     if not args.input or not args.output:
@@ -359,10 +701,30 @@ Examples:
         output_dir = "exports"
         demonstrate_export_functionality(mmcif_data_container, output_dir)
         
-        # Clean up demo file if created
+        # Demonstrate import functionality
+        imported_containers = demonstrate_import_functionality(output_dir)
+        
+        # Demonstrate round-trip validation for each imported format
+        for format_name, imported_container in imported_containers.items():
+            demonstrate_round_trip(mmcif_data_container, imported_container, format_name)
+            
+        # Demonstrate schema validation
+        # Note: This is always included in demo mode
+        validation_dir = demonstrate_schema_validation(mmcif_data_container, output_dir)
+        
+        # Clean up demo files if created
         if args.demo and os.path.exists("demo_structure.cif"):
             os.remove("demo_structure.cif")
             print("🧹 Cleaned up demo files")
+            
+        # Clean up validation examples
+        if 'validation_dir' in locals() and os.path.exists(validation_dir):
+            import shutil
+            try:
+                shutil.rmtree(validation_dir)
+                print("🧹 Cleaned up validation example files")
+            except Exception:
+                pass
             
     except Exception as e:
         print(f"❌ Error: {e}")

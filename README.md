@@ -1,6 +1,6 @@
 # 🦥 SLOTH
 
-**S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling
+(**S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling)
 
 > 🧠 *Lazy by design. Fast by default.*
 
@@ -154,6 +154,70 @@ json_str = exporter.to_json()
 
 # Export to dictionary
 data_dict = exporter.to_dict()
+```
+
+## Import from Different Formats
+
+SLOTH supports importing mmCIF data from various formats back into an MMCIFDataContainer object.
+
+```python
+from sloth import MMCIFHandler
+
+handler = MMCIFHandler()
+
+# Import from JSON
+mmcif_data_container = handler.import_from_json("structure.json")
+
+# Import from XML
+mmcif_data_container = handler.import_from_xml("structure.xml")
+
+# Import from Python Pickle
+mmcif_data_container = handler.import_from_pickle("structure.pkl")
+
+# Import from YAML (requires PyYAML)
+mmcif_data_container = handler.import_from_yaml("structure.yaml")
+
+# Import from CSV files (requires pandas)
+mmcif_data_container = handler.import_from_csv_files("csv_output_dir")
+
+# Auto-detect format and import
+mmcif_data_container = handler.import_auto_detect("structure.json")
+```
+
+### Direct Access to Import Methods
+
+You can also use the `MMCIFImporter` class directly for more control:
+
+```python
+from sloth import MMCIFImporter
+
+# Import from JSON
+mmcif_data_container = MMCIFImporter.from_json("structure.json")
+
+# Import from XML
+mmcif_data_container = MMCIFImporter.from_xml("structure.xml") 
+
+# Import from Python Pickle
+mmcif_data_container = MMCIFImporter.from_pickle("structure.pkl")
+
+# Import from YAML
+mmcif_data_container = MMCIFImporter.from_yaml("structure.yaml")
+
+# Import from CSV files
+mmcif_data_container = MMCIFImporter.from_csv_files("csv_output_dir")
+
+# Create from a dictionary
+data_dict = {
+    "block_name": {
+        "_category_name": {
+            "item_name": "value"
+        }
+    }
+}
+mmcif_data_container = MMCIFImporter.from_dict(data_dict)
+
+# Auto-detect format and import
+mmcif_data_container = MMCIFImporter.auto_detect_format("structure.json")
 ```
 
 ## The Power of Chained Dot Notation

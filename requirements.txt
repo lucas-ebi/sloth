@@ -1,6 +1,8 @@
 # Core dependencies
 msgpack
+jsonschema>=4.20.0
 
 # Optional dependencies for MMCIFExporter
 pyyaml>=6.0
 pandas>=1.0.0
+lxml>=5.0.0  # Required for XML schema validation
