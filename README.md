@@ -105,6 +105,57 @@ coordinates = mmcif_data_container.data_1ABC._atom_site.Cartn_x     # Item acces
 first_x_coord = mmcif_data_container.data_1ABC._atom_site.Cartn_x[0]  # Everything in one line!
 ```
 
+## Export to Different Formats
+
+SLOTH supports exporting mmCIF data to various formats for interoperability with other tools and libraries.
+
+```python
+from sloth import MMCIFHandler
+
+# Parse file
+handler = MMCIFHandler()
+mmcif_data_container = handler.parse("structure.cif")
+
+# Export to JSON
+handler.export_to_json(mmcif_data_container, "structure.json")
+
+# Export to XML 
+handler.export_to_xml(mmcif_data_container, "structure.xml") 
+
+# Export to Python Pickle
+handler.export_to_pickle(mmcif_data_container, "structure.pkl")
+
+# Export to YAML (requires PyYAML)
+handler.export_to_yaml(mmcif_data_container, "structure.yaml")
+
+# Export to pandas DataFrames (requires pandas)
+dataframes = handler.export_to_pandas(mmcif_data_container)
+
+# Export to CSV files (requires pandas)
+csv_file_paths = handler.export_to_csv(mmcif_data_container, "csv_output_dir")
+```
+
+### Direct Access to Export Methods
+
+You can also use the `MMCIFExporter` class directly for more control:
+
+```python
+from sloth import MMCIFHandler, MMCIFExporter
+
+# Parse file
+handler = MMCIFHandler()
+mmcif_data_container = handler.parse("structure.cif")
+
+# Create exporter
+exporter = MMCIFExporter(mmcif_data_container)
+
+# Export to JSON as string
+json_str = exporter.to_json()
+
+# Export to dictionary
+data_dict = exporter.to_dict()
+```
+
 ## The Power of Chained Dot Notation
 
 SLOTH's most elegant feature is the ability to chain dot notation for incredibly concise code. Instead of assigning intermediate variables, you can directly access what you need in a single line.
