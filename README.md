@@ -444,6 +444,7 @@ handler = MMCIFHandler(validator_factory=None)
   - Write data to a file (requires `file_obj` to be set)
 
 **Properties:**
+
 - `file_obj`: Set this to an open file handle before writing
 
 ### MMCIFDataContainer
@@ -451,10 +452,12 @@ handler = MMCIFHandler(validator_factory=None)
 Container for all data blocks in an mmCIF file.
 
 **Properties:**
+
 - `blocks: List[str]` - List of data block names
 - `data: List[DataBlock]` - List of data block objects
 
 **Access Methods:**
+
 - `container[block_name]` - Get block by name
 - `container.data_BLOCKNAME` - Dot notation access
 
@@ -463,11 +466,13 @@ Container for all data blocks in an mmCIF file.
 Represents a single data block in an mmCIF file.
 
 **Properties:**
+
 - `name: str` - Block name
 - `categories: List[str]` - List of category names
 - `data: Dict[str, Category]` - Dictionary of category objects
 
 **Access Methods:**
+
 - `block[category_name]` - Get category by name  
 - `block._category_name` - Dot notation access
 
@@ -476,6 +481,7 @@ Represents a single data block in an mmCIF file.
 Represents a category within a data block.
 
 **Properties:**
+
 - `name: str` - Category name
 - `items: List[str]` - List of item names
 - `data: Dict[str, List[str]]` - All data (forces loading)
@@ -501,9 +507,11 @@ Represents a category within a data block.
 Represents a single row of data in a Category.
 
 **Properties:**
+
 - `data: Dict[str, str]` - Dictionary of all item values for this row
 
 **Access Methods:**
+
 - `row.item_name` - Get value for specific item in this row
 - `row[item_name]` - Dictionary-style access to values
 
@@ -512,6 +520,7 @@ Represents a single row of data in a Category.
 Factory for creating and managing validators.
 
 **Methods:**
+
 - `register_validator(category_name: str, validator_function: Callable)`
 - `register_cross_checker(category_pair: Tuple[str, str], checker_function: Callable)`
 - `get_validator(category_name: str) -> Optional[Callable]`
@@ -527,6 +536,7 @@ Factory for creating and managing validators.
 | Huge (>1GB) | Fast | Fast | Smart |
 
 **Key Benefits:**
+
 - 🚀 **Fast startup** regardless of file size
 - 💾 **Efficient processing** - optimized data access patterns  
 - ⚡ **Instant access** to any category or item
