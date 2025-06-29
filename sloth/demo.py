@@ -195,6 +195,54 @@ def demonstrate_2d_slicing(mmcif_data_container):
     print("   6. With slices: for row in category[0:3]: print(row.item_name)")
     print("\n   💪 Dot notation makes your code more readable, elegant, and Pythonic!")
 
+def demonstrate_export_functionality(mmcif_data_container, output_dir):
+    """Demonstrate the new export functionality."""
+    print(f"\n📊 Demonstrating export functionality:")
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create handler
+    handler = MMCIFHandler()
+    
+    # Export to JSON
+    json_path = os.path.join(output_dir, "exported_data.json")
+    handler.export_to_json(mmcif_data_container, json_path)
+    print(f"   ✅ Exported to JSON: {json_path}")
+    
+    # Export to XML
+    xml_path = os.path.join(output_dir, "exported_data.xml")
+    handler.export_to_xml(mmcif_data_container, xml_path)
+    print(f"   ✅ Exported to XML: {xml_path}")
+    
+    # Export to Pickle
+    pickle_path = os.path.join(output_dir, "exported_data.pkl")
+    handler.export_to_pickle(mmcif_data_container, pickle_path)
+    print(f"   ✅ Exported to Pickle: {pickle_path}")
+    
+    # Export to YAML (with try/except as it requires PyYAML)
+    try:
+        yaml_path = os.path.join(output_dir, "exported_data.yaml")
+        handler.export_to_yaml(mmcif_data_container, yaml_path)
+        print(f"   ✅ Exported to YAML: {yaml_path}")
+    except ImportError as e:
+        print(f"   ❌ YAML export failed: {str(e)}")
+    
+    # Export to CSV (with try/except as it requires pandas)
+    try:
+        csv_dir = os.path.join(output_dir, "csv_files")
+        file_paths = handler.export_to_csv(mmcif_data_container, csv_dir)
+        print(f"   ✅ Exported to CSV files in: {csv_dir}")
+        # Show first CSV file path as example
+        for block_name, categories in file_paths.items():
+            if categories:
+                first_category = next(iter(categories.keys()))
+                first_path = categories[first_category]
+                print(f"      Example: {os.path.basename(first_path)}")
+                break
+    except ImportError as e:
+        print(f"   ❌ CSV export failed: {str(e)}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
@@ -306,6 +354,10 @@ Examples:
         # Demonstrate 2D slicing if available
         if hasattr(handler, 'demonstrate_2d_slicing'):
             demonstrate_2d_slicing(mmcif_data_container)
+
+        # Demonstrate export functionality
+        output_dir = "exports"
+        demonstrate_export_functionality(mmcif_data_container, output_dir)
         
         # Clean up demo file if created
         if args.demo and os.path.exists("demo_structure.cif"):

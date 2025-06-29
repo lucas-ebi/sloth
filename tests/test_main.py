@@ -10,8 +10,12 @@ import unittest
 import tempfile
 import os
 import mmap
+import json
+import shutil
+from pathlib import Path
+from io import StringIO
 from unittest.mock import mock_open, patch
-from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory
+from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory
 
 class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """
@@ -349,9 +353,12 @@ _atom_site.group_PDB
 _atom_site.id
 _atom_site.type_symbol
 _atom_site.label_atom_id
+_atom_site.auth_seq_id
 _atom_site.Cartn_x
 _atom_site.Cartn_y
 _atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
 ATOM   1    N  N   20.154 6.718  22.746
 ATOM   2    C  CA  21.618 6.756  22.530
 ATOM   3    C  C   22.097 8.130  22.050
@@ -957,3 +964,125 @@ _test_data.value
             
         finally:
             os.unlink(memory_file)
+
+
+class TestMMCIFExporter(unittest.TestCase):
+    """Test case for the MMCIFExporter class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Create a simple mmCIF file for testing
+        self.test_cif_path = os.path.join(self.temp_dir, 'test.cif')
+        with open(self.test_cif_path, 'w') as f:
+            f.write("""data_test
+#
+_entry.id test_structure
+#
+_database_2.database_id      TEST
+_database_2.database_code    ABC123
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM   1    N  10.123 20.456 30.789
+ATOM   2    C  11.234 21.567 31.890
+ATOM   3    C  12.345 22.678 32.901
+#
+""")
+        
+        # Parse the test file
+        handler = MMCIFHandler()
+        self.mmcif_data_container = handler.parse(self.test_cif_path)
+        self.exporter = MMCIFExporter(self.mmcif_data_container)
+
+    def tearDown(self):
+        """Tear down test fixtures."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_to_dict(self):
+        """Test conversion to dictionary."""
+        data_dict = self.exporter.to_dict()
+        
+        # Verify the structure
+        self.assertIn('test', data_dict)
+        self.assertIn('_entry', data_dict['test'])
+        self.assertIn('_atom_site', data_dict['test'])
+        
+        # Verify specific values
+        self.assertEqual(data_dict['test']['_entry']['id'], 'test_structure')
+        
+        # Verify multi-row category
+        atom_site = data_dict['test']['_atom_site']
+        self.assertEqual(len(atom_site), 3)  # Three rows
+        self.assertEqual(atom_site[0]['Cartn_x'], '10.123')
+
+    def test_to_json(self):
+        """Test JSON export."""
+        json_path = os.path.join(self.temp_dir, 'test.json')
+        self.exporter.to_json(json_path)
+        
+        # Verify file exists
+        self.assertTrue(os.path.exists(json_path))
+        
+        # Verify content
+        with open(json_path) as f:
+            data = json.load(f)
+        
+        self.assertIn('test', data)
+        self.assertIn('_database_2', data['test'])
+        self.assertEqual(data['test']['_database_2']['database_id'], 'TEST')
+        
+        # Test without file path (string return)
+        json_str = self.exporter.to_json()
+        self.assertIsInstance(json_str, str)
+        data_from_str = json.loads(json_str)
+        self.assertIn('test', data_from_str)
+
+    def test_handler_export_methods(self):
+        """Test export methods in MMCIFHandler."""
+        handler = MMCIFHandler()
+        
+        # Test JSON export
+        json_path = os.path.join(self.temp_dir, 'handler.json')
+        handler.export_to_json(self.mmcif_data_container, json_path)
+        self.assertTrue(os.path.exists(json_path))
+        
+        # Test XML export
+        xml_path = os.path.join(self.temp_dir, 'handler.xml')
+        handler.export_to_xml(self.mmcif_data_container, xml_path)
+        self.assertTrue(os.path.exists(xml_path))
+        
+        # Test pickle export
+        pkl_path = os.path.join(self.temp_dir, 'handler.pkl')
+        handler.export_to_pickle(self.mmcif_data_container, pkl_path)
+        self.assertTrue(os.path.exists(pkl_path))
+
+    def test_to_yaml_pandas_availability(self):
+        """Test YAML and pandas export availability."""
+        # We don't actually test the functionality, just that the methods exist
+        # and don't crash when libraries are not available
+        
+        # Test YAML export (should not crash whether PyYAML is installed or not)
+        try:
+            yaml_str = self.exporter.to_yaml()
+            # If we get here, PyYAML is installed
+            self.assertIsInstance(yaml_str, (str, type(None)))
+        except ImportError:
+            # This is fine, PyYAML might not be installed
+            pass
+        
+        # Test pandas and CSV export (should not crash)
+        try:
+            # Try pandas export
+            result = self.exporter.to_pandas()
+            # If we get here, pandas is installed
+            self.assertIsInstance(result, dict)
+        except ImportError:
+            # This is fine, pandas might not be installed
+            pass
