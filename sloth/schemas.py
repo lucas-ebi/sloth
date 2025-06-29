@@ -562,4 +562,8 @@ class SchemaValidatorFactory:
             return CSVSchemaValidator(custom_schema)
             
         else:
-            raise ValueError(f"Schema validation not supported for format: {format_type}")
+            supported_formats = ["JSON", "XML", "YAML", "CSV"]
+            raise ValueError(
+                f"Schema validation not supported for format: {format_type}. "
+                f"Supported formats are: {', '.join(supported_formats)}"
+            )

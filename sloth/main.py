@@ -1229,9 +1229,9 @@ class JsonLoader(FormatLoader):
                 data = json.loads(input_)
             else:
                 data = json.load(input_)
-        except json.JSONDecodeError:
-            # Handle invalid JSON - create an empty data dictionary
-            data = {}
+        except json.JSONDecodeError as e:
+            # Raise a clear error instead of silently converting to empty dict
+            raise ValueError(f"Invalid JSON input: {e}") from e
         
         # Validate data against schema if provided
         self.validate_schema(data)
@@ -1372,7 +1372,7 @@ class CsvLoader(FormatLoader):
         import re
         if not isinstance(input_, str):
             raise TypeError("CsvLoader requires a directory path string.")
-        pattern = r'([^_]+)_(.+)\.csv'  # Modified pattern to capture everything after first underscore
+        pattern = r'^(.+?)_(.+?)\.csv$'  # Non-greedy match for block and category names with underscores
         data_dict = {}
         csv_file_data = {}  # Store file data for validation
         
@@ -1505,18 +1505,12 @@ class MMCIFImporter:
         ext = os.path.splitext(file_path.lower())[1]
         if ext == '.json':
             return cls.from_json(file_path, validator_factory, format_specific_validator)
-        elif ext in ('.xml'):
+        elif ext == '.xml':
             return cls.from_xml(file_path, validator_factory, format_specific_validator)
         elif ext in ('.yaml', '.yml'):
             return cls.from_yaml(file_path, validator_factory, format_specific_validator)
         elif ext in ('.pkl', '.pickle'):
             return cls.from_pickle(file_path, validator_factory, format_specific_validator)
-        elif ext == '.xml':
-            return cls.from_xml(file_path, validator_factory)
-        elif ext == '.pkl':
-            return cls.from_pickle(file_path, validator_factory)
-        elif ext in ('.yaml', '.yml'):
-            return cls.from_yaml(file_path, validator_factory)
         elif ext == '.csv':
             return cls.from_csv_files(file_path, validator_factory)
         elif ext == '.cif':
