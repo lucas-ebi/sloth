@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from io import StringIO
 from unittest.mock import mock_open, patch
-from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFImporter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory
+from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFImporter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory, DataSourceFormat
 
 class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """
@@ -1381,3 +1381,36 @@ ATOM   3    C  12.345 22.678 32.901
             self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
             imported_container['test']['_atom_site']['Cartn_x'][0]
         )
+
+    def test_source_format_flag(self):
+        """Test that the source format flag is correctly set."""
+        # Test JSON source format
+        json_container = self.importer.from_json(self.json_path)
+        self.assertEqual(json_container.source_format, DataSourceFormat.JSON)
+        
+        # Test XML source format
+        xml_container = self.importer.from_xml(self.xml_path)
+        self.assertEqual(xml_container.source_format, DataSourceFormat.XML)
+        
+        # Test Pickle source format
+        pickle_container = self.importer.from_pickle(self.pkl_path)
+        self.assertEqual(pickle_container.source_format, DataSourceFormat.PICKLE)
+        
+        # Test CIF source format via auto-detect
+        cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
+        self.assertEqual(cif_container.source_format, DataSourceFormat.MMCIF)
+        
+        # Test dictionary source format
+        data_dict = self.exporter.to_dict()
+        dict_container = MMCIFImporter.from_dict(data_dict)
+        self.assertEqual(dict_container.source_format, DataSourceFormat.DICT)
+        
+        # Test YAML source format if available
+        if self.yaml_available:
+            yaml_container = self.importer.from_yaml(self.yaml_path)
+            self.assertEqual(yaml_container.source_format, DataSourceFormat.YAML)
+        
+        # Test CSV source format if available
+        if self.pandas_available:
+            csv_container = self.importer.from_csv_files(self.csv_dir)
+            self.assertEqual(csv_container.source_format, DataSourceFormat.CSV)

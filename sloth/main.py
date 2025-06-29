@@ -1,13 +1,23 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator
-import io
-import shlex
-import mmap
+from functools import cached_property
 import os
+import mmap
+import shlex
 import json
 import pickle
-import re
-import glob
-from functools import cached_property
+from enum import Enum, auto
+
+
+class DataSourceFormat(Enum):
+    """Enum to track the format source of mmCIF data."""
+    MMCIF = auto()     # Native mmCIF file
+    JSON = auto()      # JSON file or string
+    XML = auto()       # XML file or string
+    PICKLE = auto()    # Pickle file
+    YAML = auto()      # YAML file or string
+    CSV = auto()       # CSV directory
+    DICT = auto()      # Python dictionary
+    UNKNOWN = auto()   # Unknown source
 
 
 class ValidatorFactory:
@@ -410,8 +420,9 @@ class DataBlock:
 
 class MMCIFDataContainer:
     """A class to represent an mmCIF data container."""
-    def __init__(self, data_blocks: Dict[str, DataBlock]):
+    def __init__(self, data_blocks: Dict[str, DataBlock], source_format: DataSourceFormat = DataSourceFormat.MMCIF):
         self._data_blocks = data_blocks
+        self.source_format = source_format
 
     def __getitem__(self, block_name: str) -> DataBlock:
         return self._data_blocks[block_name]
@@ -520,7 +531,7 @@ class MMCIFParser:
                 # Process the line, potentially storing byte offsets for lazy loading
                 self._process_line_with_offsets(line.rstrip(), line_start, line_end)
                 
-            return MMCIFDataContainer(self._data_blocks)
+            return MMCIFDataContainer(self._data_blocks, source_format=DataSourceFormat.MMCIF)
         finally:
             # Restore original method
             self._ensure_current_data = original_ensure
@@ -1126,6 +1137,35 @@ class MMCIFImporter:
     """A class to import mmCIF data from different formats like JSON, XML, Pickle, YAML, etc."""
     
     @staticmethod
+    def _create_item_with_lazy_strategy(name: str, value: str, mmap_obj: Optional[mmap.mmap] = None, 
+                                       source_format: DataSourceFormat = DataSourceFormat.DICT) -> Item:
+        """
+        Create an Item using the appropriate lazy loading strategy based on data source format.
+        
+        :param name: Item name
+        :param value: Item value or reference
+        :param mmap_obj: Memory-mapped file object (if applicable)
+        :param source_format: The source format of the data
+        :return: An Item instance with appropriate lazy loading strategy
+        """
+        if source_format == DataSourceFormat.MMCIF and mmap_obj:
+            # For mmCIF files, we use offsets within the memory-mapped file
+            item = Item(name, mmap_obj=mmap_obj)
+            # The actual offsets would be added later
+            return item
+        elif source_format in (DataSourceFormat.JSON, DataSourceFormat.XML, DataSourceFormat.PICKLE, 
+                              DataSourceFormat.YAML) and mmap_obj:
+            # For non-mmCIF files, we might still use memory mapping but with different strategies
+            # This would depend on format-specific implementations
+            item = Item(name, mmap_obj=mmap_obj)
+            # Format-specific handling would be added in the respective methods
+            return item
+        else:
+            # For dictionary or other in-memory formats, use eager loading
+            item = Item(name, eager_values=[value])
+            return item
+    
+    @staticmethod
     def from_dict(data_dict: Dict[str, Any], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
         """
         Create an MMCIFDataContainer from a dictionary representation.
@@ -1175,7 +1215,7 @@ class MMCIFImporter:
             block = DataBlock(block_name, categories)
             data_blocks[block_name] = block
         
-        return MMCIFDataContainer(data_blocks)
+        return MMCIFDataContainer(data_blocks, source_format=DataSourceFormat.DICT)
     
     @staticmethod
     def from_json(json_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
@@ -1192,6 +1232,27 @@ class MMCIFImporter:
         if isinstance(json_str_or_file, str):
             # Check if it's a file path
             if os.path.exists(json_str_or_file):
+                file_size = os.path.getsize(json_str_or_file)
+                if file_size > 0:
+                    # Try to use memory mapping for large files
+                    try:
+                        with open(json_str_or_file, 'rb') as f:
+                            # Create memory map
+                            mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                            # Load JSON from the memory map
+                            data_dict = json.loads(mmap_obj[:].decode('utf-8'))
+                            
+                            # Pass along the memory map to the dictionary processor
+                            # In a more complex implementation, we would track positions of values
+                            # in the JSON file for true lazy loading
+                            container = MMCIFImporter.from_dict(data_dict)
+                            container.source_format = DataSourceFormat.JSON
+                            return container
+                    except (ValueError, OSError):
+                        # Fallback to standard file reading if memory mapping fails
+                        pass
+                
+                # Standard file reading as fallback
                 with open(json_str_or_file, 'r') as f:
                     data_dict = json.load(f)
             else:
@@ -1201,7 +1262,10 @@ class MMCIFImporter:
             # Assume it's a file-like object
             data_dict = json.load(json_str_or_file)
         
-        return MMCIFImporter.from_dict(data_dict)
+        # Create container with JSON source format
+        container = MMCIFImporter.from_dict(data_dict)
+        container.source_format = DataSourceFormat.JSON
+        return container
     
     @staticmethod
     def from_xml(xml_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
@@ -1262,7 +1326,10 @@ class MMCIFImporter:
             
             data_dict[block_name] = block_dict
         
-        return MMCIFImporter.from_dict(data_dict)
+        # Create container with XML source format
+        container = MMCIFImporter.from_dict(data_dict)
+        container.source_format = DataSourceFormat.XML
+        return container
     
     @staticmethod
     def from_pickle(file_path: str) -> MMCIFDataContainer:
@@ -1276,10 +1343,35 @@ class MMCIFImporter:
         """
         import pickle
         
+        file_size = os.path.getsize(file_path)
+        
+        if file_size > 0:
+            try:
+                # For large pickle files, try memory mapping for efficiency
+                with open(file_path, 'rb') as f:
+                    # Create memory map
+                    mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                    # Since pickle requires the entire file to be processed,
+                    # we're not gaining true lazy loading here, but we're
+                    # still using memory mapping for efficiency
+                    data_dict = pickle.loads(mmap_obj[:])
+                    
+                    # Create container with PICKLE source format
+                    container = MMCIFImporter.from_dict(data_dict)
+                    container.source_format = DataSourceFormat.PICKLE
+                    return container
+            except (ValueError, OSError, pickle.UnpicklingError):
+                # Fallback to standard file reading
+                pass
+        
+        # Standard pickle loading as fallback
         with open(file_path, 'rb') as f:
             data_dict = pickle.load(f)
         
-        return MMCIFImporter.from_dict(data_dict)
+        # Create container with PICKLE source format
+        container = MMCIFImporter.from_dict(data_dict)
+        container.source_format = DataSourceFormat.PICKLE
+        return container
     
     @staticmethod
     def from_yaml(yaml_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
@@ -1298,6 +1390,25 @@ class MMCIFImporter:
         
         if isinstance(yaml_str_or_file, str):
             if os.path.exists(yaml_str_or_file):
+                # Try memory mapping for large YAML files
+                file_size = os.path.getsize(yaml_str_or_file)
+                if file_size > 0:
+                    try:
+                        with open(yaml_str_or_file, 'rb') as f:
+                            # Create memory map
+                            mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                            # Load YAML from memory map
+                            data_dict = yaml.safe_load(mmap_obj[:].decode('utf-8'))
+                            
+                            # Create container with YAML source format
+                            container = MMCIFImporter.from_dict(data_dict)
+                            container.source_format = DataSourceFormat.YAML
+                            return container
+                    except (ValueError, OSError):
+                        # Fallback to standard file reading
+                        pass
+                
+                # Standard file reading as fallback
                 with open(yaml_str_or_file, 'r') as f:
                     data_dict = yaml.safe_load(f)
             else:
@@ -1307,7 +1418,10 @@ class MMCIFImporter:
             # Assume it's a file-like object
             data_dict = yaml.safe_load(yaml_str_or_file)
         
-        return MMCIFImporter.from_dict(data_dict)
+        # Create container with YAML source format
+        container = MMCIFImporter.from_dict(data_dict)
+        container.source_format = DataSourceFormat.YAML
+        return container
     
     @classmethod
     def from_csv_files(cls, directory_path: str, validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
@@ -1354,7 +1468,9 @@ class MMCIFImporter:
                 rows = df.to_dict('records')
                 data_dict[block_name][category_name] = rows
         
-        return cls.from_dict(data_dict, validator_factory)
+        container = cls.from_dict(data_dict, validator_factory)
+        container.source_format = DataSourceFormat.CSV
+        return container
     
     @classmethod
     def auto_detect_format(cls, file_path: str) -> MMCIFDataContainer:
@@ -1377,9 +1493,12 @@ class MMCIFImporter:
         elif ext in ('.yaml', '.yml'):
             return cls.from_yaml(file_path)
         elif ext == '.cif':
-            # Use the standard handler for CIF files
+            # Use the standard handler for CIF files with memory mapping
+            # This path already optimally uses memory mapping and lazy loading
             handler = MMCIFHandler()
-            return handler.parse(file_path)
+            container = handler.parse(file_path)
+            container.source_format = DataSourceFormat.MMCIF
+            return container
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
 
@@ -1524,8 +1643,10 @@ class MMCIFHandler:
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        importer = MMCIFImporter()
-        return importer.from_json(file_path)
+        container = MMCIFImporter.from_json(file_path)
+        # Make sure source format is set correctly
+        container.source_format = DataSourceFormat.JSON
+        return container
     
     def import_from_xml(self, file_path: str) -> MMCIFDataContainer:
         """
@@ -1536,8 +1657,10 @@ class MMCIFHandler:
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        importer = MMCIFImporter()
-        return importer.from_xml(file_path)
+        container = MMCIFImporter.from_xml(file_path)
+        # Make sure source format is set correctly
+        container.source_format = DataSourceFormat.XML
+        return container
     
     def import_from_pickle(self, file_path: str) -> MMCIFDataContainer:
         """
@@ -1548,8 +1671,10 @@ class MMCIFHandler:
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        importer = MMCIFImporter()
-        return importer.from_pickle(file_path)
+        container = MMCIFImporter.from_pickle(file_path)
+        # Make sure source format is set correctly
+        container.source_format = DataSourceFormat.PICKLE
+        return container
     
     def import_from_yaml(self, file_path: str) -> MMCIFDataContainer:
         """
@@ -1560,8 +1685,10 @@ class MMCIFHandler:
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        importer = MMCIFImporter()
-        return importer.from_yaml(file_path)
+        container = MMCIFImporter.from_yaml(file_path)
+        # Make sure source format is set correctly
+        container.source_format = DataSourceFormat.YAML
+        return container
     
     def import_from_csv_files(self, directory_path: str) -> MMCIFDataContainer:
         """
@@ -1572,8 +1699,10 @@ class MMCIFHandler:
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        importer = MMCIFImporter()
-        return importer.from_csv_files(directory_path, self.validator_factory)
+        container = MMCIFImporter.from_csv_files(directory_path, self.validator_factory)
+        # Make sure source format is set correctly
+        container.source_format = DataSourceFormat.CSV
+        return container
     
     def import_auto_detect(self, file_path: str) -> MMCIFDataContainer:
         """
@@ -1581,7 +1710,7 @@ class MMCIFHandler:
         
         :param file_path: Path to the file to import
         :type file_path: str
-        :return: An MMCIFDataContainer instance
+        :return: An MMCIFDataContainer instance with appropriate source_format flag set
         :rtype: MMCIFDataContainer
         """
         importer = MMCIFImporter()

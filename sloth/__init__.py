@@ -20,7 +20,8 @@ from .main import (
     Category,
     Row,
     Item,
-    ValidatorFactory
+    ValidatorFactory,
+    DataSourceFormat
 )
 from .version import __version__
 
@@ -35,5 +36,6 @@ __all__ = [
     'Category',
     'Item',
     'ValidatorFactory',
+    'DataSourceFormat',
     '__version__'
 ]
