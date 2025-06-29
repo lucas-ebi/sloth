@@ -209,10 +209,12 @@ class XMLSchemaValidator(SchemaValidator):
         # Parse schema during initialization
         try:
             if isinstance(self.xsd_schema, str) and os.path.exists(self.xsd_schema):
-                # It's a file
-                self.schema_doc = self._etree.parse(self.xsd_schema)
+                # It's a file path - let lxml handle encoding
+                with open(self.xsd_schema, 'rb') as f:
+                    schema_bytes = f.read()
+                self.schema_doc = self._etree.fromstring(schema_bytes)
             elif isinstance(self.xsd_schema, str):
-                # It's a string containing XML
+                # It's a string containing XML - encode to bytes
                 self.schema_doc = self._etree.fromstring(self.xsd_schema.encode('utf-8'))
             else:
                 # It's already an ElementTree or Element
@@ -220,9 +222,7 @@ class XMLSchemaValidator(SchemaValidator):
                 
             self.schema = self._etree.XMLSchema(self.schema_doc)
         except Exception as e:
-            # If schema parsing fails during init, log but don't fail
-            # This allows creating the validator with invalid schema
-            # but will raise error during validate()
+            # If schema parsing fails during init, store the error
             self.schema = None
             self.schema_error = str(e)
     
@@ -231,7 +231,7 @@ class XMLSchemaValidator(SchemaValidator):
         Validate XML data against XSD schema.
         
         Args:
-            data: XML data to validate (string or ElementTree)
+            data: XML data to validate (string, bytes, ElementTree, or Element)
             
         Returns:
             ValidationResult containing validation outcome
@@ -246,9 +246,16 @@ class XMLSchemaValidator(SchemaValidator):
             
             # Parse XML data
             if isinstance(data, str):
+                # String input - encode to bytes first
+                xml_doc = self._etree.fromstring(data.encode('utf-8'))
+            elif isinstance(data, bytes):
+                # Already bytes - parse directly
                 xml_doc = self._etree.fromstring(data)
-            else:
+            elif isinstance(data, (self._etree._Element, self._etree._ElementTree)):
+                # Already parsed - use as is
                 xml_doc = data
+            else:
+                raise ValidationError(f"Unsupported XML data type: {type(data)}")
                 
             # Validate
             self.schema.assertValid(xml_doc)
@@ -263,24 +270,30 @@ class XMLSchemaValidator(SchemaValidator):
         Check if XML data is valid.
         
         Args:
-            data: XML data to validate
+            data: XML data to validate (string, bytes, ElementTree, or Element)
             
         Returns:
             bool: True if valid, False otherwise
         """
         try:
-            # Parse schema
-            schema_doc = self._etree.parse(self.xsd_schema) if isinstance(self.xsd_schema, str) else self.xsd_schema
-            schema = self._etree.XMLSchema(schema_doc)
-            
+            if self.schema is None:
+                return False
+                
             # Parse XML data
             if isinstance(data, str):
+                # String input - encode to bytes first
+                xml_doc = self._etree.fromstring(data.encode('utf-8'))
+            elif isinstance(data, bytes):
+                # Already bytes - parse directly
                 xml_doc = self._etree.fromstring(data)
-            else:
+            elif isinstance(data, (self._etree._Element, self._etree._ElementTree)):
+                # Already parsed - use as is
                 xml_doc = data
+            else:
+                return False
                 
-            # Validate
-            return schema.validate(xml_doc)
+            # Validate using the already parsed schema
+            return self.schema.validate(xml_doc)
         except Exception:
             return False
 
@@ -456,19 +469,37 @@ class CSVSchemaValidator(SchemaValidator):
 import os
 import json
 
+def _get_schema_dir():
+    """Get the absolute path to the schema directory."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'schemas')
+
 def _load_schema_file(filename):
-    """Load schema from file."""
-    schema_dir = os.path.dirname(__file__)
-    schema_path = os.path.join(schema_dir, 'schemas', filename)
+    """
+    Load schema from file.
+    
+    Args:
+        filename: Name of the schema file in the schemas directory
+        
+    Returns:
+        Dict containing the parsed JSON schema, or None if file not found
+    """
+    schema_path = os.path.join(_get_schema_dir(), filename)
     if os.path.exists(schema_path):
         with open(schema_path, 'r') as f:
             return json.load(f)
     return None
 
 def _load_text_file(filename):
-    """Load text file."""
-    schema_dir = os.path.dirname(__file__)
-    schema_path = os.path.join(schema_dir, 'schemas', filename)
+    """
+    Load text file from schemas directory.
+    
+    Args:
+        filename: Name of the file in the schemas directory
+        
+    Returns:
+        String containing the file contents, or None if file not found
+    """
+    schema_path = os.path.join(_get_schema_dir(), filename)
     if os.path.exists(schema_path):
         with open(schema_path, 'r') as f:
             return f.read()
@@ -504,80 +535,19 @@ class SchemaValidatorFactory:
             
         elif format_type == DataSourceFormat.XML:
             if not custom_schema:
-                # Try to load the XSD schema from file
+                # Load the XSD schema from file
                 xsd_schema_content = _load_text_file('mmcif_xml_schema.xsd')
-                if xsd_schema_content:
-                    try:
-                        from lxml import etree
-                        # Parse the schema from file
-                        schema_root = etree.XML(xsd_schema_content.encode('utf-8'))
-                        xml_schema = etree.XMLSchema(schema_root)
-                        custom_schema = xml_schema
-                    except Exception as e:
-                        print(f"Warning: Failed to parse XML schema file: {e}")
-                        custom_schema = None
-                else:
-                    # Fallback to programmatic creation if file not found
-                    try:
-                        from lxml import etree
-                        
-                        # Create XML Schema using ElementTree
-                        nsmap = {'xs': 'http://www.w3.org/2001/XMLSchema'}
-                        schema = etree.Element("{http://www.w3.org/2001/XMLSchema}schema")
-                        
-                        # Define the root element
-                        root_elem = etree.SubElement(schema, "{http://www.w3.org/2001/XMLSchema}element", name="mmcif")
-                        root_complex = etree.SubElement(root_elem, "{http://www.w3.org/2001/XMLSchema}complexType")
-                        root_seq = etree.SubElement(root_complex, "{http://www.w3.org/2001/XMLSchema}sequence")
-                        
-                        # Define data_block element
-                        db_elem = etree.SubElement(root_seq, "{http://www.w3.org/2001/XMLSchema}element", 
-                                                  name="data_block", minOccurs="0", maxOccurs="unbounded")
-                        db_complex = etree.SubElement(db_elem, "{http://www.w3.org/2001/XMLSchema}complexType")
-                        db_seq = etree.SubElement(db_complex, "{http://www.w3.org/2001/XMLSchema}sequence")
-                        etree.SubElement(db_complex, "{http://www.w3.org/2001/XMLSchema}attribute", 
-                                        name="name", type="xs:string", use="required")
-                        
-                        # Define category element (rest of programmatic creation)
-                        cat_elem = etree.SubElement(db_seq, "{http://www.w3.org/2001/XMLSchema}element", 
-                                                   name="category", minOccurs="0", maxOccurs="unbounded")
-                        cat_complex = etree.SubElement(cat_elem, "{http://www.w3.org/2001/XMLSchema}complexType")
-                        cat_choice = etree.SubElement(cat_complex, "{http://www.w3.org/2001/XMLSchema}choice")
-                        etree.SubElement(cat_complex, "{http://www.w3.org/2001/XMLSchema}attribute", 
-                                        name="name", type="xs:string", use="required")
+                if not xsd_schema_content:
+                    schema_path = os.path.join(_get_schema_dir(), 'mmcif_xml_schema.xsd')
+                    raise ValueError(f"Required XML schema file not found: {schema_path}")
 
-                        # Define item element for single row categories
-                        item_elem = etree.SubElement(cat_choice, "{http://www.w3.org/2001/XMLSchema}element", 
-                                                   name="item", minOccurs="0", maxOccurs="unbounded")
-                        item_complex = etree.SubElement(item_elem, "{http://www.w3.org/2001/XMLSchema}complexType")
-                        item_content = etree.SubElement(item_complex, "{http://www.w3.org/2001/XMLSchema}simpleContent")
-                        item_ext = etree.SubElement(item_content, "{http://www.w3.org/2001/XMLSchema}extension", base="xs:string")
-                        etree.SubElement(item_ext, "{http://www.w3.org/2001/XMLSchema}attribute", 
-                                        name="name", type="xs:string", use="required")
-                        
-                        # Define row element for multi-row categories
-                        row_elem = etree.SubElement(cat_choice, "{http://www.w3.org/2001/XMLSchema}element", 
-                                                  name="row", minOccurs="0", maxOccurs="unbounded")
-                        row_complex = etree.SubElement(row_elem, "{http://www.w3.org/2001/XMLSchema}complexType")
-                        row_seq = etree.SubElement(row_complex, "{http://www.w3.org/2001/XMLSchema}sequence")
-                        
-                        # Define item element inside rows
-                        row_item_elem = etree.SubElement(row_seq, "{http://www.w3.org/2001/XMLSchema}element", 
-                                                       name="item", minOccurs="0", maxOccurs="unbounded")
-                        row_item_complex = etree.SubElement(row_item_elem, "{http://www.w3.org/2001/XMLSchema}complexType")
-                        row_item_content = etree.SubElement(row_item_complex, "{http://www.w3.org/2001/XMLSchema}simpleContent")
-                        row_item_ext = etree.SubElement(row_item_content, "{http://www.w3.org/2001/XMLSchema}extension", base="xs:string")
-                        etree.SubElement(row_item_ext, "{http://www.w3.org/2001/XMLSchema}attribute", 
-                                        name="name", type="xs:string", use="required")
-                        
-                        # Create XMLSchema directly from element
-                        xml_schema = etree.XMLSchema(schema)
-                        custom_schema = xml_schema
-                        
-                    except ImportError:
-                        # Fallback to simple validator that doesn't validate schema
-                        # but still checks syntax
-                        custom_schema = None
+                try:
+                    from lxml import etree
+                    # Parse the schema from file
+                    # Pass the XSD content to the validator, not the parsed schema
+                    custom_schema = xsd_schema_content
+                except Exception as e:
+                    raise ValueError(f"Failed to parse XML schema file: {e}")
                     
             return XMLSchemaValidator(custom_schema)
             
