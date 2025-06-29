@@ -118,10 +118,10 @@ from sloth import MMCIFHandler
 handler = MMCIFHandler()
 
 # Parse entire file
-data = handler.parse("structure.cif")
+mmcif_obj = handler.parse("structure.cif")
 
 # Parse only specific categories (faster for large files)
-data = handler.parse("structure.cif", categories=['_atom_site', '_entry'])
+mmcif_obj = handler.parse("structure.cif", categories=['_atom_site', '_entry'])
 ```
 
 ### Accessing Data
@@ -130,15 +130,15 @@ data = handler.parse("structure.cif", categories=['_atom_site', '_entry'])
 
 ```python
 # List all data blocks
-blocks = data.blocks
+blocks = mmcif_obj.blocks
 print(blocks)  # ['7XJP']
 
 # Get first data block
-block = data.data[0]
+block = mmcif_obj.data[0]
 # or access by name
-block = data['7XJP']
+block = mmcif_obj['7XJP']
 # or using dot notation
-block = data.data_7XJP
+block = mmcif_obj.data_7XJP
 ```
 
 #### Get Categories
@@ -146,11 +146,14 @@ block = data.data_7XJP
 ```python
 # List all categories in a block
 categories = block.categories
-print(list(categories.keys()))  # ['_database_2', '_atom_site', ...]
+print(categories)  # ['_database_2', '_atom_site', ...]
 
-# Access a category
+# Access categories
 db_info = block._database_2
 atom_data = block._atom_site
+
+# Or access via data property if needed
+category_objects = block.data
 ```
 
 #### Get Items and Values
@@ -187,7 +190,7 @@ print(db_info.database_id)  # ['PDB', 'WWPDB', 'NEWDB']
 # Write modified data to a new file
 with open("modified_structure.cif", 'w') as f:
     handler.file_obj = f
-    handler.write(data)
+    handler.write(mmcif_obj)
 ```
 
 ### Performance Examples
@@ -197,25 +200,25 @@ with open("modified_structure.cif", 'w') as f:
 ```python
 # Efficiently handle large files
 handler = MMCIFHandler()
-data = handler.parse("huge_structure.cif")  # Fast startup
+mmcif_obj = handler.parse("huge_structure.cif")  # Fast startup
 
 # Only loads data when accessed
 if need_coordinates:
-    x_coords = data.data[0]._atom_site.Cartn_x
+    x_coords = mmcif_obj.data[0]._atom_site.Cartn_x
     
 if need_structure_info:
-    title = data.data[0]._struct.title
+    title = mmcif_obj.data[0]._struct.title
 ```
 
 #### Selective Parsing
 
 ```python
 # Parse only what you need for maximum efficiency
-data = handler.parse("large_file.cif", categories=['_entry', '_struct'])
+mmcif_obj = handler.parse("large_file.cif", categories=['_entry', '_struct'])
 
 # Much faster than loading everything
-entry_info = data.data[0]._entry
-structure_info = data.data[0]._struct
+entry_info = mmcif_obj.data[0]._entry
+structure_info = mmcif_obj.data[0]._struct
 ```
 
 ## Data Validation
@@ -240,17 +243,17 @@ validator_factory.register_cross_checker(('_database_2', '_atom_site'), cross_ch
 
 # Use with handler
 handler = MMCIFHandler(validator_factory=validator_factory)
-data = handler.parse("structure.cif")
+mmcif_obj = handler.parse("structure.cif")
 ```
 
 ### Running Validation
 
 ```python
 # Validate a single category
-data.data[0]._database_2.validate()
+mmcif_obj.data[0]._database_2.validate()
 
 # Cross-validate between categories
-data.data[0]._database_2.validate().against(data.data[0]._atom_site)
+mmcif_obj.data[0]._database_2.validate().against(mmcif_obj.data[0]._atom_site)
 ```
 
 ## API Reference
@@ -291,7 +294,8 @@ Represents a single data block in an mmCIF file.
 
 **Properties:**
 - `name: str` - Block name
-- `categories: Dict[str, Category]` - Dictionary of categories
+- `categories: List[str]` - List of category names
+- `data: Dict[str, Category]` - Dictionary of category objects
 
 **Access Methods:**
 - `block[category_name]` - Get category by name  

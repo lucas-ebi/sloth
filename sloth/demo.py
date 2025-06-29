@@ -31,7 +31,7 @@ def modify_data(data_container):
     print(f"📋 Working with block: {block.name}")
     
     # Try to modify database information
-    if '_database_2' in block.categories:
+    if '_database_2' in block.data:
         category = block._database_2
         if hasattr(category, 'database_id') and category.database_id:
             original = category.database_id[-1]
@@ -52,9 +52,9 @@ def show_file_info(data_container):
         print(f"   Block {i+1}: '{block.name}' with {len(block.categories)} categories")
         
         # Show first few categories
-        categories = list(block.categories.keys())[:5]
-        if categories:
-            print(f"   Categories: {', '.join(categories)}")
+        category_names = block.categories[:5]
+        if category_names:
+            print(f"   Categories: {', '.join(category_names)}")
             if len(block.categories) > 5:
                 print(f"   ... and {len(block.categories) - 5} more")
 

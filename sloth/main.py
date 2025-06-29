@@ -303,8 +303,13 @@ class DataBlock:
         return f"DataBlock(name={self.name}, categories={self._categories})"
 
     @property
-    def categories(self) -> Dict[str, Category]:
-        """Provides read-only access to the categories."""
+    def categories(self) -> List[str]:
+        """Provides a list of category names in the data block."""
+        return list(self._categories.keys())
+
+    @property
+    def data(self) -> Dict[str, Category]:
+        """Provides read-only access to the category objects."""
         return self._categories
 
 
