@@ -1,4 +1,6 @@
-# 🦥 SLOTH - **S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling
+# 🦥 SLOTH
+
+**S**tructural **L**oader with **O**n-demand **T**okenization and **H**andling
 
 > 🧠 *Lazy by design. Fast by default.*
 
