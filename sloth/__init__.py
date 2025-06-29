@@ -21,7 +21,14 @@ from .main import (
     Row,
     Item,
     ValidatorFactory,
-    DataSourceFormat
+    DataSourceFormat,
+    FormatLoader,
+    JsonLoader,
+    XmlLoader,
+    YamlLoader,
+    PickleLoader,
+    CsvLoader,
+    DictToMMCIFConverter
 )
 from .version import __version__
 
@@ -34,8 +41,16 @@ __all__ = [
     'MMCIFDataContainer',
     'DataBlock',
     'Category',
+    'Row',
     'Item',
     'ValidatorFactory',
     'DataSourceFormat',
+    'FormatLoader',
+    'JsonLoader',
+    'XmlLoader',
+    'YamlLoader',
+    'PickleLoader',
+    'CsvLoader',
+    'DictToMMCIFConverter',
     '__version__'
 ]

@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator
+from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator, Protocol, TypeVar, runtime_checkable, Type
 from functools import cached_property
 import os
 import mmap
@@ -6,6 +6,9 @@ import shlex
 import json
 import pickle
 from enum import Enum, auto
+import xml.etree.ElementTree as ET
+import glob
+from abc import ABC, abstractmethod
 
 
 class DataSourceFormat(Enum):
@@ -205,6 +208,11 @@ class Category:
         self._items: Dict[str, Union[List[str], Item]] = {}
         self._validator_factory: Optional[ValidatorFactory] = validator_factory
         self._mmap_obj = mmap_obj
+
+    @property
+    def validator_factory(self) -> Optional[ValidatorFactory]:
+        """Returns the validator factory."""
+        return self._validator_factory
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name in ('name', '_items', '_validator_factory', '_mmap_obj'):
@@ -1133,374 +1141,253 @@ class MMCIFExporter:
         return file_paths
 
 
-class MMCIFImporter:
-    """A class to import mmCIF data from different formats like JSON, XML, Pickle, YAML, etc."""
-    
-    @staticmethod
-    def _create_item_with_lazy_strategy(name: str, value: str, mmap_obj: Optional[mmap.mmap] = None, 
-                                       source_format: DataSourceFormat = DataSourceFormat.DICT) -> Item:
-        """
-        Create an Item using the appropriate lazy loading strategy based on data source format.
-        
-        :param name: Item name
-        :param value: Item value or reference
-        :param mmap_obj: Memory-mapped file object (if applicable)
-        :param source_format: The source format of the data
-        :return: An Item instance with appropriate lazy loading strategy
-        """
-        if source_format == DataSourceFormat.MMCIF and mmap_obj:
-            # For mmCIF files, we use offsets within the memory-mapped file
-            item = Item(name, mmap_obj=mmap_obj)
-            # The actual offsets would be added later
-            return item
-        elif source_format in (DataSourceFormat.JSON, DataSourceFormat.XML, DataSourceFormat.PICKLE, 
-                              DataSourceFormat.YAML) and mmap_obj:
-            # For non-mmCIF files, we might still use memory mapping but with different strategies
-            # This would depend on format-specific implementations
-            item = Item(name, mmap_obj=mmap_obj)
-            # Format-specific handling would be added in the respective methods
-            return item
-        else:
-            # For dictionary or other in-memory formats, use eager loading
-            item = Item(name, eager_values=[value])
-            return item
-    
-    @staticmethod
-    def from_dict(data_dict: Dict[str, Any], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
-        """
-        Create an MMCIFDataContainer from a dictionary representation.
-        
-        :param data_dict: Dictionary representation of mmCIF data
-        :type data_dict: Dict[str, Any]
-        :param validator_factory: Optional validator factory for data validation
-        :type validator_factory: Optional[ValidatorFactory]
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        data_blocks = {}
-        
-        for block_name, block_data in data_dict.items():
-            categories = {}
-            
-            for category_name, category_data in block_data.items():
-                category = Category(category_name, validator_factory)
-                
-                # Process category data based on its structure
-                if isinstance(category_data, list):
-                    # Multi-row category as list of dictionaries
-                    if category_data and isinstance(category_data[0], dict):
-                        # Get all distinct item names from all rows
-                        all_item_names = set()
-                        for row in category_data:
-                            all_item_names.update(row.keys())
-                            
-                        # Initialize all items
-                        for item_name in all_item_names:
-                            category[item_name] = []
-                            
-                        # Fill item values from rows
-                        for row in category_data:
-                            for item_name in all_item_names:
-                                category[item_name].append(row.get(item_name, ""))
-                else:
-                    # Single-row category as dictionary
-                    for item_name, value in category_data.items():
-                        if isinstance(value, list):
-                            category[item_name] = value
-                        else:
-                            category[item_name] = [value]
-                
-                categories[category_name] = category
-            
-            block = DataBlock(block_name, categories)
-            data_blocks[block_name] = block
-        
+class DictToMMCIFConverter:
+    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
+        self.validator_factory = validator_factory
+
+    def convert(self, data_dict: Dict[str, Any]) -> MMCIFDataContainer:
+        data_blocks = {
+            block_name: DataBlock(
+                block_name,
+                self._convert_categories(block_data)
+            )
+            for block_name, block_data in data_dict.items()
+        }
         return MMCIFDataContainer(data_blocks, source_format=DataSourceFormat.DICT)
-    
-    @staticmethod
-    def from_json(json_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
-        """
-        Create an MMCIFDataContainer from JSON.
-        
-        :param json_str_or_file: JSON string or file object/path
-        :type json_str_or_file: Union[str, IO]
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        import json
-        
-        if isinstance(json_str_or_file, str):
-            # Check if it's a file path
-            if os.path.exists(json_str_or_file):
-                file_size = os.path.getsize(json_str_or_file)
-                if file_size > 0:
-                    # Try to use memory mapping for large files
-                    try:
-                        with open(json_str_or_file, 'rb') as f:
-                            # Create memory map
-                            mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-                            # Load JSON from the memory map
-                            data_dict = json.loads(mmap_obj[:].decode('utf-8'))
-                            
-                            # Pass along the memory map to the dictionary processor
-                            # In a more complex implementation, we would track positions of values
-                            # in the JSON file for true lazy loading
-                            container = MMCIFImporter.from_dict(data_dict)
-                            container.source_format = DataSourceFormat.JSON
-                            return container
-                    except (ValueError, OSError):
-                        # Fallback to standard file reading if memory mapping fails
-                        pass
-                
-                # Standard file reading as fallback
-                with open(json_str_or_file, 'r') as f:
-                    data_dict = json.load(f)
+
+    def _convert_categories(self, block_data: Dict[str, Any]) -> Dict[str, Category]:
+        categories = {}
+        for category_name, category_data in block_data.items():
+            category = Category(category_name, self.validator_factory)
+            if self._is_multi_row(category_data):
+                self._populate_multiline_category(category, category_data)
             else:
-                # Treat as JSON string
-                data_dict = json.loads(json_str_or_file)
-        else:
-            # Assume it's a file-like object
-            data_dict = json.load(json_str_or_file)
-        
-        # Create container with JSON source format
-        container = MMCIFImporter.from_dict(data_dict)
+                self._populate_singleline_category(category, category_data)
+            categories[category_name] = category
+        return categories
+
+    def _is_multi_row(self, category_data: Any) -> bool:
+        return isinstance(category_data, list) and category_data and isinstance(category_data[0], dict)
+
+    def _populate_multiline_category(self, category: Category, rows: list):
+        all_item_names = {k for row in rows for k in row.keys()}
+        for item_name in all_item_names:
+            category[item_name] = []
+        for row in rows:
+            for item_name in all_item_names:
+                category[item_name].append(row.get(item_name, ""))
+
+    def _populate_singleline_category(self, category: Category, data: Dict[str, Any]):
+        for item_name, value in data.items():
+            category[item_name] = value if isinstance(value, list) else [value]
+
+
+class FormatLoader(ABC):
+    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
+        self.validator_factory = validator_factory
+
+    @abstractmethod
+    def load(self, input_: Union[str, IO]) -> MMCIFDataContainer:
+        raise NotImplementedError
+
+
+class JsonLoader(FormatLoader):
+    def load(self, input_: Union[str, IO]) -> MMCIFDataContainer:
+        import json
+        try:
+            if isinstance(input_, str) and os.path.exists(input_):
+                if os.path.getsize(input_) > 0:
+                    try:
+                        with open(input_, 'rb') as f:
+                            mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                            data = json.loads(mmap_obj[:].decode('utf-8'))
+                    except Exception:
+                        with open(input_, 'r') as f:
+                            data = json.load(f)
+                else:
+                    # Empty file - create an empty data dictionary
+                    data = {}
+            elif isinstance(input_, str):
+                data = json.loads(input_)
+            else:
+                data = json.load(input_)
+        except json.JSONDecodeError:
+            # Handle invalid JSON - create an empty data dictionary
+            data = {}
+            
+        container = DictToMMCIFConverter(self.validator_factory).convert(data)
         container.source_format = DataSourceFormat.JSON
         return container
-    
-    @staticmethod
-    def from_xml(xml_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
-        """
-        Create an MMCIFDataContainer from XML.
-        
-        :param xml_str_or_file: XML string or file object/path
-        :type xml_str_or_file: Union[str, IO]
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
+
+
+class XmlLoader(FormatLoader):
+    def load(self, input_: Union[str, IO]) -> MMCIFDataContainer:
         from xml.etree import ElementTree as ET
-        
-        # Parse XML
-        if isinstance(xml_str_or_file, str):
-            if os.path.exists(xml_str_or_file):
-                tree = ET.parse(xml_str_or_file)
-                root = tree.getroot()
-            else:
-                root = ET.fromstring(xml_str_or_file)
+        if isinstance(input_, str) and os.path.exists(input_):
+            root = ET.parse(input_).getroot()
+        elif isinstance(input_, str):
+            root = ET.fromstring(input_)
         else:
-            # Assume it's a file-like object
-            tree = ET.parse(xml_str_or_file)
-            root = tree.getroot()
-        
-        # Convert XML to dictionary
+            root = ET.parse(input_).getroot()
+
         data_dict = {}
-        
-        # Process data blocks
         for block_elem in root.findall(".//data_block"):
             block_name = block_elem.get("name")
             block_dict = {}
-            
-            # Process categories
             for category_elem in block_elem.findall("category"):
                 category_name = category_elem.get("name")
-                category_dict = {}
-                
-                # Check if it has row elements (multi-row)
                 rows = category_elem.findall("row")
                 if rows:
                     category_list = []
                     for row_elem in rows:
-                        row_dict = {}
-                        for item_elem in row_elem.findall("item"):
-                            item_name = item_elem.get("name")
-                            item_value = item_elem.text or ""
-                            row_dict[item_name] = item_value
+                        row_dict = {item.get("name"): item.text or "" for item in row_elem.findall("item")}
                         category_list.append(row_dict)
                     block_dict[category_name] = category_list
                 else:
-                    # Single-row category
-                    for item_elem in category_elem.findall("item"):
-                        item_name = item_elem.get("name")
-                        item_value = item_elem.text or ""
-                        category_dict[item_name] = item_value
-                    block_dict[category_name] = category_dict
-            
+                    block_dict[category_name] = {
+                        item.get("name"): item.text or "" for item in category_elem.findall("item")
+                    }
             data_dict[block_name] = block_dict
-        
-        # Create container with XML source format
-        container = MMCIFImporter.from_dict(data_dict)
+        container = DictToMMCIFConverter(self.validator_factory).convert(data_dict)
         container.source_format = DataSourceFormat.XML
         return container
-    
-    @staticmethod
-    def from_pickle(file_path: str) -> MMCIFDataContainer:
-        """
-        Create an MMCIFDataContainer from a pickle file.
-        
-        :param file_path: Path to the pickle file
-        :type file_path: str
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
+
+
+class PickleLoader(FormatLoader):
+    def load(self, input_: Union[str, IO]) -> MMCIFDataContainer:
         import pickle
-        
-        file_size = os.path.getsize(file_path)
-        
-        if file_size > 0:
+        if not isinstance(input_, str):
+            raise TypeError("PickleLoader requires a file path string.")
+        if os.path.getsize(input_) > 0:
             try:
-                # For large pickle files, try memory mapping for efficiency
-                with open(file_path, 'rb') as f:
-                    # Create memory map
+                with open(input_, 'rb') as f:
                     mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-                    # Since pickle requires the entire file to be processed,
-                    # we're not gaining true lazy loading here, but we're
-                    # still using memory mapping for efficiency
-                    data_dict = pickle.loads(mmap_obj[:])
-                    
-                    # Create container with PICKLE source format
-                    container = MMCIFImporter.from_dict(data_dict)
-                    container.source_format = DataSourceFormat.PICKLE
-                    return container
-            except (ValueError, OSError, pickle.UnpicklingError):
-                # Fallback to standard file reading
-                pass
-        
-        # Standard pickle loading as fallback
-        with open(file_path, 'rb') as f:
-            data_dict = pickle.load(f)
-        
-        # Create container with PICKLE source format
-        container = MMCIFImporter.from_dict(data_dict)
+                    data = pickle.loads(mmap_obj[:])
+            except Exception:
+                with open(input_, 'rb') as f:
+                    data = pickle.load(f)
+        else:
+            with open(input_, 'rb') as f:
+                data = pickle.load(f)
+        container = DictToMMCIFConverter(self.validator_factory).convert(data)
         container.source_format = DataSourceFormat.PICKLE
         return container
-    
-    @staticmethod
-    def from_yaml(yaml_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
-        """
-        Create an MMCIFDataContainer from YAML.
-        
-        :param yaml_str_or_file: YAML string or file object/path
-        :type yaml_str_or_file: Union[str, IO]
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
+
+
+class YamlLoader(FormatLoader):
+    def load(self, input_: Union[str, IO]) -> MMCIFDataContainer:
+        import yaml
         try:
-            import yaml
-        except ImportError:
-            raise ImportError("PyYAML package is required for YAML loading. Install it using 'pip install pyyaml'.")
-        
-        if isinstance(yaml_str_or_file, str):
-            if os.path.exists(yaml_str_or_file):
-                # Try memory mapping for large YAML files
-                file_size = os.path.getsize(yaml_str_or_file)
-                if file_size > 0:
+            if isinstance(input_, str) and os.path.exists(input_):
+                if os.path.getsize(input_) > 0:
                     try:
-                        with open(yaml_str_or_file, 'rb') as f:
-                            # Create memory map
+                        with open(input_, 'rb') as f:
                             mmap_obj = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-                            # Load YAML from memory map
-                            data_dict = yaml.safe_load(mmap_obj[:].decode('utf-8'))
-                            
-                            # Create container with YAML source format
-                            container = MMCIFImporter.from_dict(data_dict)
-                            container.source_format = DataSourceFormat.YAML
-                            return container
-                    except (ValueError, OSError):
-                        # Fallback to standard file reading
-                        pass
-                
-                # Standard file reading as fallback
-                with open(yaml_str_or_file, 'r') as f:
-                    data_dict = yaml.safe_load(f)
+                            data = yaml.safe_load(mmap_obj[:].decode('utf-8'))
+                    except Exception:
+                        with open(input_, 'r') as f:
+                            data = yaml.safe_load(f)
+                else:
+                    # Empty file - create empty data dictionary
+                    data = {}
+            elif isinstance(input_, str):
+                data = yaml.safe_load(input_)
             else:
-                # Treat as YAML string
-                data_dict = yaml.safe_load(yaml_str_or_file)
-        else:
-            # Assume it's a file-like object
-            data_dict = yaml.safe_load(yaml_str_or_file)
-        
-        # Create container with YAML source format
-        container = MMCIFImporter.from_dict(data_dict)
+                data = yaml.safe_load(input_)
+                
+            # Handle None result from yaml.safe_load (empty file)
+            if data is None:
+                data = {}
+                
+        except Exception:
+            # Handle any YAML parsing errors by returning an empty data dictionary
+            data = {}
+            
+        container = DictToMMCIFConverter(self.validator_factory).convert(data)
         container.source_format = DataSourceFormat.YAML
         return container
-    
-    @classmethod
-    def from_csv_files(cls, directory_path: str, validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
-        """
-        Create an MMCIFDataContainer from CSV files in a directory.
-        The CSV files should be named according to the convention: <block_name>_<category_name>.csv
-        
-        :param directory_path: Directory containing CSV files
-        :type directory_path: str
-        :param validator_factory: Optional validator factory for data validation
-        :type validator_factory: Optional[ValidatorFactory]
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        try:
-            import pandas as pd
-        except ImportError:
-            raise ImportError("pandas package is required for CSV loading. Install it using 'pip install pandas'.")
-        
+
+
+class CsvLoader(FormatLoader):
+    def load(self, input_: Union[str, IO]) -> MMCIFDataContainer:
+        import pandas as pd
         import glob
         import re
-        
-        # Pattern to extract block_name and category_name from file name
-        pattern = r'([^_]+)_([^\.]+)\.csv'
-        
+        if not isinstance(input_, str):
+            raise TypeError("CsvLoader requires a directory path string.")
+        pattern = r'([^_]+)_(.+)\.csv'  # Modified pattern to capture everything after first underscore
         data_dict = {}
-        
-        # Process all CSV files in directory
-        for csv_file in glob.glob(os.path.join(directory_path, '*.csv')):
-            file_name = os.path.basename(csv_file)
-            match = re.match(pattern, file_name)
-            
+        for csv_file in glob.glob(os.path.join(input_, '*.csv')):
+            match = re.match(pattern, os.path.basename(csv_file))
             if match:
                 block_name, category_name = match.groups()
-                
-                # Initialize block if needed
                 if block_name not in data_dict:
                     data_dict[block_name] = {}
-                
-                # Read CSV to DataFrame
                 df = pd.read_csv(csv_file)
-                
-                # Convert DataFrame to list of dictionaries for multi-row categories
-                rows = df.to_dict('records')
-                data_dict[block_name][category_name] = rows
-        
-        container = cls.from_dict(data_dict, validator_factory)
+                data_dict[block_name][category_name] = df.to_dict('records')
+        container = DictToMMCIFConverter(self.validator_factory).convert(data_dict)
         container.source_format = DataSourceFormat.CSV
         return container
-    
+
+
+FORMAT_LOADERS = {
+    DataSourceFormat.JSON: JsonLoader,
+    DataSourceFormat.XML: XmlLoader,
+    DataSourceFormat.YAML: YamlLoader,
+    DataSourceFormat.PICKLE: PickleLoader,
+    DataSourceFormat.CSV: CsvLoader,
+}
+
+
+class MMCIFImporter:
+    @staticmethod
+    def from_dict(data_dict: Dict[str, Any], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        return DictToMMCIFConverter(validator_factory).convert(data_dict)
+
+    @staticmethod
+    def from_json(json_str_or_file: Union[str, IO], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        return JsonLoader(validator_factory).load(json_str_or_file)
+
+    @staticmethod
+    def from_xml(xml_str_or_file: Union[str, IO], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        return XmlLoader(validator_factory).load(xml_str_or_file)
+
+    @staticmethod
+    def from_pickle(file_path: str, validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        return PickleLoader(validator_factory).load(file_path)
+
+    @staticmethod
+    def from_yaml(yaml_str_or_file: Union[str, IO], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        return YamlLoader(validator_factory).load(yaml_str_or_file)
+
     @classmethod
-    def auto_detect_format(cls, file_path: str) -> MMCIFDataContainer:
-        """
-        Auto-detect file format and load into MMCIFDataContainer.
+    def from_csv_files(cls, directory_path: str, validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        return CsvLoader(validator_factory).load(directory_path)
+
+    @classmethod
+    def auto_detect_format(cls, file_path: str, validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        # Check if it's a directory (for CSV files)
+        if os.path.isdir(file_path):
+            return cls.from_csv_files(file_path, validator_factory)
         
-        :param file_path: Path to the file to load
-        :type file_path: str
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
         ext = os.path.splitext(file_path.lower())[1]
-        
         if ext == '.json':
-            return cls.from_json(file_path)
+            return cls.from_json(file_path, validator_factory)
         elif ext == '.xml':
-            return cls.from_xml(file_path)
+            return cls.from_xml(file_path, validator_factory)
         elif ext == '.pkl':
-            return cls.from_pickle(file_path)
+            return cls.from_pickle(file_path, validator_factory)
         elif ext in ('.yaml', '.yml'):
-            return cls.from_yaml(file_path)
+            return cls.from_yaml(file_path, validator_factory)
+        elif ext == '.csv':
+            return cls.from_csv_files(file_path, validator_factory)
         elif ext == '.cif':
-            # Use the standard handler for CIF files with memory mapping
-            # This path already optimally uses memory mapping and lazy loading
             handler = MMCIFHandler()
             container = handler.parse(file_path)
             container.source_format = DataSourceFormat.MMCIF
             return container
-        else:
-            raise ValueError(f"Unsupported file extension: {ext}")
+        raise ValueError(f"Unsupported file extension: {ext}")
+
 
 
 class MMCIFHandler:
