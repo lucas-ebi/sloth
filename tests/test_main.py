@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from io import StringIO
 from unittest.mock import mock_open, patch
-from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory
+from sloth import MMCIFHandler, MMCIFParser, MMCIFWriter, MMCIFExporter, MMCIFImporter, MMCIFDataContainer, DataBlock, Category, Row, Item, ValidatorFactory
 
 class TestMMCIFParser(unittest.TestCase):
     mmcif_content = """
@@ -1086,3 +1086,298 @@ ATOM   3    C  12.345 22.678 32.901
         except ImportError:
             # This is fine, pandas might not be installed
             pass
+
+
+class TestMMCIFImporter(unittest.TestCase):
+    """Test case for the MMCIFImporter class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Create a simple mmCIF file for testing
+        self.test_cif_path = os.path.join(self.temp_dir, 'test.cif')
+        with open(self.test_cif_path, 'w') as f:
+            f.write("""data_test
+#
+_entry.id test_structure
+#
+_database_2.database_id      TEST
+_database_2.database_code    ABC123
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM   1    N  10.123 20.456 30.789
+ATOM   2    C  11.234 21.567 31.890
+ATOM   3    C  12.345 22.678 32.901
+#
+""")
+        
+        # Parse the test file
+        handler = MMCIFHandler()
+        self.mmcif_data_container = handler.parse(self.test_cif_path)
+        self.exporter = MMCIFExporter(self.mmcif_data_container)
+        
+        # Export data to different formats for import testing
+        self.json_path = os.path.join(self.temp_dir, 'test.json')
+        self.exporter.to_json(self.json_path)
+        
+        self.xml_path = os.path.join(self.temp_dir, 'test.xml')
+        self.exporter.to_xml(self.xml_path)
+        
+        self.pkl_path = os.path.join(self.temp_dir, 'test.pkl')
+        self.exporter.to_pickle(self.pkl_path)
+        
+        # Create YAML and CSV files if the dependencies are available
+        try:
+            self.yaml_path = os.path.join(self.temp_dir, 'test.yaml')
+            self.exporter.to_yaml(self.yaml_path)
+            self.yaml_available = True
+        except ImportError:
+            self.yaml_available = False
+        
+        try:
+            self.csv_dir = os.path.join(self.temp_dir, 'csv_files')
+            os.makedirs(self.csv_dir, exist_ok=True)
+            self.exporter.to_csv(self.csv_dir)
+            self.pandas_available = True
+        except ImportError:
+            self.pandas_available = False
+        
+        # Create the importer instance
+        self.importer = MMCIFImporter()
+
+    def tearDown(self):
+        """Tear down test fixtures."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_from_dict(self):
+        """Test importing from dictionary."""
+        # First export to dict
+        data_dict = self.exporter.to_dict()
+        
+        # Now import from dict
+        imported_container = MMCIFImporter.from_dict(data_dict)
+        
+        # Verify structure
+        self.assertIn('test', imported_container.blocks)
+        self.assertIn('_entry', imported_container['test'].categories)
+        self.assertIn('_atom_site', imported_container['test'].categories)
+        
+        # Verify values
+        self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
+        self.assertEqual(imported_container['test']['_database_2']['database_id'][0], 'TEST')
+        self.assertEqual(imported_container['test']['_database_2']['database_code'][0], 'ABC123')
+        
+        # Verify multi-row category
+        atom_site = imported_container['test']['_atom_site']
+        self.assertEqual(len(atom_site['id']), 3)  # Three rows
+        self.assertEqual(atom_site['Cartn_x'][0], '10.123')
+        self.assertEqual(atom_site['Cartn_y'][1], '21.567')
+        self.assertEqual(atom_site['Cartn_z'][2], '32.901')
+
+    def test_from_json(self):
+        """Test importing from JSON."""
+        # Test from file path
+        imported_container = self.importer.from_json(self.json_path)
+        
+        # Verify structure and content
+        self.assertIn('test', imported_container.blocks)
+        self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
+        self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
+        
+        # Test from JSON string
+        with open(self.json_path, 'r') as f:
+            json_str = f.read()
+        
+        imported_container_from_str = self.importer.from_json(json_str)
+        self.assertIn('test', imported_container_from_str.blocks)
+        self.assertEqual(imported_container_from_str['test']['_entry']['id'][0], 'test_structure')
+
+    def test_from_xml(self):
+        """Test importing from XML."""
+        # Test from file path
+        imported_container = self.importer.from_xml(self.xml_path)
+        
+        # Verify structure and content
+        self.assertIn('test', imported_container.blocks)
+        self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
+        self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
+        
+        # Test from XML string
+        with open(self.xml_path, 'r') as f:
+            xml_str = f.read()
+        
+        imported_container_from_str = self.importer.from_xml(xml_str)
+        self.assertIn('test', imported_container_from_str.blocks)
+        self.assertEqual(imported_container_from_str['test']['_entry']['id'][0], 'test_structure')
+
+    def test_from_pickle(self):
+        """Test importing from Pickle."""
+        imported_container = self.importer.from_pickle(self.pkl_path)
+        
+        # Verify structure and content
+        self.assertIn('test', imported_container.blocks)
+        self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
+        self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
+
+    def test_from_yaml(self):
+        """Test importing from YAML if PyYAML is available."""
+        if not self.yaml_available:
+            self.skipTest("PyYAML is not installed")
+        
+        # Test from file path
+        imported_container = self.importer.from_yaml(self.yaml_path)
+        
+        # Verify structure and content
+        self.assertIn('test', imported_container.blocks)
+        self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
+        self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
+        
+        # Test from YAML string
+        with open(self.yaml_path, 'r') as f:
+            yaml_str = f.read()
+        
+        imported_container_from_str = self.importer.from_yaml(yaml_str)
+        self.assertIn('test', imported_container_from_str.blocks)
+        self.assertEqual(imported_container_from_str['test']['_entry']['id'][0], 'test_structure')
+
+    def test_from_csv_files(self):
+        """Test importing from CSV files if pandas is available."""
+        if not self.pandas_available:
+            self.skipTest("pandas is not installed")
+        
+        imported_container = self.importer.from_csv_files(self.csv_dir)
+        
+        # Verify structure and content
+        self.assertIn('test', imported_container.blocks)
+        self.assertIn('_entry', imported_container['test'].categories)
+        self.assertIn('_atom_site', imported_container['test'].categories)
+        
+        # Verify values (note: CSV might change data types)
+        self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Verify multi-row category exists with correct number of rows
+        atom_site = imported_container['test']['_atom_site']
+        self.assertEqual(len(atom_site['id']), 3)
+
+    def test_auto_detect_format(self):
+        """Test auto-detection of file formats."""
+        # Test JSON auto-detection
+        json_container = MMCIFImporter.auto_detect_format(self.json_path)
+        self.assertIn('test', json_container.blocks)
+        self.assertEqual(json_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test XML auto-detection
+        xml_container = MMCIFImporter.auto_detect_format(self.xml_path)
+        self.assertIn('test', xml_container.blocks)
+        self.assertEqual(xml_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test Pickle auto-detection
+        pkl_container = MMCIFImporter.auto_detect_format(self.pkl_path)
+        self.assertIn('test', pkl_container.blocks)
+        self.assertEqual(pkl_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test CIF auto-detection (original file)
+        cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
+        self.assertIn('test', cif_container.blocks)
+        self.assertEqual(cif_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test YAML auto-detection if available
+        if self.yaml_available:
+            yaml_container = MMCIFImporter.auto_detect_format(self.yaml_path)
+            self.assertIn('test', yaml_container.blocks)
+            self.assertEqual(yaml_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test invalid extension
+        with self.assertRaises(ValueError):
+            MMCIFImporter.auto_detect_format(os.path.join(self.temp_dir, 'test.unsupported'))
+
+    def test_handler_import_methods(self):
+        """Test import methods in MMCIFHandler."""
+        handler = MMCIFHandler()
+        
+        # Test JSON import
+        json_container = handler.import_from_json(self.json_path)
+        self.assertIn('test', json_container.blocks)
+        self.assertEqual(json_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test XML import
+        xml_container = handler.import_from_xml(self.xml_path)
+        self.assertIn('test', xml_container.blocks)
+        self.assertEqual(xml_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test Pickle import
+        pkl_container = handler.import_from_pickle(self.pkl_path)
+        self.assertIn('test', pkl_container.blocks)
+        self.assertEqual(pkl_container['test']['_entry']['id'][0], 'test_structure')
+        
+        # Test auto-detection
+        auto_container = handler.import_auto_detect(self.json_path)
+        self.assertIn('test', auto_container.blocks)
+        self.assertEqual(auto_container['test']['_entry']['id'][0], 'test_structure')
+
+    def test_round_trip_json(self):
+        """Test round-trip export-import using JSON."""
+        # Export to JSON
+        json_path = os.path.join(self.temp_dir, 'round_trip.json')
+        self.exporter.to_json(json_path)
+        
+        # Import from JSON
+        imported_container = self.importer.from_json(json_path)
+        
+        # Compare original and imported
+        self.assertEqual(len(self.mmcif_data_container.blocks), len(imported_container.blocks))
+        self.assertEqual(
+            self.mmcif_data_container['test']['_entry']['id'][0],
+            imported_container['test']['_entry']['id'][0]
+        )
+        self.assertEqual(
+            self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
+            imported_container['test']['_atom_site']['Cartn_x'][0]
+        )
+
+    def test_round_trip_xml(self):
+        """Test round-trip export-import using XML."""
+        # Export to XML
+        xml_path = os.path.join(self.temp_dir, 'round_trip.xml')
+        self.exporter.to_xml(xml_path)
+        
+        # Import from XML
+        imported_container = self.importer.from_xml(xml_path)
+        
+        # Compare original and imported
+        self.assertEqual(len(self.mmcif_data_container.blocks), len(imported_container.blocks))
+        self.assertEqual(
+            self.mmcif_data_container['test']['_entry']['id'][0],
+            imported_container['test']['_entry']['id'][0]
+        )
+        self.assertEqual(
+            self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
+            imported_container['test']['_atom_site']['Cartn_x'][0]
+        )
+
+    def test_round_trip_pickle(self):
+        """Test round-trip export-import using Pickle."""
+        # Export to Pickle
+        pkl_path = os.path.join(self.temp_dir, 'round_trip.pkl')
+        self.exporter.to_pickle(pkl_path)
+        
+        # Import from Pickle
+        imported_container = self.importer.from_pickle(pkl_path)
+        
+        # Compare original and imported
+        self.assertEqual(len(self.mmcif_data_container.blocks), len(imported_container.blocks))
+        self.assertEqual(
+            self.mmcif_data_container['test']['_entry']['id'][0],
+            imported_container['test']['_entry']['id'][0]
+        )
+        self.assertEqual(
+            self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
+            imported_container['test']['_atom_site']['Cartn_x'][0]
+        )

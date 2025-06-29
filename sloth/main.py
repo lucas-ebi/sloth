@@ -3,6 +3,10 @@ import io
 import shlex
 import mmap
 import os
+import json
+import pickle
+import re
+import glob
 from functools import cached_property
 
 
@@ -1118,6 +1122,268 @@ class MMCIFExporter:
         return file_paths
 
 
+class MMCIFImporter:
+    """A class to import mmCIF data from different formats like JSON, XML, Pickle, YAML, etc."""
+    
+    @staticmethod
+    def from_dict(data_dict: Dict[str, Any], validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        """
+        Create an MMCIFDataContainer from a dictionary representation.
+        
+        :param data_dict: Dictionary representation of mmCIF data
+        :type data_dict: Dict[str, Any]
+        :param validator_factory: Optional validator factory for data validation
+        :type validator_factory: Optional[ValidatorFactory]
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        data_blocks = {}
+        
+        for block_name, block_data in data_dict.items():
+            categories = {}
+            
+            for category_name, category_data in block_data.items():
+                category = Category(category_name, validator_factory)
+                
+                # Process category data based on its structure
+                if isinstance(category_data, list):
+                    # Multi-row category as list of dictionaries
+                    if category_data and isinstance(category_data[0], dict):
+                        # Get all distinct item names from all rows
+                        all_item_names = set()
+                        for row in category_data:
+                            all_item_names.update(row.keys())
+                            
+                        # Initialize all items
+                        for item_name in all_item_names:
+                            category[item_name] = []
+                            
+                        # Fill item values from rows
+                        for row in category_data:
+                            for item_name in all_item_names:
+                                category[item_name].append(row.get(item_name, ""))
+                else:
+                    # Single-row category as dictionary
+                    for item_name, value in category_data.items():
+                        if isinstance(value, list):
+                            category[item_name] = value
+                        else:
+                            category[item_name] = [value]
+                
+                categories[category_name] = category
+            
+            block = DataBlock(block_name, categories)
+            data_blocks[block_name] = block
+        
+        return MMCIFDataContainer(data_blocks)
+    
+    @staticmethod
+    def from_json(json_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
+        """
+        Create an MMCIFDataContainer from JSON.
+        
+        :param json_str_or_file: JSON string or file object/path
+        :type json_str_or_file: Union[str, IO]
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        import json
+        
+        if isinstance(json_str_or_file, str):
+            # Check if it's a file path
+            if os.path.exists(json_str_or_file):
+                with open(json_str_or_file, 'r') as f:
+                    data_dict = json.load(f)
+            else:
+                # Treat as JSON string
+                data_dict = json.loads(json_str_or_file)
+        else:
+            # Assume it's a file-like object
+            data_dict = json.load(json_str_or_file)
+        
+        return MMCIFImporter.from_dict(data_dict)
+    
+    @staticmethod
+    def from_xml(xml_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
+        """
+        Create an MMCIFDataContainer from XML.
+        
+        :param xml_str_or_file: XML string or file object/path
+        :type xml_str_or_file: Union[str, IO]
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        from xml.etree import ElementTree as ET
+        
+        # Parse XML
+        if isinstance(xml_str_or_file, str):
+            if os.path.exists(xml_str_or_file):
+                tree = ET.parse(xml_str_or_file)
+                root = tree.getroot()
+            else:
+                root = ET.fromstring(xml_str_or_file)
+        else:
+            # Assume it's a file-like object
+            tree = ET.parse(xml_str_or_file)
+            root = tree.getroot()
+        
+        # Convert XML to dictionary
+        data_dict = {}
+        
+        # Process data blocks
+        for block_elem in root.findall(".//data_block"):
+            block_name = block_elem.get("name")
+            block_dict = {}
+            
+            # Process categories
+            for category_elem in block_elem.findall("category"):
+                category_name = category_elem.get("name")
+                category_dict = {}
+                
+                # Check if it has row elements (multi-row)
+                rows = category_elem.findall("row")
+                if rows:
+                    category_list = []
+                    for row_elem in rows:
+                        row_dict = {}
+                        for item_elem in row_elem.findall("item"):
+                            item_name = item_elem.get("name")
+                            item_value = item_elem.text or ""
+                            row_dict[item_name] = item_value
+                        category_list.append(row_dict)
+                    block_dict[category_name] = category_list
+                else:
+                    # Single-row category
+                    for item_elem in category_elem.findall("item"):
+                        item_name = item_elem.get("name")
+                        item_value = item_elem.text or ""
+                        category_dict[item_name] = item_value
+                    block_dict[category_name] = category_dict
+            
+            data_dict[block_name] = block_dict
+        
+        return MMCIFImporter.from_dict(data_dict)
+    
+    @staticmethod
+    def from_pickle(file_path: str) -> MMCIFDataContainer:
+        """
+        Create an MMCIFDataContainer from a pickle file.
+        
+        :param file_path: Path to the pickle file
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        import pickle
+        
+        with open(file_path, 'rb') as f:
+            data_dict = pickle.load(f)
+        
+        return MMCIFImporter.from_dict(data_dict)
+    
+    @staticmethod
+    def from_yaml(yaml_str_or_file: Union[str, IO]) -> MMCIFDataContainer:
+        """
+        Create an MMCIFDataContainer from YAML.
+        
+        :param yaml_str_or_file: YAML string or file object/path
+        :type yaml_str_or_file: Union[str, IO]
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        try:
+            import yaml
+        except ImportError:
+            raise ImportError("PyYAML package is required for YAML loading. Install it using 'pip install pyyaml'.")
+        
+        if isinstance(yaml_str_or_file, str):
+            if os.path.exists(yaml_str_or_file):
+                with open(yaml_str_or_file, 'r') as f:
+                    data_dict = yaml.safe_load(f)
+            else:
+                # Treat as YAML string
+                data_dict = yaml.safe_load(yaml_str_or_file)
+        else:
+            # Assume it's a file-like object
+            data_dict = yaml.safe_load(yaml_str_or_file)
+        
+        return MMCIFImporter.from_dict(data_dict)
+    
+    @classmethod
+    def from_csv_files(cls, directory_path: str, validator_factory: Optional[ValidatorFactory] = None) -> MMCIFDataContainer:
+        """
+        Create an MMCIFDataContainer from CSV files in a directory.
+        The CSV files should be named according to the convention: <block_name>_<category_name>.csv
+        
+        :param directory_path: Directory containing CSV files
+        :type directory_path: str
+        :param validator_factory: Optional validator factory for data validation
+        :type validator_factory: Optional[ValidatorFactory]
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("pandas package is required for CSV loading. Install it using 'pip install pandas'.")
+        
+        import glob
+        import re
+        
+        # Pattern to extract block_name and category_name from file name
+        pattern = r'([^_]+)_([^\.]+)\.csv'
+        
+        data_dict = {}
+        
+        # Process all CSV files in directory
+        for csv_file in glob.glob(os.path.join(directory_path, '*.csv')):
+            file_name = os.path.basename(csv_file)
+            match = re.match(pattern, file_name)
+            
+            if match:
+                block_name, category_name = match.groups()
+                
+                # Initialize block if needed
+                if block_name not in data_dict:
+                    data_dict[block_name] = {}
+                
+                # Read CSV to DataFrame
+                df = pd.read_csv(csv_file)
+                
+                # Convert DataFrame to list of dictionaries for multi-row categories
+                rows = df.to_dict('records')
+                data_dict[block_name][category_name] = rows
+        
+        return cls.from_dict(data_dict, validator_factory)
+    
+    @classmethod
+    def auto_detect_format(cls, file_path: str) -> MMCIFDataContainer:
+        """
+        Auto-detect file format and load into MMCIFDataContainer.
+        
+        :param file_path: Path to the file to load
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        ext = os.path.splitext(file_path.lower())[1]
+        
+        if ext == '.json':
+            return cls.from_json(file_path)
+        elif ext == '.xml':
+            return cls.from_xml(file_path)
+        elif ext == '.pkl':
+            return cls.from_pickle(file_path)
+        elif ext in ('.yaml', '.yml'):
+            return cls.from_yaml(file_path)
+        elif ext == '.cif':
+            # Use the standard handler for CIF files
+            handler = MMCIFHandler()
+            return handler.parse(file_path)
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
+
+
 class MMCIFHandler:
     """A class to handle reading and writing mmCIF files with efficient memory mapping and lazy loading."""
     
@@ -1248,6 +1514,78 @@ class MMCIFHandler:
         """
         exporter = MMCIFExporter(mmcif_data_container)
         return exporter.to_csv(directory_path, prefix)
+        
+    def import_from_json(self, file_path: str) -> MMCIFDataContainer:
+        """
+        Import mmCIF data from a JSON file.
+        
+        :param file_path: Path to the JSON file
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        importer = MMCIFImporter()
+        return importer.from_json(file_path)
+    
+    def import_from_xml(self, file_path: str) -> MMCIFDataContainer:
+        """
+        Import mmCIF data from an XML file.
+        
+        :param file_path: Path to the XML file
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        importer = MMCIFImporter()
+        return importer.from_xml(file_path)
+    
+    def import_from_pickle(self, file_path: str) -> MMCIFDataContainer:
+        """
+        Import mmCIF data from a pickle file.
+        
+        :param file_path: Path to the pickle file
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        importer = MMCIFImporter()
+        return importer.from_pickle(file_path)
+    
+    def import_from_yaml(self, file_path: str) -> MMCIFDataContainer:
+        """
+        Import mmCIF data from a YAML file.
+        
+        :param file_path: Path to the YAML file
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        importer = MMCIFImporter()
+        return importer.from_yaml(file_path)
+    
+    def import_from_csv_files(self, directory_path: str) -> MMCIFDataContainer:
+        """
+        Import mmCIF data from CSV files in a directory.
+        
+        :param directory_path: Directory containing CSV files
+        :type directory_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        importer = MMCIFImporter()
+        return importer.from_csv_files(directory_path, self.validator_factory)
+    
+    def import_auto_detect(self, file_path: str) -> MMCIFDataContainer:
+        """
+        Auto-detect file format and import mmCIF data.
+        
+        :param file_path: Path to the file to import
+        :type file_path: str
+        :return: An MMCIFDataContainer instance
+        :rtype: MMCIFDataContainer
+        """
+        importer = MMCIFImporter()
+        return importer.auto_detect_format(file_path)
 
     @property
     def file_obj(self):

@@ -243,6 +243,157 @@ def demonstrate_export_functionality(mmcif_data_container, output_dir):
     except ImportError as e:
         print(f"   ❌ CSV export failed: {str(e)}")
 
+def demonstrate_import_functionality(output_dir):
+    """Demonstrate the new import functionality."""
+    print(f"\n📥 Demonstrating import functionality:")
+    
+    # Create handler
+    handler = MMCIFHandler()
+    
+    imported_containers = {}
+    
+    # Import from JSON
+    json_path = os.path.join(output_dir, "exported_data.json")
+    if os.path.exists(json_path):
+        try:
+            json_container = handler.import_from_json(json_path)
+            imported_containers["JSON"] = json_container
+            print(f"   ✅ Imported from JSON: {json_path}")
+            print(f"      Found {len(json_container.blocks)} data block(s)")
+        except Exception as e:
+            print(f"   ❌ JSON import failed: {str(e)}")
+    
+    # Import from XML
+    xml_path = os.path.join(output_dir, "exported_data.xml")
+    if os.path.exists(xml_path):
+        try:
+            xml_container = handler.import_from_xml(xml_path)
+            imported_containers["XML"] = xml_container
+            print(f"   ✅ Imported from XML: {xml_path}")
+            print(f"      Found {len(xml_container.blocks)} data block(s)")
+        except Exception as e:
+            print(f"   ❌ XML import failed: {str(e)}")
+    
+    # Import from Pickle
+    pickle_path = os.path.join(output_dir, "exported_data.pkl")
+    if os.path.exists(pickle_path):
+        try:
+            pickle_container = handler.import_from_pickle(pickle_path)
+            imported_containers["Pickle"] = pickle_container
+            print(f"   ✅ Imported from Pickle: {pickle_path}")
+            print(f"      Found {len(pickle_container.blocks)} data block(s)")
+        except Exception as e:
+            print(f"   ❌ Pickle import failed: {str(e)}")
+    
+    # Import from YAML (with try/except as it requires PyYAML)
+    yaml_path = os.path.join(output_dir, "exported_data.yaml")
+    if os.path.exists(yaml_path):
+        try:
+            yaml_container = handler.import_from_yaml(yaml_path)
+            imported_containers["YAML"] = yaml_container
+            print(f"   ✅ Imported from YAML: {yaml_path}")
+            print(f"      Found {len(yaml_container.blocks)} data block(s)")
+        except ImportError as e:
+            print(f"   ❌ YAML import failed: {str(e)}")
+        except Exception as e:
+            print(f"   ❌ YAML import failed: {str(e)}")
+    
+    # Import from CSV (with try/except as it requires pandas)
+    csv_dir = os.path.join(output_dir, "csv_files")
+    if os.path.exists(csv_dir):
+        try:
+            csv_container = handler.import_from_csv_files(csv_dir)
+            imported_containers["CSV"] = csv_container
+            print(f"   ✅ Imported from CSV files in: {csv_dir}")
+            print(f"      Found {len(csv_container.blocks)} data block(s)")
+        except ImportError as e:
+            print(f"   ❌ CSV import failed: {str(e)}")
+        except Exception as e:
+            print(f"   ❌ CSV import failed: {str(e)}")
+    
+    # Auto-detect format import demo
+    if imported_containers:
+        print(f"\n🔍 Demonstrating auto-detect format import:")
+        for format_name, first_path in [
+            ("JSON", json_path),
+            ("Pickle", pickle_path),
+            ("YAML", yaml_path),
+            ("XML", xml_path)
+        ]:
+            if os.path.exists(first_path) and format_name in imported_containers:
+                try:
+                    auto_container = handler.import_auto_detect(first_path)
+                    print(f"   ✅ Auto-detected and imported from {format_name}: {first_path}")
+                    print(f"      Found {len(auto_container.blocks)} data block(s)")
+                    
+                    # Compare with direct import to verify consistency
+                    original = imported_containers[format_name]
+                    if len(auto_container.blocks) == len(original.blocks):
+                        print(f"      ✓ Content matches direct {format_name} import")
+                    break
+                except Exception as e:
+                    print(f"   ❌ Auto-detect import failed for {format_name}: {str(e)}")
+    
+    return imported_containers
+
+def demonstrate_round_trip(mmcif_data_container, imported_container, format_name):
+    """Demonstrate round-trip validation between original and imported data."""
+    print(f"\n🔄 Demonstrating round-trip validation ({format_name}):")
+    
+    if not mmcif_data_container.data or not imported_container.data:
+        print("   ❌ Missing data blocks for comparison")
+        return False
+    
+    # Check if blocks match
+    if len(mmcif_data_container.data) != len(imported_container.data):
+        print(f"   ❌ Block count mismatch: Original={len(mmcif_data_container.data)}, Imported={len(imported_container.data)}")
+        return False
+    
+    # Compare first block
+    original_block = mmcif_data_container.data[0]
+    imported_block = imported_container.data[0]
+    
+    # Compare category count
+    if len(original_block.categories) != len(imported_block.categories):
+        print(f"   ⚠️ Category count differs: Original={len(original_block.categories)}, Imported={len(imported_block.categories)}")
+    
+    # Verify key categories exist in both
+    common_categories = set(original_block.categories).intersection(set(imported_block.categories))
+    print(f"   ✓ Found {len(common_categories)} common categories")
+    
+    # Check a few sample values
+    if common_categories:
+        example_category = list(common_categories)[0]
+        print(f"   🔍 Checking values in category: {example_category}")
+        
+        original_cat = original_block[example_category]
+        imported_cat = imported_block[example_category]
+        
+        # Compare item names
+        original_items = set(original_cat.items)
+        imported_items = set(imported_cat.items)
+        common_items = original_items.intersection(imported_items)
+        
+        if common_items:
+            sample_item = list(common_items)[0]
+            original_values = original_cat[sample_item]
+            imported_values = imported_cat[sample_item]
+            
+            # Check if array lengths match
+            if len(original_values) == len(imported_values):
+                print(f"   ✓ Item '{sample_item}' has {len(original_values)} values in both datasets")
+                
+                # Sample check first value
+                if original_values[0] == imported_values[0]:
+                    print(f"   ✓ First value matches: '{original_values[0]}'")
+                else:
+                    print(f"   ⚠️ First value differs: Original='{original_values[0]}', Imported='{imported_values[0]}'")
+            else:
+                print(f"   ⚠️ Value count differs: Original={len(original_values)}, Imported={len(imported_values)}")
+    
+    print(f"   ✅ Round-trip validation complete")
+    return True
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
@@ -358,6 +509,13 @@ Examples:
         # Demonstrate export functionality
         output_dir = "exports"
         demonstrate_export_functionality(mmcif_data_container, output_dir)
+        
+        # Demonstrate import functionality
+        imported_containers = demonstrate_import_functionality(output_dir)
+        
+        # Demonstrate round-trip validation for each imported format
+        for format_name, imported_container in imported_containers.items():
+            demonstrate_round_trip(mmcif_data_container, imported_container, format_name)
         
         # Clean up demo file if created
         if args.demo and os.path.exists("demo_structure.cif"):
