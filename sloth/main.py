@@ -144,6 +144,45 @@ class Item:
         return f"Item(name='{self.name}', length={len(self)}, loaded={self._cached_values is not None})"
 
 
+class Row:
+    """Represents a single row of data in a Category."""
+    
+    def __init__(self, category: 'Category', row_index: int):
+        self._category = category
+        self._row_index = row_index
+        
+    def __getattr__(self, item_name: str) -> str:
+        """Allow dot notation access to item values in this row."""
+        if item_name in self._category._items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                return values[self._row_index]
+            raise IndexError(f"Row index {self._row_index} is out of range")
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
+    
+    def __getitem__(self, item_name: str) -> str:
+        """Allow dictionary-style access to item values in this row."""
+        if item_name in self._category._items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                return values[self._row_index]
+            raise KeyError(f"Item '{item_name}' at index {self._row_index} not found")
+        raise KeyError(item_name)
+    
+    def __repr__(self):
+        return f"Row({self._row_index}, {self._category.name})"
+    
+    @property
+    def data(self) -> Dict[str, str]:
+        """Return all item values for this row as a dictionary."""
+        result = {}
+        for item_name in self._category.items:
+            values = self._category[item_name]
+            if self._row_index < len(values):
+                result[item_name] = values[self._row_index]
+        return result
+
+
 class Category:
     """A class to represent a category in a data block."""
     def __init__(self, name: str, validator_factory: Optional[ValidatorFactory], 
@@ -769,45 +808,6 @@ class MMCIFParser:
                 self._data_blocks[self._current_block]._categories[category] = Category(
                     category, self.validator_factory)
             self._current_data = self._data_blocks[self._current_block]._categories[category]
-
-
-class Row:
-    """Represents a single row of data in a Category."""
-    
-    def __init__(self, category: 'Category', row_index: int):
-        self._category = category
-        self._row_index = row_index
-        
-    def __getattr__(self, item_name: str) -> str:
-        """Allow dot notation access to item values in this row."""
-        if item_name in self._category._items:
-            values = self._category[item_name]
-            if self._row_index < len(values):
-                return values[self._row_index]
-            raise IndexError(f"Row index {self._row_index} is out of range")
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
-    
-    def __getitem__(self, item_name: str) -> str:
-        """Allow dictionary-style access to item values in this row."""
-        if item_name in self._category._items:
-            values = self._category[item_name]
-            if self._row_index < len(values):
-                return values[self._row_index]
-            raise KeyError(f"Item '{item_name}' at index {self._row_index} not found")
-        raise KeyError(item_name)
-    
-    def __repr__(self):
-        return f"Row({self._row_index}, {self._category.name})"
-    
-    @property
-    def data(self) -> Dict[str, str]:
-        """Return all item values for this row as a dictionary."""
-        result = {}
-        for item_name in self._category.items:
-            values = self._category[item_name]
-            if self._row_index < len(values):
-                result[item_name] = values[self._row_index]
-        return result
 
 
 class MMCIFWriter:
