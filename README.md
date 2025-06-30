@@ -183,7 +183,7 @@ print(f"Available: {', '.join(block.categories[:5])}")
 #### Creating Sample Data
 
 ```python
-# SLOTH can create sample mmCIF files for testing
+# Method 1: Create sample mmCIF file manually
 sample_content = """data_1ABC
 _entry.id 1ABC_STRUCTURE
 _database_2.database_id PDB
@@ -199,8 +199,82 @@ ATOM 1 N 10.123 20.456 30.789
 ATOM 2 C 11.234 21.567 31.890
 """
 
+# Write sample file that SLOTH can then parse
 with open("sample.cif", 'w') as f:
     f.write(sample_content)
+
+# Parse with SLOTH
+mmcif = handler.parse("sample.cif")
+
+# Method 2: Create sample data programmatically using dictionary notation
+from sloth.models import MMCIFDataContainer, DataBlock, Category
+
+# Create container and block
+container = MMCIFDataContainer()
+block = DataBlock("1ABC")
+
+# Create categories and add data
+entry_category = Category("_entry")
+entry_category["id"] = ["1ABC_STRUCTURE"]
+
+database_category = Category("_database_2")
+database_category["database_id"] = ["PDB"]
+database_category["database_code"] = ["1ABC"]
+
+atom_site_category = Category("_atom_site")
+atom_site_category["group_PDB"] = ["ATOM", "ATOM"]
+atom_site_category["id"] = ["1", "2"]
+atom_site_category["type_symbol"] = ["N", "C"]
+atom_site_category["Cartn_x"] = ["10.123", "11.234"]
+atom_site_category["Cartn_y"] = ["20.456", "21.567"]
+atom_site_category["Cartn_z"] = ["30.789", "31.890"]
+
+# Add categories to block
+block["_entry"] = entry_category
+block["_database_2"] = database_category
+block["_atom_site"] = atom_site_category
+
+# Add block to container
+container["1ABC"] = block
+
+# Write using SLOTH
+with open("sample_programmatic.cif", 'w') as f:
+    handler.file_obj = f
+    handler.write(container)
+
+# Method 3: ✨ NEW! Elegant dot notation creation
+# Create everything with pure dot notation!
+container = MMCIFDataContainer()
+block = DataBlock("1ABC")
+
+# Create categories using dot notation
+entry_cat = Category("_entry")
+entry_cat.id = ["1ABC_STRUCTURE"]          # ✨ Dot notation assignment!
+
+database_cat = Category("_database_2")
+database_cat.database_id = ["PDB"]         # ✨ Dot notation assignment!
+database_cat.database_code = ["1ABC"]      # ✨ Dot notation assignment!
+
+atom_cat = Category("_atom_site")
+atom_cat.group_PDB = ["ATOM", "ATOM"]      # ✨ Dot notation assignment!
+atom_cat.id = ["1", "2"]                   # ✨ Dot notation assignment!
+atom_cat.type_symbol = ["N", "C"]          # ✨ Dot notation assignment!
+atom_cat.Cartn_x = ["10.123", "11.234"]    # ✨ Dot notation assignment!
+atom_cat.Cartn_y = ["20.456", "21.567"]    # ✨ Dot notation assignment!
+atom_cat.Cartn_z = ["30.789", "31.890"]    # ✨ Dot notation assignment!
+
+# Assign categories using dot notation!
+block._entry = entry_cat                   # ✨ Dot notation assignment!
+block._database_2 = database_cat           # ✨ Dot notation assignment!
+block._atom_site = atom_cat                # ✨ Dot notation assignment!
+
+# Assign block using dot notation!
+container.data_1ABC = block                # ✨ Dot notation assignment!
+
+# Write using SLOTH
+with open("sample_dot_notation.cif", 'w') as f:
+    handler.file_obj = f
+    handler.write(container)
 ```
 
 ### 🎯 Elegant Data Access

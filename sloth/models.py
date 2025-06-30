@@ -224,6 +224,12 @@ class Row(DataNode):
 
 class Category(DataContainer):
     """A class to represent a category in a data block."""
+    
+    # Define attributes that should be handled as normal Python attributes
+    _RESERVED_ATTRS = {
+        '_name', '_items', '_validator_factory', '_mmap_obj', 
+        'name', 'validator_factory', 'items', 'data', 'row_count', 'rows'
+    }
             
     def __init__(self, name: str, validator_factory: Optional[ValidatorFactory] = None,
                  mmap_obj: Optional[mmap.mmap] = None):
@@ -257,6 +263,30 @@ class Category(DataContainer):
                 raise ValueError("No validator factory provided to this category")
             return CategoryValidator(self.name, self._validator_factory)
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
+
+    def __setattr__(self, name: str, value) -> None:
+        """
+        Enable dot notation assignment for mmCIF items.
+        
+        Reserved attributes and internal attributes are handled normally.
+        Everything else is treated as mmCIF item assignment.
+        """
+        # Handle reserved attributes and internal attributes normally
+        if name in self._RESERVED_ATTRS or name.startswith('__') or name.startswith('_'):
+            super().__setattr__(name, value)
+            return
+            
+        # During object initialization, _items might not exist yet
+        if not hasattr(self, '_items'):
+            super().__setattr__(name, value)
+            return
+            
+        # Validate value type for mmCIF items
+        if not isinstance(value, (list, Item)):
+            raise TypeError(f"mmCIF item '{name}' must be a list or Item object, got {type(value)}")
+            
+        # Set as mmCIF item (equivalent to self[name] = value)
+        self._items[name] = value
 
     def __getitem__(self, key: Union[str, int, slice]) -> Union[List[str], 'Row', List['Row']]:
         """
@@ -367,6 +397,11 @@ class Category(DataContainer):
 class DataBlock(DataContainer):
     """A class to represent a data block in an mmCIF file."""
     
+    # Define attributes that should be handled as normal Python attributes  
+    _RESERVED_ATTRS = {
+        '_name', '_categories', 'name', 'categories', 'data'
+    }
+    
     def __init__(self, name: str, categories: Dict[str, Category] = None):
         self._name = name
         self._categories = categories if categories is not None else {}
@@ -397,6 +432,32 @@ class DataBlock(DataContainer):
         except KeyError:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{category_name}'")
 
+    def __setattr__(self, name: str, value) -> None:
+        """
+        Enable dot notation assignment for categories.
+        
+        Reserved attributes and internal attributes are handled normally.
+        Category names (starting with _) are treated as category assignment.
+        """
+        # Handle reserved attributes and internal attributes normally
+        if name in self._RESERVED_ATTRS or name.startswith('__'):
+            super().__setattr__(name, value)
+            return
+            
+        # During object initialization, _categories might not exist yet
+        if not hasattr(self, '_categories'):
+            super().__setattr__(name, value)
+            return
+            
+        # For category names (should start with _), validate and set
+        if name.startswith('_'):
+            if not isinstance(value, Category):
+                raise TypeError(f"Category '{name}' must be a Category object, got {type(value)}")
+            self._categories[name] = value
+        else:
+            # Non-category attributes are handled normally
+            super().__setattr__(name, value)
+
     def __iter__(self):
         return iter(self._categories.values())
 
@@ -409,6 +470,11 @@ class DataBlock(DataContainer):
 
 class MMCIFDataContainer(DataContainer):
     """A class to represent an mmCIF data container."""
+    
+    # Define attributes that should be handled as normal Python attributes
+    _RESERVED_ATTRS = {
+        '_data_blocks', 'source_format', 'name', 'blocks', 'data'
+    }
     
     def __init__(self, data_blocks: Dict[str, DataBlock] = None, source_format: DataSourceFormat = DataSourceFormat.MMCIF):
         self._data_blocks = data_blocks if data_blocks is not None else {}
@@ -430,6 +496,33 @@ class MMCIFDataContainer(DataContainer):
         if block_name in self._data_blocks:
             return self._data_blocks[block_name]
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{block_name}'")
+
+    def __setattr__(self, name: str, value) -> None:
+        """
+        Enable dot notation assignment for data blocks.
+        
+        Reserved attributes and internal attributes are handled normally.
+        Data block names (with data_ prefix) are treated as block assignment.
+        """
+        # Handle reserved attributes and internal attributes normally
+        if name in self._RESERVED_ATTRS or name.startswith('__'):
+            super().__setattr__(name, value)
+            return
+            
+        # During object initialization, _data_blocks might not exist yet
+        if not hasattr(self, '_data_blocks'):
+            super().__setattr__(name, value)
+            return
+            
+        # For data block names (with data_ prefix), validate and set
+        if name.startswith('data_'):
+            block_name = name[5:]  # Remove 'data_' prefix
+            if not isinstance(value, DataBlock):
+                raise TypeError(f"Data block 'data_{block_name}' must be a DataBlock object, got {type(value)}")
+            self._data_blocks[block_name] = value
+        else:
+            # Non-block attributes are handled normally
+            super().__setattr__(name, value)
 
     def __iter__(self):
         return iter(self._data_blocks.values())

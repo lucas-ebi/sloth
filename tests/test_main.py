@@ -2063,3 +2063,373 @@ class TestFormatLoaderIntegration(unittest.TestCase):
         
         with self.assertRaises(ValueError):
             MMCIFImporter.auto_detect_format(unsupported_file)
+    
+
+class TestDotNotationAssignment(unittest.TestCase):
+    """Comprehensive tests for dot notation assignment feature across all SLOTH models."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.handler = MMCIFHandler()
+    
+    def test_category_dot_notation_assignment(self):
+        """Test dot notation assignment for Category items."""
+        category = Category("_test")
+        
+        # Test basic assignment
+        category.item1 = ["value1", "value2"]
+        category.item2 = ["value3", "value4", "value5"]
+        
+        # Verify assignment worked
+        self.assertEqual(category.item1, ["value1", "value2"])
+        self.assertEqual(category.item2, ["value3", "value4", "value5"])
+        self.assertIn("item1", category.items)
+        self.assertIn("item2", category.items)
+        self.assertEqual(len(category.items), 2)
+        
+        # Test that it's equivalent to dictionary assignment
+        category["item3"] = ["value6", "value7"]
+        self.assertEqual(category.item3, ["value6", "value7"])
+        self.assertIn("item3", category.items)
+    
+    def test_category_dot_notation_with_item_objects(self):
+        """Test dot notation assignment with Item objects."""
+        category = Category("_test")
+        item = Item("test_item", eager_values=["item_value1", "item_value2"])
+        
+        # Assign Item object via dot notation
+        category.test_item = item
+        
+        # Verify assignment
+        self.assertEqual(category.test_item, ["item_value1", "item_value2"])
+        self.assertIn("test_item", category.items)
+        self.assertTrue(category.is_lazy_loaded("test_item"))
+    
+    def test_category_reserved_attributes(self):
+        """Test that reserved attributes are handled normally in Category."""
+        category = Category("_test")
+        
+        # These should work as normal Python attributes
+        self.assertEqual(category.name, "_test")
+        self.assertEqual(category.items, [])
+        self.assertIsNotNone(category.row_count)
+        
+        # Internal attributes should not interfere
+        category._internal_test = "internal_value"
+        self.assertEqual(category._internal_test, "internal_value")
+        self.assertNotIn("_internal_test", category.items)
+    
+    def test_category_type_validation(self):
+        """Test type validation for Category dot notation assignment."""
+        category = Category("_test")
+        
+        # Valid assignments
+        category.valid_list = ["val1", "val2"]
+        category.valid_item = Item("item", eager_values=["val3"])
+        
+        # Invalid assignments should raise TypeError
+        with self.assertRaises(TypeError) as cm:
+            category.invalid_string = "not_a_list"
+        self.assertIn("must be a list or Item object", str(cm.exception))
+        
+        with self.assertRaises(TypeError) as cm:
+            category.invalid_dict = {"not": "valid"}
+        self.assertIn("must be a list or Item object", str(cm.exception))
+        
+        with self.assertRaises(TypeError) as cm:
+            category.invalid_int = 123
+        self.assertIn("must be a list or Item object", str(cm.exception))
+    
+    def test_datablock_dot_notation_assignment(self):
+        """Test dot notation assignment for DataBlock categories."""
+        block = DataBlock("test_block")
+        
+        # Create categories
+        cat1 = Category("_category1")
+        cat1.item1 = ["value1", "value2"]
+        
+        cat2 = Category("_category2")
+        cat2.item2 = ["value3", "value4"]
+        
+        # Assign via dot notation (category names start with _)
+        block._category1 = cat1
+        block._category2 = cat2
+        
+        # Verify assignment
+        self.assertEqual(block._category1.item1, ["value1", "value2"])
+        self.assertEqual(block._category2.item2, ["value3", "value4"])
+        self.assertIn("_category1", block.categories)
+        self.assertIn("_category2", block.categories)
+        self.assertEqual(len(block.categories), 2)
+        
+        # Test that it's equivalent to dictionary assignment
+        cat3 = Category("_category3")
+        cat3.item3 = ["value5"]
+        block["_category3"] = cat3
+        self.assertEqual(block._category3.item3, ["value5"])
+    
+    def test_datablock_reserved_attributes(self):
+        """Test that reserved attributes are handled normally in DataBlock."""
+        block = DataBlock("test_block")
+        
+        # These should work as normal Python attributes
+        self.assertEqual(block.name, "test_block")
+        self.assertEqual(block.categories, [])
+        
+        # Non-category attributes (not starting with _) should be normal
+        block.non_category_attr = "normal_value"
+        self.assertEqual(block.non_category_attr, "normal_value")
+        self.assertNotIn("non_category_attr", block.categories)
+    
+    def test_datablock_type_validation(self):
+        """Test type validation for DataBlock dot notation assignment."""
+        block = DataBlock("test_block")
+        
+        # Valid assignment
+        valid_category = Category("_valid")
+        block._valid = valid_category
+        
+        # Invalid assignments should raise TypeError for category names
+        with self.assertRaises(TypeError) as cm:
+            block._invalid_category = "not_a_category"
+        self.assertIn("must be a Category object", str(cm.exception))
+        
+        with self.assertRaises(TypeError) as cm:
+            block._invalid_category = ["not", "a", "category"]
+        self.assertIn("must be a Category object", str(cm.exception))
+        
+        # Non-category assignments should work normally
+        block.normal_attr = "any_value"
+        self.assertEqual(block.normal_attr, "any_value")
+    
+    def test_mmcif_container_dot_notation_assignment(self):
+        """Test dot notation assignment for MMCIFDataContainer data blocks."""
+        container = MMCIFDataContainer()
+        
+        # Create data blocks
+        block1 = DataBlock("BLOCK1")
+        cat1 = Category("_test1")
+        cat1.item1 = ["value1"]
+        block1._test1 = cat1
+        
+        block2 = DataBlock("BLOCK2")
+        cat2 = Category("_test2")
+        cat2.item2 = ["value2"]
+        block2._test2 = cat2
+        
+        # Assign via dot notation (with data_ prefix)
+        container.data_BLOCK1 = block1
+        container.data_BLOCK2 = block2
+        
+        # Verify assignment
+        self.assertEqual(container.data_BLOCK1._test1.item1, ["value1"])
+        self.assertEqual(container.data_BLOCK2._test2.item2, ["value2"])
+        self.assertIn("BLOCK1", container.blocks)
+        self.assertIn("BLOCK2", container.blocks)
+        self.assertEqual(len(container.blocks), 2)
+        
+        # Test that it's equivalent to dictionary assignment
+        block3 = DataBlock("BLOCK3")
+        container["BLOCK3"] = block3
+        self.assertEqual(container.data_BLOCK3.name, "BLOCK3")
+    
+    def test_mmcif_container_reserved_attributes(self):
+        """Test that reserved attributes are handled normally in MMCIFDataContainer."""
+        container = MMCIFDataContainer()
+        
+        # These should work as normal Python attributes
+        self.assertEqual(container.source_format, DataSourceFormat.MMCIF)
+        self.assertEqual(container.blocks, [])
+        
+        # Non-block attributes should be normal
+        container.metadata = {"version": "1.0"}
+        self.assertEqual(container.metadata, {"version": "1.0"})
+        self.assertNotIn("metadata", container.blocks)
+    
+    def test_mmcif_container_type_validation(self):
+        """Test type validation for MMCIFDataContainer dot notation assignment."""
+        container = MMCIFDataContainer()
+        
+        # Valid assignment
+        valid_block = DataBlock("VALID")
+        container.data_VALID = valid_block
+        
+        # Invalid assignments should raise TypeError for data block names
+        with self.assertRaises(TypeError) as cm:
+            container.data_INVALID = "not_a_block"
+        self.assertIn("must be a DataBlock object", str(cm.exception))
+        
+        with self.assertRaises(TypeError) as cm:
+            container.data_INVALID = ["not", "a", "block"]
+        self.assertIn("must be a DataBlock object", str(cm.exception))
+        
+        # Non-block assignments should work normally
+        container.normal_attr = "any_value"
+        self.assertEqual(container.normal_attr, "any_value")
+    
+    def test_full_hierarchy_dot_notation(self):
+        """Test complete dot notation assignment across the entire hierarchy."""
+        # Create everything with pure dot notation
+        container = MMCIFDataContainer()
+        block = DataBlock("1ABC")
+        
+        # Entry category
+        entry_category = Category("_entry")
+        entry_category.id = ["1ABC_STRUCTURE"]
+        block._entry = entry_category
+        
+        # Database category
+        database_category = Category("_database_2")
+        database_category.database_id = ["PDB"]
+        database_category.database_code = ["1ABC"]
+        block._database_2 = database_category
+        
+        # Atom site category
+        atom_site_category = Category("_atom_site")
+        atom_site_category.group_PDB = ["ATOM", "ATOM"]
+        atom_site_category.id = ["1", "2"]
+        atom_site_category.type_symbol = ["N", "C"]
+        atom_site_category.Cartn_x = ["10.123", "11.234"]
+        atom_site_category.Cartn_y = ["20.456", "21.567"]
+        atom_site_category.Cartn_z = ["30.789", "31.890"]
+        block._atom_site = atom_site_category
+        
+        # Add block to container
+        container.data_1ABC = block
+        
+        # Verify the complete hierarchy
+        self.assertEqual(container.data_1ABC._entry.id, ["1ABC_STRUCTURE"])
+        self.assertEqual(container.data_1ABC._database_2.database_id, ["PDB"])
+        self.assertEqual(container.data_1ABC._database_2.database_code, ["1ABC"])
+        self.assertEqual(container.data_1ABC._atom_site.group_PDB, ["ATOM", "ATOM"])
+        self.assertEqual(container.data_1ABC._atom_site.type_symbol, ["N", "C"])
+        self.assertEqual(len(container.data_1ABC._atom_site.Cartn_x), 2)
+        
+        # Verify structure integrity
+        self.assertEqual(len(container.blocks), 1)
+        self.assertEqual(len(block.categories), 3)
+        self.assertEqual(block._atom_site.row_count, 2)
+    
+    def test_dot_notation_file_write_integration(self):
+        """Test that dot notation assigned data can be written to mmCIF files."""
+        # Create structure with dot notation
+        container = MMCIFDataContainer()
+        block = DataBlock("TEST")
+        
+        # Create data using pure dot notation
+        entry_cat = Category("_entry")
+        entry_cat.id = ["TEST_STRUCTURE"]
+        block._entry = entry_cat
+        
+        atom_cat = Category("_atom_site")
+        atom_cat.group_PDB = ["ATOM", "ATOM"]
+        atom_cat.id = ["1", "2"]
+        atom_cat.type_symbol = ["N", "C"]
+        atom_cat.Cartn_x = ["10.123", "11.234"]
+        block._atom_site = atom_cat
+        
+        container.data_TEST = block
+        
+        # Write to file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            temp_file = f.name
+        
+        try:
+            with open(temp_file, 'w') as f:
+                self.handler.file_obj = f
+                self.handler.write(container)
+            
+            # Read back and verify
+            with open(temp_file, 'r') as f:
+                content = f.read()
+            
+            # Check that the data was written correctly
+            self.assertIn("data_TEST", content)
+            self.assertIn("_entry.id TEST_STRUCTURE", content)
+            self.assertIn("_atom_site.group_PDB", content)
+            self.assertIn("_atom_site.type_symbol", content)
+            self.assertIn("ATOM 1 N 10.123", content)
+            self.assertIn("ATOM 2 C 11.234", content)
+            
+        finally:
+            os.unlink(temp_file)
+    
+    def test_dot_notation_mixed_with_dictionary_access(self):
+        """Test that dot notation and dictionary access can be mixed seamlessly."""
+        container = MMCIFDataContainer()
+        block = DataBlock("MIXED")
+        
+        # Mix dot notation and dictionary assignment
+        cat1 = Category("_category1")
+        cat1.item1 = ["dot_value1"]  # Dot notation
+        cat1["item2"] = ["dict_value1"]  # Dictionary notation
+        
+        block._category1 = cat1  # Dot notation for category
+        
+        cat2 = Category("_category2")
+        cat2["item3"] = ["dict_value2"]  # Dictionary notation
+        cat2.item4 = ["dot_value2"]  # Dot notation
+        
+        block["_category2"] = cat2  # Dictionary notation for category
+        
+        container.data_MIXED = block  # Dot notation for block
+        
+        # Verify all assignments work
+        self.assertEqual(container.data_MIXED._category1.item1, ["dot_value1"])
+        self.assertEqual(container.data_MIXED._category1.item2, ["dict_value1"])
+        self.assertEqual(container.data_MIXED._category2.item3, ["dict_value2"])
+        self.assertEqual(container.data_MIXED._category2.item4, ["dot_value2"])
+        
+        # Verify access methods are equivalent
+        self.assertEqual(block._category1.item1, block["_category1"]["item1"])
+        self.assertEqual(block._category2.item4, block["_category2"]["item4"])
+    
+    def test_dot_notation_edge_cases(self):
+        """Test edge cases for dot notation assignment."""
+        # Test assignment during initialization
+        category = Category("_test")
+        # Should not crash during object construction
+        self.assertEqual(category.name, "_test")
+        
+        # Test empty assignments
+        category.empty_item = []
+        self.assertEqual(category.empty_item, [])
+        self.assertIn("empty_item", category.items)
+        
+        # Test single-value assignments
+        category.single_item = ["single_value"]
+        self.assertEqual(category.single_item, ["single_value"])
+        
+        # Test assignment with special characters in item names
+        category.special_chars = ["value_with_special-chars.123"]
+        self.assertEqual(category.special_chars, ["value_with_special-chars.123"])
+    
+    def test_dot_notation_performance(self):
+        """Test that dot notation assignment doesn't significantly impact performance."""
+        import time
+        
+        # Time dictionary assignment
+        start_time = time.time()
+        category_dict = Category("_dict_test")
+        for i in range(100):
+            category_dict[f"item_{i}"] = [f"value_{i}"]
+        dict_time = time.time() - start_time
+        
+        # Time dot notation assignment  
+        start_time = time.time()
+        category_dot = Category("_dot_test")
+        for i in range(100):
+            setattr(category_dot, f"item_{i}", [f"value_{i}"])
+        dot_time = time.time() - start_time
+        
+        # Dot notation should be reasonably close to dictionary performance
+        # Allow up to 5x slower (very generous threshold)
+        self.assertLess(dot_time, dict_time * 5, 
+                       f"Dot notation ({dot_time:.4f}s) is too slow compared to dictionary ({dict_time:.4f}s)")
+        
+        # Verify both approaches created the same number of items
+        self.assertEqual(len(category_dict.items), len(category_dot.items))
+
+
+if __name__ == "__main__":
+    unittest.main()

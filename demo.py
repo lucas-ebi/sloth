@@ -583,6 +583,139 @@ def demonstrate_schema_validation(mmcif, output_dir):
     print("\n🛡️ Schema validation demonstration completed")
     return validation_dir
 
+def demonstrate_sample_data_creation():
+    """Demonstrate both manual and programmatic approaches to creating sample data."""
+    print("\n📝 Sample Data Creation Methods:")
+    
+    # Method 1: Manual file creation (like the existing demo)
+    print("\n🖋️  Method 1: Manual mmCIF file creation")
+    sample_content = """data_1ABC
+_entry.id 1ABC_STRUCTURE
+_database_2.database_id PDB
+_database_2.database_code 1ABC
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM 1 N 10.123 20.456 30.789
+ATOM 2 C 11.234 21.567 31.890
+"""
+    
+    manual_file = "sample_manual.cif"
+    with open(manual_file, 'w') as f:
+        f.write(sample_content)
+    print(f"   ✅ Created manual sample: {manual_file}")
+    
+    # Method 2: Programmatic creation using SLOTH's API with dictionary notation
+    print("\n⚙️  Method 2: Programmatic creation using dictionary notation")
+    try:
+        from sloth.models import MMCIFDataContainer, DataBlock, Category
+        
+        # Create container and block
+        container = MMCIFDataContainer()
+        block = DataBlock("1ABC")
+        
+        # Create categories and add data using dictionary-style assignment
+        # Entry information
+        entry_category = Category("_entry")
+        entry_category["id"] = ["1ABC_STRUCTURE"]
+        
+        # Database information  
+        database_category = Category("_database_2")
+        database_category["database_id"] = ["PDB"]
+        database_category["database_code"] = ["1ABC"]
+        
+        # Atom site information
+        atom_site_category = Category("_atom_site")
+        atom_site_category["group_PDB"] = ["ATOM", "ATOM"]
+        atom_site_category["id"] = ["1", "2"]
+        atom_site_category["type_symbol"] = ["N", "C"]
+        atom_site_category["Cartn_x"] = ["10.123", "11.234"]
+        atom_site_category["Cartn_y"] = ["20.456", "21.567"]
+        atom_site_category["Cartn_z"] = ["30.789", "31.890"]
+        
+        # Add categories to block
+        block["_entry"] = entry_category
+        block["_database_2"] = database_category
+        block["_atom_site"] = atom_site_category
+        
+        # Add block to container
+        container["1ABC"] = block
+        
+        # Write using SLOTH
+        programmatic_file = "sample_programmatic.cif"
+        handler = MMCIFHandler()
+        with open(programmatic_file, 'w') as f:
+            handler.file_obj = f
+            handler.write(container)
+        print(f"   ✅ Created programmatic sample: {programmatic_file}")
+        
+        # Method 3: NEW! Elegant dot notation creation
+        print("\n✨ Method 3: Elegant dot notation creation (NEW!)")
+        
+        # Create everything with pure dot notation!
+        container_dot = MMCIFDataContainer()
+        block_dot = DataBlock("1ABC_DOT")
+        
+        # Create categories using dot notation
+        entry_cat = Category("_entry")
+        entry_cat.id = ["1ABC_DOT_STRUCTURE"]  # Dot notation assignment!
+        
+        database_cat = Category("_database_2")
+        database_cat.database_id = ["PDB"]      # Dot notation assignment!
+        database_cat.database_code = ["1ABC"]   # Dot notation assignment!
+        
+        atom_cat = Category("_atom_site")
+        atom_cat.group_PDB = ["ATOM", "ATOM"]   # Dot notation assignment!
+        atom_cat.id = ["1", "2"]                # Dot notation assignment!
+        atom_cat.type_symbol = ["N", "C"]       # Dot notation assignment!
+        atom_cat.Cartn_x = ["10.123", "11.234"] # Dot notation assignment!
+        atom_cat.Cartn_y = ["20.456", "21.567"] # Dot notation assignment!
+        atom_cat.Cartn_z = ["30.789", "31.890"] # Dot notation assignment!
+        
+        # Assign categories using dot notation!
+        block_dot._entry = entry_cat           # Dot notation assignment!
+        block_dot._database_2 = database_cat   # Dot notation assignment!
+        block_dot._atom_site = atom_cat        # Dot notation assignment!
+        
+        # Assign block using dot notation!
+        container_dot.data_1ABC_DOT = block_dot # Dot notation assignment!
+        
+        # Write using SLOTH
+        dot_notation_file = "sample_dot_notation.cif"
+        with open(dot_notation_file, 'w') as f:
+            handler.file_obj = f
+            handler.write(container_dot)
+        print(f"   ✅ Created dot notation sample: {dot_notation_file}")
+        
+        # Parse all files to verify they work
+        manual_mmcif = handler.parse(manual_file)
+        programmatic_mmcif = handler.parse(programmatic_file)
+        dot_notation_mmcif = handler.parse(dot_notation_file)
+        
+        print(f"\n🔍 Verification:")
+        print(f"   Manual approach: {len(manual_mmcif.data[0].categories)} categories")
+        print(f"   Dictionary approach: {len(programmatic_mmcif.data[0].categories)} categories")
+        print(f"   Dot notation approach: {len(dot_notation_mmcif.data[0].categories)} categories")
+        
+        # Demonstrate the elegance of dot notation access
+        print(f"\n💡 Demonstrating dot notation elegance:")
+        print(f"   dot_notation_mmcif.data_1ABC_DOT._entry.id[0]: {dot_notation_mmcif.data_1ABC_DOT._entry.id[0]}")
+        print(f"   dot_notation_mmcif.data_1ABC_DOT._atom_site.type_symbol: {dot_notation_mmcif.data_1ABC_DOT._atom_site.type_symbol}")
+        
+        return manual_file, programmatic_file, dot_notation_file
+        
+    except ImportError as e:
+        print(f"   ⚠️ Programmatic approach not available: {e}")
+        print("   📋 Using manual approach only")
+        return manual_file, None, None
+    except Exception as e:
+        print(f"   ❌ Error in programmatic approach: {e}")
+        return manual_file, None, None
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
@@ -642,6 +775,10 @@ Examples:
         
         # Show file information
         show_file_info(mmcif)
+        
+        # Demonstrate sample data creation methods (in demo mode)
+        if args.demo:
+            demonstrate_sample_data_creation()
         
         # Setup validation if requested
         if args.validate and mmcif.data:
