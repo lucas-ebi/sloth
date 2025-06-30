@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 import glob
 from abc import ABC, abstractmethod
 
+
 # Forward reference for schema validation
 SchemaValidator = Union[Any]  # Will be imported where needed
 
@@ -79,7 +80,75 @@ class ValidatorFactory:
         return self.cross_checkers.get(category_pair)
 
 
-class Item:
+class DataNode(ABC):
+    """Abstract base class for all data nodes in the hierarchy."""
+    
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Get the name of the node."""
+        pass
+    
+    def __repr__(self):
+        return f"{self.__class__.__name__}(name={self.name})"
+
+class DataContainer(DataNode):
+    """Abstract base class for containers that hold other nodes."""
+    
+    @abstractmethod
+    def __getitem__(self, key: str):
+        pass
+    
+    @abstractmethod
+    def __iter__(self):
+        pass
+    
+    @abstractmethod
+    def __len__(self):
+        pass
+
+
+class DataValueLoader(ABC):
+    """Abstract base for value loading strategies."""
+    
+    @abstractmethod
+    def load_values(self) -> List[str]:
+        pass
+
+class MMapValueLoader(DataValueLoader):
+    """Loads values from memory-mapped file."""
+    
+    def __init__(self, mmap_obj: mmap.mmap, value_offsets: List[Tuple[int, int]]):
+        self._mmap_obj = mmap_obj
+        self._value_offsets = value_offsets
+    
+    def load_values(self) -> List[str]:
+        values = []
+        for start_offset, end_offset in self._value_offsets:
+            try:
+                value_bytes = self._mmap_obj[start_offset:end_offset]
+                values.append(value_bytes.decode('utf-8').strip())
+            except (IndexError, UnicodeDecodeError):
+                values.append("")
+        return values
+
+class EagerValueLoader(DataValueLoader):
+    """Holds pre-loaded values."""
+    
+    def __init__(self, values: List[str]):
+        self._values = values
+    
+    def load_values(self) -> List[str]:
+        return self._values.copy()
+
+class EmptyValueLoader(DataValueLoader):
+    """Fallback for empty items."""
+    
+    def load_values(self) -> List[str]:
+        return []
+
+
+class Item(DataNode):
     """A lazy-loaded item that uses memory mapping for efficient access to large files."""
     
     def __init__(self, name: str, mmap_obj: Optional[mmap.mmap] = None, 
@@ -164,13 +233,24 @@ class Item:
         return f"Item(name='{self.name}', length={len(self)}, loaded={self._cached_values is not None})"
 
 
-class Row:
+class Row(DataNode):
     """Represents a single row of data in a Category."""
     
     def __init__(self, category: 'Category', row_index: int):
         self._category = category
         self._row_index = row_index
         
+    @property
+    def name(self) -> str:
+        """Return name from the first item value in the row if available, otherwise the row index."""
+        if len(self._category.items) > 0:
+            first_item = self._category.items[0]
+            try:
+                return self._category[first_item][self._row_index]
+            except (IndexError, KeyError):
+                pass
+        return str(self._row_index)
+    
     def __getattr__(self, item_name: str) -> str:
         """Allow dot notation access to item values in this row."""
         if item_name in self._category._items:
@@ -189,9 +269,6 @@ class Row:
             raise KeyError(f"Item '{item_name}' at index {self._row_index} not found")
         raise KeyError(item_name)
     
-    def __repr__(self):
-        return f"Row({self._row_index}, {self._category.name})"
-    
     @property
     def data(self) -> Dict[str, str]:
         """Return all item values for this row as a dictionary."""
@@ -202,26 +279,53 @@ class Row:
                 result[item_name] = values[self._row_index]
         return result
 
+    def __repr__(self):
+        return f"Row({self._row_index}, {self._category.name})"
 
-class Category:
+
+class Category(DataContainer):
     """A class to represent a category in a data block."""
-    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory], 
+    
+    class Validator:
+        """A class to validate a category."""
+        def __init__(self, category: 'Category', factory: 'ValidatorFactory'):
+            self._category = category
+            self._factory = factory
+            self._other_category: Optional['Category'] = None
+        
+        def __call__(self) -> 'Category.Validator':
+            validator = self._factory.get_validator(self._category.name)
+            if validator:
+                validator(self._category.name)
+            return self
+        
+        def against(self, other_category: 'Category') -> 'Category.Validator':
+            self._other_category = other_category
+            cross_checker = self._factory.get_cross_checker(
+                (self._category.name, other_category.name))
+            if cross_checker:
+                cross_checker(self._category.name, other_category.name)
+            return self
+            
+    def __init__(self, name: str, validator_factory: Optional['ValidatorFactory'] = None,
                  mmap_obj: Optional[mmap.mmap] = None):
-        self.name: str = name
+        self._name = name
         self._items: Dict[str, Union[List[str], Item]] = {}
-        self._validator_factory: Optional[ValidatorFactory] = validator_factory
+        self._validator_factory = validator_factory
         self._mmap_obj = mmap_obj
 
     @property
-    def validator_factory(self) -> Optional[ValidatorFactory]:
-        """Returns the validator factory."""
+    def name(self) -> str:
+        return self._name
+        
+    @property
+    def validator_factory(self) -> Optional['ValidatorFactory']:
         return self._validator_factory
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name in ('name', '_items', '_validator_factory', '_mmap_obj'):
-            super().__setattr__(name, value)
-        else:
-            self._items[name] = value
+    @property
+    def items(self) -> List[str]:
+        """Get names of contained items."""
+        return list(self._items.keys())
 
     def __getattr__(self, item_name: str) -> Union[List[str], Item]:
         if item_name in self._items:
@@ -231,12 +335,8 @@ class Category:
                 return item.values
             return item
         elif item_name == 'validate':
-            return self._create_validator()
-        else:
-            raise AttributeError(f"'Category' object has no attribute '{item_name}'")
-
-    def _create_validator(self):
-        return self.Validator(self, self._validator_factory)
+            return self.Validator(self, self._validator_factory)
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
 
     def __getitem__(self, key: Union[str, int, slice]) -> Union[List[str], 'Row', List['Row']]:
         """
@@ -246,30 +346,24 @@ class Category:
         If key is an integer or slice, return Row(s) (row-wise access).
         """
         if isinstance(key, str):
-            # Existing behavior - column access by item name
+            # Column access by item name
             item = self._items[key]
-            if isinstance(item, Item):
-                return item.values
-            return item
+            return item.values if isinstance(item, Item) else item
         elif isinstance(key, int):
-            # New behavior - row access by index
+            # Row access by index
             row_count = self.row_count
-            
             if row_count == 0:
                 raise IndexError("Cannot access rows in empty category")
                 
             # Handle negative indices
             if key < 0:
                 key = row_count + key
-                
             if key < 0 or key >= row_count:
                 raise IndexError(f"Row index {key} is out of range (0-{row_count-1})")
-                
             return Row(self, key)
         elif isinstance(key, slice):
-            # New behavior - multiple rows access by slice
+            # Multiple rows access by slice
             row_count = self.row_count
-            
             if row_count == 0:
                 return []
                 
@@ -289,13 +383,7 @@ class Category:
         return len(self._items)
 
     def __repr__(self):
-        # Limit the output to avoid long print statements
         return f"Category(name={self.name}, items={list(self._items.keys())})"
-
-    @property
-    def items(self) -> List[str]:
-        """Provides a list of item names."""
-        return list(self._items.keys())
 
     @property
     def data(self) -> Dict[str, List[str]]:
@@ -316,8 +404,6 @@ class Category:
         
         # Get the length of the first item to determine row count
         any_item = next(iter(self._items.values()))
-        if isinstance(any_item, Item):
-            return len(any_item)
         return len(any_item)
         
     @property
@@ -358,44 +444,26 @@ class Category:
             self._items[item_name] = item
 
 
-    class Validator:
-        """A class to validate a category."""
-        def __init__(self, category: 'Category', factory: ValidatorFactory):
-            self._category: 'Category' = category
-            self._factory: ValidatorFactory = factory
-            self._other_category: Optional['Category'] = None
-        
-        def __call__(self) -> 'Category.Validator':
-            validator = self._factory.get_validator(self._category.name)
-            if validator:
-                validator(self._category.name)
-            else:
-                print(f"No validator registered for category '{self._category.name}'")
-            return self
-        
-        def against(self, other_category: 'Category') -> 'Category.Validator':
-            """
-            Cross-checks the current category against another category.
-
-            :param other_category: The other category to cross-check against.
-            :type other_category: Category
-            :return: The validator object.
-            :rtype: Category.Validator
-            """
-            self._other_category = other_category
-            cross_checker = self._factory.get_cross_checker((self._category.name, other_category.name))
-            if cross_checker:
-                cross_checker(self._category.name, other_category.name)
-            else:
-                print(f"No cross-checker registered for categories '{self._category.name}' and '{other_category.name}'")
-            return self
-
-
-class DataBlock:
+class DataBlock(DataContainer):
     """A class to represent a data block in an mmCIF file."""
-    def __init__(self, name: str, categories: Dict[str, Category]):
-        self.name = name
-        self._categories = categories
+    
+    def __init__(self, name: str, categories: Dict[str, Category] = None):
+        self._name = name
+        self._categories = categories if categories is not None else {}
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def categories(self) -> List[str]:
+        """Get names of contained categories."""
+        return list(self._categories.keys())
+
+    @property
+    def data(self) -> Dict[str, Category]:
+        """Provides read-only access to the category objects."""
+        return self._categories
 
     def __getitem__(self, category_name: str) -> Category:
         return self._categories[category_name]
@@ -407,7 +475,7 @@ class DataBlock:
         try:
             return self._categories[category_name]
         except KeyError:
-            raise AttributeError(f"'DataBlock' object has no attribute '{category_name}'")
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{category_name}'")
 
     def __iter__(self):
         return iter(self._categories.values())
@@ -416,24 +484,19 @@ class DataBlock:
         return len(self._categories)
 
     def __repr__(self):
-        return f"DataBlock(name={self.name}, categories={self._categories})"
-
-    @property
-    def categories(self) -> List[str]:
-        """Provides a list of category names in the data block."""
-        return list(self._categories.keys())
-
-    @property
-    def data(self) -> Dict[str, Category]:
-        """Provides read-only access to the category objects."""
-        return self._categories
+        return f"DataBlock(name={self.name}, categories={list(self.categories)})"
 
 
-class MMCIFDataContainer:
+class MMCIFDataContainer(DataContainer):
     """A class to represent an mmCIF data container."""
-    def __init__(self, data_blocks: Dict[str, DataBlock], source_format: DataSourceFormat = DataSourceFormat.MMCIF):
-        self._data_blocks = data_blocks
+    
+    def __init__(self, data_blocks: Dict[str, DataBlock] = None, source_format: DataSourceFormat = DataSourceFormat.MMCIF):
+        self._data_blocks = data_blocks if data_blocks is not None else {}
         self.source_format = source_format
+
+    @property
+    def name(self) -> str:
+        return f"MMCIFDataContainer({len(self)} blocks)"
 
     def __getitem__(self, block_name: str) -> DataBlock:
         return self._data_blocks[block_name]
@@ -455,17 +518,17 @@ class MMCIFDataContainer:
         return len(self._data_blocks)
 
     def __repr__(self):
-        return f"MMCIFDataContainer(data_blocks={self._data_blocks})"
-
-    @property
-    def data(self) ->  List[DataBlock]:
-        """Provides read-only access to the data blocks."""
-        return list(self._data_blocks.values())
+        return f"MMCIFDataContainer({len(self)} blocks)"
 
     @property
     def blocks(self) -> List[str]:
         """Provides a list of data block names."""
         return list(self._data_blocks.keys())
+
+    @property
+    def data(self) -> List[DataBlock]:
+        """Provides read-only access to the data blocks."""
+        return list(self._data_blocks.values())
 
 
 class MMCIFParser:
