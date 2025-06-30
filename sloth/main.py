@@ -901,9 +901,9 @@
 
 # class MMCIFWriter:
 #     """A class to write an mmCIF data container to a file."""
-#     def write(self, file_obj: IO, mmcif_data_container: MMCIFDataContainer) -> None:
+#     def write(self, file_obj: IO, mmcif: MMCIFDataContainer) -> None:
 #         try:
-#             for data_block in mmcif_data_container:
+#             for data_block in mmcif:
 #                 file_obj.write(f"data_{data_block.name}\n")
 #                 file_obj.write("#\n")
 #                 for category_name in data_block.categories:
@@ -962,14 +962,14 @@
 # class MMCIFExporter:
 #     """A class to export mmCIF data to different formats like JSON, XML, Pickle, YAML, etc."""
     
-#     def __init__(self, mmcif_data_container: MMCIFDataContainer):
+#     def __init__(self, mmcif: MMCIFDataContainer):
 #         """
 #         Initialize the exporter with an mmCIF data container.
         
-#         :param mmcif_data_container: The mmCIF data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The mmCIF data container to export
+#         :type mmcif: MMCIFDataContainer
 #         """
-#         self.mmcif_data_container = mmcif_data_container
+#         self.mmcif = mmcif
     
 #     def to_dict(self) -> Dict[str, Any]:
 #         """
@@ -980,7 +980,7 @@
 #         """
 #         result = {}
         
-#         for block in self.mmcif_data_container:
+#         for block in self.mmcif:
 #             block_dict = {}
             
 #             for category_name in block.categories:
@@ -1050,7 +1050,7 @@
         
 #         root = ET.Element("mmcif_data")
         
-#         for block in self.mmcif_data_container:
+#         for block in self.mmcif:
 #             block_elem = ET.SubElement(root, "data_block", name=block.name)
             
 #             for category_name in block.categories:
@@ -1143,7 +1143,7 @@
         
 #         result = {}
         
-#         for block in self.mmcif_data_container:
+#         for block in self.mmcif:
 #             block_dict = {}
             
 #             for category_name in block.categories:
@@ -1182,7 +1182,7 @@
         
 #         file_paths = {}
         
-#         for block in self.mmcif_data_container:
+#         for block in self.mmcif:
 #             block_dict = {}
             
 #             for category_name in block.categories:
@@ -1612,27 +1612,27 @@
 #         self._parser = MMCIFParser(self.validator_factory, categories)
 #         return self._parser.parse_file(filename)
 
-#     def write(self, mmcif_data_container: MMCIFDataContainer) -> None:
+#     def write(self, mmcif: MMCIFDataContainer) -> None:
 #         """
 #         Writes a data container to a file.
 
-#         :param mmcif_data_container: The data container to write.
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to write.
+#         :type mmcif: MMCIFDataContainer
 #         :return: None
 #         """
 #         if hasattr(self, '_file_obj') and self._file_obj:
 #             self._writer = MMCIFWriter()
-#             self._writer.write(self._file_obj, mmcif_data_container)
+#             self._writer.write(self._file_obj, mmcif)
 #         else:
 #             raise IOError("File is not open for writing")
             
-#     def export_to_json(self, mmcif_data_container: MMCIFDataContainer, file_path: Optional[str] = None, 
+#     def export_to_json(self, mmcif: MMCIFDataContainer, file_path: Optional[str] = None, 
 #                        indent: int = 2) -> Optional[str]:
 #         """
 #         Export mmCIF data to JSON format.
         
-#         :param mmcif_data_container: The data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to export
+#         :type mmcif: MMCIFDataContainer
 #         :param file_path: Path to save the JSON file (optional)
 #         :type file_path: Optional[str]
 #         :param indent: Number of spaces for indentation
@@ -1640,16 +1640,16 @@
 #         :return: JSON string if no file_path provided, otherwise None
 #         :rtype: Optional[str]
 #         """
-#         exporter = MMCIFExporter(mmcif_data_container)
+#         exporter = MMCIFExporter(mmcif)
 #         return exporter.to_json(file_path, indent)
         
-#     def export_to_xml(self, mmcif_data_container: MMCIFDataContainer, file_path: Optional[str] = None, 
+#     def export_to_xml(self, mmcif: MMCIFDataContainer, file_path: Optional[str] = None, 
 #                      pretty_print: bool = True) -> Optional[str]:
 #         """
 #         Export mmCIF data to XML format.
         
-#         :param mmcif_data_container: The data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to export
+#         :type mmcif: MMCIFDataContainer
 #         :param file_path: Path to save the XML file (optional)
 #         :type file_path: Optional[str]
 #         :param pretty_print: Whether to format XML with indentation
@@ -1657,54 +1657,54 @@
 #         :return: XML string if no file_path provided, otherwise None
 #         :rtype: Optional[str]
 #         """
-#         exporter = MMCIFExporter(mmcif_data_container)
+#         exporter = MMCIFExporter(mmcif)
 #         return exporter.to_xml(file_path, pretty_print)
         
-#     def export_to_pickle(self, mmcif_data_container: MMCIFDataContainer, file_path: str) -> None:
+#     def export_to_pickle(self, mmcif: MMCIFDataContainer, file_path: str) -> None:
 #         """
 #         Export mmCIF data to a Python pickle file.
         
-#         :param mmcif_data_container: The data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to export
+#         :type mmcif: MMCIFDataContainer
 #         :param file_path: Path to save the pickle file
 #         :type file_path: str
 #         :return: None
 #         """
-#         exporter = MMCIFExporter(mmcif_data_container)
+#         exporter = MMCIFExporter(mmcif)
 #         exporter.to_pickle(file_path)
         
-#     def export_to_yaml(self, mmcif_data_container: MMCIFDataContainer, file_path: Optional[str] = None) -> Optional[str]:
+#     def export_to_yaml(self, mmcif: MMCIFDataContainer, file_path: Optional[str] = None) -> Optional[str]:
 #         """
 #         Export mmCIF data to YAML format.
         
-#         :param mmcif_data_container: The data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to export
+#         :type mmcif: MMCIFDataContainer
 #         :param file_path: Path to save the YAML file (optional)
 #         :type file_path: Optional[str]
 #         :return: YAML string if no file_path provided, otherwise None
 #         :rtype: Optional[str]
 #         """
-#         exporter = MMCIFExporter(mmcif_data_container)
+#         exporter = MMCIFExporter(mmcif)
 #         return exporter.to_yaml(file_path)
         
-#     def export_to_pandas(self, mmcif_data_container: MMCIFDataContainer) -> Dict[str, Dict[str, Any]]:
+#     def export_to_pandas(self, mmcif: MMCIFDataContainer) -> Dict[str, Dict[str, Any]]:
 #         """
 #         Export mmCIF data to pandas DataFrames, with one DataFrame per category.
         
-#         :param mmcif_data_container: The data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to export
+#         :type mmcif: MMCIFDataContainer
 #         :return: Dictionary of DataFrames organized by data block and category
 #         :rtype: Dict[str, Dict[str, Any]]
 #         """
-#         exporter = MMCIFExporter(mmcif_data_container)
+#         exporter = MMCIFExporter(mmcif)
 #         return exporter.to_pandas()
         
-#     def export_to_csv(self, mmcif_data_container: MMCIFDataContainer, directory_path: str, prefix: str = "") -> Dict[str, Dict[str, str]]:
+#     def export_to_csv(self, mmcif: MMCIFDataContainer, directory_path: str, prefix: str = "") -> Dict[str, Dict[str, str]]:
 #         """
 #         Export mmCIF data to CSV files, with one file per category.
         
-#         :param mmcif_data_container: The data container to export
-#         :type mmcif_data_container: MMCIFDataContainer
+#         :param mmcif: The data container to export
+#         :type mmcif: MMCIFDataContainer
 #         :param directory_path: Directory to save the CSV files
 #         :type directory_path: str
 #         :param prefix: Prefix for CSV filenames
@@ -1712,7 +1712,7 @@
 #         :return: Dictionary mapping block and category names to file paths
 #         :rtype: Dict[str, Dict[str, str]]
 #         """
-#         exporter = MMCIFExporter(mmcif_data_container)
+#         exporter = MMCIFExporter(mmcif)
 #         return exporter.to_csv(directory_path, prefix)
         
 #     def import_from_json(self, file_path: str, schema_validator=None) -> MMCIFDataContainer:

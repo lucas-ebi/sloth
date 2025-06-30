@@ -7,14 +7,14 @@ from .models import MMCIFDataContainer
 class MMCIFExporter:
     """A class to export mmCIF data to different formats like JSON, XML, Pickle, YAML, etc."""
     
-    def __init__(self, mmcif_data_container: MMCIFDataContainer):
+    def __init__(self, mmcif: MMCIFDataContainer):
         """
         Initialize the exporter with an mmCIF data container.
         
-        :param mmcif_data_container: The mmCIF data container to export
-        :type mmcif_data_container: MMCIFDataContainer
+        :param mmcif: The mmCIF data container to export
+        :type mmcif: MMCIFDataContainer
         """
-        self.mmcif_data_container = mmcif_data_container
+        self.mmcif = mmcif
     
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -25,7 +25,7 @@ class MMCIFExporter:
         """
         result = {}
         
-        for block in self.mmcif_data_container:
+        for block in self.mmcif:
             block_dict = {}
             
             for category_name in block.categories:
@@ -95,7 +95,7 @@ class MMCIFExporter:
         
         root = ET.Element("mmcif_data")
         
-        for block in self.mmcif_data_container:
+        for block in self.mmcif:
             block_elem = ET.SubElement(root, "data_block", name=block.name)
             
             for category_name in block.categories:
@@ -188,7 +188,7 @@ class MMCIFExporter:
         
         result = {}
         
-        for block in self.mmcif_data_container:
+        for block in self.mmcif:
             block_dict = {}
             
             for category_name in block.categories:
@@ -227,7 +227,7 @@ class MMCIFExporter:
         
         file_paths = {}
         
-        for block in self.mmcif_data_container:
+        for block in self.mmcif:
             block_dict = {}
             
             for category_name in block.categories:
