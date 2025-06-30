@@ -1,7 +1,5 @@
 # Demo files
-demo_*.cif
-demo_modified.cif
-demo_structure.cif
+*.cif
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -167,3 +165,4 @@ csv_files/
 csv_output_dir/
 # handler.*
 test.cif
+*.txt

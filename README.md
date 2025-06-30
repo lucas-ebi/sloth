@@ -183,7 +183,7 @@ print(f"Available: {', '.join(block.categories[:5])}")
 #### Creating Sample Data
 
 ```python
-# SLOTH can create sample mmCIF files for testing
+# Method 1: Create sample mmCIF file manually
 sample_content = """data_1ABC
 _entry.id 1ABC_STRUCTURE
 _database_2.database_id PDB
@@ -199,8 +199,48 @@ ATOM 1 N 10.123 20.456 30.789
 ATOM 2 C 11.234 21.567 31.890
 """
 
+# Write sample file that SLOTH can then parse
 with open("sample.cif", 'w') as f:
     f.write(sample_content)
+
+# Parse with SLOTH
+mmcif = handler.parse("sample.cif")
+
+# Method 2: Create sample data programmatically using SLOTH's API
+from sloth.models import MMCIFDataContainer, DataBlock, Category
+
+# Create container and block
+container = MMCIFDataContainer()
+block = DataBlock("1ABC")
+
+# Create categories and add data
+entry_category = Category("_entry")
+entry_category["id"] = ["1ABC_STRUCTURE"]
+
+database_category = Category("_database_2")
+database_category["database_id"] = ["PDB"]
+database_category["database_code"] = ["1ABC"]
+
+atom_site_category = Category("_atom_site")
+atom_site_category["group_PDB"] = ["ATOM", "ATOM"]
+atom_site_category["id"] = ["1", "2"]
+atom_site_category["type_symbol"] = ["N", "C"]
+atom_site_category["Cartn_x"] = ["10.123", "11.234"]
+atom_site_category["Cartn_y"] = ["20.456", "21.567"]
+atom_site_category["Cartn_z"] = ["30.789", "31.890"]
+
+# Add categories to block
+block["_entry"] = entry_category
+block["_database_2"] = database_category
+block["_atom_site"] = atom_site_category
+
+# Add block to container
+container["1ABC"] = block
+
+# Write using SLOTH
+with open("sample_programmatic.cif", 'w') as f:
+    handler.file_obj = f
+    handler.write(container)
 ```
 
 ### 🎯 Elegant Data Access
