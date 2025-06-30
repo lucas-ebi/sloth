@@ -206,7 +206,7 @@ with open("sample.cif", 'w') as f:
 # Parse with SLOTH
 mmcif = handler.parse("sample.cif")
 
-# Method 2: Create sample data programmatically using SLOTH's API
+# Method 2: Create sample data programmatically using dictionary notation
 from sloth.models import MMCIFDataContainer, DataBlock, Category
 
 # Create container and block
@@ -239,6 +239,40 @@ container["1ABC"] = block
 
 # Write using SLOTH
 with open("sample_programmatic.cif", 'w') as f:
+    handler.file_obj = f
+    handler.write(container)
+
+# Method 3: ✨ NEW! Elegant dot notation creation
+# Create everything with pure dot notation!
+container = MMCIFDataContainer()
+block = DataBlock("1ABC")
+
+# Create categories using dot notation
+entry_cat = Category("_entry")
+entry_cat.id = ["1ABC_STRUCTURE"]          # ✨ Dot notation assignment!
+
+database_cat = Category("_database_2")
+database_cat.database_id = ["PDB"]         # ✨ Dot notation assignment!
+database_cat.database_code = ["1ABC"]      # ✨ Dot notation assignment!
+
+atom_cat = Category("_atom_site")
+atom_cat.group_PDB = ["ATOM", "ATOM"]      # ✨ Dot notation assignment!
+atom_cat.id = ["1", "2"]                   # ✨ Dot notation assignment!
+atom_cat.type_symbol = ["N", "C"]          # ✨ Dot notation assignment!
+atom_cat.Cartn_x = ["10.123", "11.234"]    # ✨ Dot notation assignment!
+atom_cat.Cartn_y = ["20.456", "21.567"]    # ✨ Dot notation assignment!
+atom_cat.Cartn_z = ["30.789", "31.890"]    # ✨ Dot notation assignment!
+
+# Assign categories using dot notation!
+block._entry = entry_cat                   # ✨ Dot notation assignment!
+block._database_2 = database_cat           # ✨ Dot notation assignment!
+block._atom_site = atom_cat                # ✨ Dot notation assignment!
+
+# Assign block using dot notation!
+container.data_1ABC = block                # ✨ Dot notation assignment!
+
+# Write using SLOTH
+with open("sample_dot_notation.cif", 'w') as f:
     handler.file_obj = f
     handler.write(container)
 ```

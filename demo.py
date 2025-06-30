@@ -609,8 +609,8 @@ ATOM 2 C 11.234 21.567 31.890
         f.write(sample_content)
     print(f"   ✅ Created manual sample: {manual_file}")
     
-    # Method 2: Programmatic creation using SLOTH's API
-    print("\n⚙️  Method 2: Programmatic creation using SLOTH's API")
+    # Method 2: Programmatic creation using SLOTH's API with dictionary notation
+    print("\n⚙️  Method 2: Programmatic creation using dictionary notation")
     try:
         from sloth.models import MMCIFDataContainer, DataBlock, Category
         
@@ -653,23 +653,68 @@ ATOM 2 C 11.234 21.567 31.890
             handler.write(container)
         print(f"   ✅ Created programmatic sample: {programmatic_file}")
         
-        # Parse both files to verify they work
+        # Method 3: NEW! Elegant dot notation creation
+        print("\n✨ Method 3: Elegant dot notation creation (NEW!)")
+        
+        # Create everything with pure dot notation!
+        container_dot = MMCIFDataContainer()
+        block_dot = DataBlock("1ABC_DOT")
+        
+        # Create categories using dot notation
+        entry_cat = Category("_entry")
+        entry_cat.id = ["1ABC_DOT_STRUCTURE"]  # Dot notation assignment!
+        
+        database_cat = Category("_database_2")
+        database_cat.database_id = ["PDB"]      # Dot notation assignment!
+        database_cat.database_code = ["1ABC"]   # Dot notation assignment!
+        
+        atom_cat = Category("_atom_site")
+        atom_cat.group_PDB = ["ATOM", "ATOM"]   # Dot notation assignment!
+        atom_cat.id = ["1", "2"]                # Dot notation assignment!
+        atom_cat.type_symbol = ["N", "C"]       # Dot notation assignment!
+        atom_cat.Cartn_x = ["10.123", "11.234"] # Dot notation assignment!
+        atom_cat.Cartn_y = ["20.456", "21.567"] # Dot notation assignment!
+        atom_cat.Cartn_z = ["30.789", "31.890"] # Dot notation assignment!
+        
+        # Assign categories using dot notation!
+        block_dot._entry = entry_cat           # Dot notation assignment!
+        block_dot._database_2 = database_cat   # Dot notation assignment!
+        block_dot._atom_site = atom_cat        # Dot notation assignment!
+        
+        # Assign block using dot notation!
+        container_dot.data_1ABC_DOT = block_dot # Dot notation assignment!
+        
+        # Write using SLOTH
+        dot_notation_file = "sample_dot_notation.cif"
+        with open(dot_notation_file, 'w') as f:
+            handler.file_obj = f
+            handler.write(container_dot)
+        print(f"   ✅ Created dot notation sample: {dot_notation_file}")
+        
+        # Parse all files to verify they work
         manual_mmcif = handler.parse(manual_file)
         programmatic_mmcif = handler.parse(programmatic_file)
+        dot_notation_mmcif = handler.parse(dot_notation_file)
         
         print(f"\n🔍 Verification:")
         print(f"   Manual approach: {len(manual_mmcif.data[0].categories)} categories")
-        print(f"   Programmatic approach: {len(programmatic_mmcif.data[0].categories)} categories")
+        print(f"   Dictionary approach: {len(programmatic_mmcif.data[0].categories)} categories")
+        print(f"   Dot notation approach: {len(dot_notation_mmcif.data[0].categories)} categories")
         
-        return manual_file, programmatic_file
+        # Demonstrate the elegance of dot notation access
+        print(f"\n💡 Demonstrating dot notation elegance:")
+        print(f"   dot_notation_mmcif.data_1ABC_DOT._entry.id[0]: {dot_notation_mmcif.data_1ABC_DOT._entry.id[0]}")
+        print(f"   dot_notation_mmcif.data_1ABC_DOT._atom_site.type_symbol: {dot_notation_mmcif.data_1ABC_DOT._atom_site.type_symbol}")
+        
+        return manual_file, programmatic_file, dot_notation_file
         
     except ImportError as e:
         print(f"   ⚠️ Programmatic approach not available: {e}")
         print("   📋 Using manual approach only")
-        return manual_file, None
+        return manual_file, None, None
     except Exception as e:
         print(f"   ❌ Error in programmatic approach: {e}")
-        return manual_file, None
+        return manual_file, None, None
 
 def main():
     parser = argparse.ArgumentParser(
