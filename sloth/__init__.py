@@ -9,19 +9,21 @@ It loads what you need, when you need it — no more, no less.
 Built in Python. No templates. No regrets.
 """
 
-from .main import (
-    MMCIFHandler,
-    MMCIFParser,
-    MMCIFWriter,
-    MMCIFExporter,
-    MMCIFImporter,
+__version__ = "0.1.0"
+
+from .models import (
     MMCIFDataContainer,
     DataBlock,
     Category,
     Row,
     Item,
-    ValidatorFactory,
     DataSourceFormat,
+)
+from .parser import MMCIFParser
+from .writer import MMCIFWriter
+from .exporter import MMCIFExporter
+from .loaders import (
+    MMCIFImporter,
     FormatLoader,
     JsonLoader,
     XmlLoader,
@@ -30,7 +32,8 @@ from .main import (
     CsvLoader,
     DictToMMCIFConverter
 )
-from .version import __version__
+from .handler import MMCIFHandler
+from .validator import ValidatorFactory
 from .schemas import (
     SchemaValidator,
     JSONSchemaValidator,

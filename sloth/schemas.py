@@ -11,7 +11,7 @@ from enum import Enum, auto
 import os
 import re
 import json
-from .main import DataSourceFormat
+from .models import DataSourceFormat
 
 
 # Type definitions for schema structures

@@ -12,7 +12,7 @@ from sloth.schemas import (
     _get_schema_dir,
     JSONSchemaValidator
 )
-from sloth.main import DataSourceFormat
+from sloth.models import DataSourceFormat
 
 
 class TestXMLSchemaValidation(unittest.TestCase):

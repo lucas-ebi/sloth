@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sloth-mmcif"
-version = "0.1.0"
+dynamic = ["version"]
 description = "SLOTH: Structural Loader with On-demand Tokenization and Handling - Lazy by design. Fast by default."
 readme = "README.md"
 license = { text = "MIT" }
@@ -57,7 +57,7 @@ test = [
 ]
 
 [project.scripts]
-sloth-demo = "sloth.demo:main"
+sloth-demo = "demo:main"
 
 [tool.setuptools]
 packages = ["sloth"]
@@ -81,3 +81,7 @@ python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# Dynamic versioning configuration
+[tool.setuptools.dynamic]
+version = {attr = "sloth.__version__"}
