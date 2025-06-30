@@ -48,9 +48,9 @@ _database_2.database_code    7XJP
             temp_file = f.name
         
         try:
-            mmcif_data_container = self.handler.parse(temp_file)
-            self.assertEqual(len(mmcif_data_container), 1)
-            self.assertIn("empty", mmcif_data_container.blocks)
+            mmcif = self.handler.parse(temp_file)
+            self.assertEqual(len(mmcif), 1)
+            self.assertIn("empty", mmcif.blocks)
         finally:
             os.unlink(temp_file)
 
@@ -64,9 +64,9 @@ _database_2.database_code    7XJP
             temp_file = f.name
         
         try:
-            mmcif_data_container = self.handler.parse(temp_file, categories=['_database_2'])
-            self.assertIn("7XJP", mmcif_data_container.blocks)
-            data_block = mmcif_data_container["7XJP"]
+            mmcif = self.handler.parse(temp_file, categories=['_database_2'])
+            self.assertIn("7XJP", mmcif.blocks)
+            data_block = mmcif["7XJP"]
             self.assertIn("_database_2", data_block.categories)
             category = data_block["_database_2"]
             self.assertEqual(category["database_id"], ["PDB"])
@@ -82,13 +82,13 @@ class TestMMCIFWriter(unittest.TestCase):
         })
         self.data_block["_database_2"]._add_item_value("database_id", "PDB")
         self.data_block["_database_2"]._add_item_value("database_code", "7XJP")
-        self.mmcif_data_container = MMCIFDataContainer(data_blocks={"7XJP": self.data_block})
+        self.mmcif = MMCIFDataContainer(data_blocks={"7XJP": self.data_block})
         self.writer = MMCIFWriter()
 
     @patch("builtins.open", new_callable=mock_open)
     def test_write_file(self, mock_file):
         with open("dummy.cif", "w") as f:
-            self.writer.write(f, self.mmcif_data_container)
+            self.writer.write(f, self.mmcif)
         mock_file().write.assert_any_call("data_7XJP\n")
         mock_file().write.assert_any_call("#\n")
         mock_file().write.assert_any_call("_database_2.database_id PDB \n")
@@ -118,9 +118,9 @@ _database_2.database_code    7XJP
             temp_file = f.name
         
         try:
-            mmcif_data_container = self.handler.parse(temp_file, categories=['_database_2'])
-            self.assertIn("7XJP", mmcif_data_container.blocks)
-            data_block = mmcif_data_container["7XJP"]
+            mmcif = self.handler.parse(temp_file, categories=['_database_2'])
+            self.assertIn("7XJP", mmcif.blocks)
+            data_block = mmcif["7XJP"]
             self.assertIn("_database_2", data_block.categories)
             category = data_block["_database_2"]
             self.assertEqual(category["database_id"], ["PDB"])
@@ -135,10 +135,10 @@ _database_2.database_code    7XJP
         })
         data_block["_database_2"]._add_item_value("database_id", "PDB")
         data_block["_database_2"]._add_item_value("database_code", "7XJP")
-        mmcif_data_container = MMCIFDataContainer(data_blocks={"7XJP": data_block})
+        mmcif = MMCIFDataContainer(data_blocks={"7XJP": data_block})
         with open("dummy.cif", "w") as f:
             self.handler.file_obj = f
-            self.handler.write(mmcif_data_container)
+            self.handler.write(mmcif)
         mock_file().write.assert_any_call("data_7XJP\n")
         mock_file().write.assert_any_call("#\n")
         mock_file().write.assert_any_call("_database_2.database_id PDB \n")
@@ -387,13 +387,13 @@ ATOM   4    O  O   21.346 8.963  21.523
         handler = MMCIFHandler()
         
         # Parse the test file
-        mmcif_data_container = handler.parse(self.temp_file.name)
+        mmcif = handler.parse(self.temp_file.name)
         
         # Verify structure
-        self.assertEqual(list(mmcif_data_container.blocks), ["TEST"])
+        self.assertEqual(list(mmcif.blocks), ["TEST"])
         
         # Get test block
-        block = mmcif_data_container.data[0]
+        block = mmcif.data[0]
         
         # Verify data was parsed correctly
         if '_atom_site' in block.categories:
@@ -1006,8 +1006,8 @@ ATOM   3    C  12.345 22.678 32.901
         
         # Parse the test file
         handler = MMCIFHandler()
-        self.mmcif_data_container = handler.parse(self.test_cif_path)
-        self.exporter = MMCIFExporter(self.mmcif_data_container)
+        self.mmcif = handler.parse(self.test_cif_path)
+        self.exporter = MMCIFExporter(self.mmcif)
 
     def tearDown(self):
         """Tear down test fixtures."""
@@ -1058,17 +1058,17 @@ ATOM   3    C  12.345 22.678 32.901
         
         # Test JSON export
         json_path = os.path.join(self.temp_dir, 'handler.json')
-        handler.export_to_json(self.mmcif_data_container, json_path)
+        handler.export_to_json(self.mmcif, json_path)
         self.assertTrue(os.path.exists(json_path))
         
         # Test XML export
         xml_path = os.path.join(self.temp_dir, 'handler.xml')
-        handler.export_to_xml(self.mmcif_data_container, xml_path)
+        handler.export_to_xml(self.mmcif, xml_path)
         self.assertTrue(os.path.exists(xml_path))
         
         # Test pickle export
         pkl_path = os.path.join(self.temp_dir, 'handler.pkl')
-        handler.export_to_pickle(self.mmcif_data_container, pkl_path)
+        handler.export_to_pickle(self.mmcif, pkl_path)
         self.assertTrue(os.path.exists(pkl_path))
 
     def test_to_yaml_pandas_availability(self):
@@ -1128,8 +1128,8 @@ ATOM   3    C  12.345 22.678 32.901
         
         # Parse the test file
         handler = MMCIFHandler()
-        self.mmcif_data_container = handler.parse(self.test_cif_path)
-        self.exporter = MMCIFExporter(self.mmcif_data_container)
+        self.mmcif = handler.parse(self.test_cif_path)
+        self.exporter = MMCIFExporter(self.mmcif)
         
         # Export data to different formats for import testing
         self.json_path = os.path.join(self.temp_dir, 'test.json')
@@ -1340,13 +1340,13 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_json(json_path)
         
         # Compare original and imported
-        self.assertEqual(len(self.mmcif_data_container.blocks), len(imported_container.blocks))
+        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
         self.assertEqual(
-            self.mmcif_data_container['test']['_entry']['id'][0],
+            self.mmcif['test']['_entry']['id'][0],
             imported_container['test']['_entry']['id'][0]
         )
         self.assertEqual(
-            self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
+            self.mmcif['test']['_atom_site']['Cartn_x'][0],
             imported_container['test']['_atom_site']['Cartn_x'][0]
         )
 
@@ -1360,13 +1360,13 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_xml(xml_path)
         
         # Compare original and imported
-        self.assertEqual(len(self.mmcif_data_container.blocks), len(imported_container.blocks))
+        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
         self.assertEqual(
-            self.mmcif_data_container['test']['_entry']['id'][0],
+            self.mmcif['test']['_entry']['id'][0],
             imported_container['test']['_entry']['id'][0]
         )
         self.assertEqual(
-            self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
+            self.mmcif['test']['_atom_site']['Cartn_x'][0],
             imported_container['test']['_atom_site']['Cartn_x'][0]
         )
 
@@ -1380,13 +1380,13 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_pickle(pkl_path)
         
         # Compare original and imported
-        self.assertEqual(len(self.mmcif_data_container.blocks), len(imported_container.blocks))
+        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
         self.assertEqual(
-            self.mmcif_data_container['test']['_entry']['id'][0],
+            self.mmcif['test']['_entry']['id'][0],
             imported_container['test']['_entry']['id'][0]
         )
         self.assertEqual(
-            self.mmcif_data_container['test']['_atom_site']['Cartn_x'][0],
+            self.mmcif['test']['_atom_site']['Cartn_x'][0],
             imported_container['test']['_atom_site']['Cartn_x'][0]
         )
 

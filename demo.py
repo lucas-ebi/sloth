@@ -28,13 +28,13 @@ def cross_checker(category_name_1, category_name_2):
     print(f"🔗 Cross-checking: {category_name_1} ↔ {category_name_2}")
 
 
-def modify_data(mmcif_data_container):
+def modify_data(mmcif):
     """Example data modification."""
-    if not mmcif_data_container.data:
+    if not mmcif.data:
         print("❌ No data blocks found")
         return
     
-    block = mmcif_data_container.data[0]
+    block = mmcif.data[0]
     print(f"📋 Working with block: {block.name}")
     
     # Try to modify database information
@@ -52,12 +52,12 @@ def modify_data(mmcif_data_container):
         print("ℹ️  No _database_2 category found")
 
 
-def show_file_info(mmcif_data_container):
+def show_file_info(mmcif):
     """Display information about the parsed file."""
     print(f"\n📊 File Information:")
-    print(f"   Data blocks: {len(mmcif_data_container.data)}")
+    print(f"   Data blocks: {len(mmcif.data)}")
     
-    for i, block in enumerate(mmcif_data_container.data):
+    for i, block in enumerate(mmcif.data):
         print(f"   Block {i+1}: '{block.name}' with {len(block.categories)} categories")
         
         # Show first few categories
@@ -97,13 +97,13 @@ ATOM   3    C  12.345 22.678 32.901
     print(f"📝 Created sample file: {sample_file}")
     return sample_file
 
-def demonstrate_2d_slicing(mmcif_data_container):
+def demonstrate_2d_slicing(mmcif):
     """Demonstrate 2D slicing functionality with emphasis on dot notation."""
-    if not mmcif_data_container.data:
+    if not mmcif.data:
         print("❌ No data blocks found")
         return
     
-    block = mmcif_data_container.data[0]
+    block = mmcif.data[0]
     print(f"\n🔢 Demonstrating 2D slicing with dot notation:")
     print(f"   The power of SLOTH's dot notation makes data access elegant and intuitive!")
     
@@ -202,7 +202,7 @@ def demonstrate_2d_slicing(mmcif_data_container):
     print("   6. With slices: for row in category[0:3]: print(row.item_name)")
     print("\n   💪 Dot notation makes your code more readable, elegant, and Pythonic!")
 
-def demonstrate_export_functionality(mmcif_data_container, output_dir):
+def demonstrate_export_functionality(mmcif, output_dir):
     """Demonstrate the new export functionality."""
     print(f"\n📊 Demonstrating export functionality:")
     
@@ -214,23 +214,23 @@ def demonstrate_export_functionality(mmcif_data_container, output_dir):
     
     # Export to JSON
     json_path = os.path.join(output_dir, "exported_data.json")
-    handler.export_to_json(mmcif_data_container, json_path)
+    handler.export_to_json(mmcif, json_path)
     print(f"   ✅ Exported to JSON: {json_path}")
     
     # Export to XML
     xml_path = os.path.join(output_dir, "exported_data.xml")
-    handler.export_to_xml(mmcif_data_container, xml_path)
+    handler.export_to_xml(mmcif, xml_path)
     print(f"   ✅ Exported to XML: {xml_path}")
     
     # Export to Pickle
     pickle_path = os.path.join(output_dir, "exported_data.pkl")
-    handler.export_to_pickle(mmcif_data_container, pickle_path)
+    handler.export_to_pickle(mmcif, pickle_path)
     print(f"   ✅ Exported to Pickle: {pickle_path}")
     
     # Export to YAML (with try/except as it requires PyYAML)
     try:
         yaml_path = os.path.join(output_dir, "exported_data.yaml")
-        handler.export_to_yaml(mmcif_data_container, yaml_path)
+        handler.export_to_yaml(mmcif, yaml_path)
         print(f"   ✅ Exported to YAML: {yaml_path}")
     except ImportError as e:
         print(f"   ❌ YAML export failed: {str(e)}")
@@ -238,7 +238,7 @@ def demonstrate_export_functionality(mmcif_data_container, output_dir):
     # Export to CSV (with try/except as it requires pandas)
     try:
         csv_dir = os.path.join(output_dir, "csv_files")
-        file_paths = handler.export_to_csv(mmcif_data_container, csv_dir)
+        file_paths = handler.export_to_csv(mmcif, csv_dir)
         print(f"   ✅ Exported to CSV files in: {csv_dir}")
         # Show first CSV file path as example
         for block_name, categories in file_paths.items():
@@ -343,21 +343,21 @@ def demonstrate_import_functionality(output_dir):
     
     return imported_containers
 
-def demonstrate_round_trip(mmcif_data_container, imported_container, format_name):
+def demonstrate_round_trip(mmcif, imported_container, format_name):
     """Demonstrate round-trip validation between original and imported data."""
     print(f"\n🔄 Demonstrating round-trip validation ({format_name}):")
     
-    if not mmcif_data_container.data or not imported_container.data:
+    if not mmcif.data or not imported_container.data:
         print("   ❌ Missing data blocks for comparison")
         return False
     
     # Check if blocks match
-    if len(mmcif_data_container.data) != len(imported_container.data):
-        print(f"   ❌ Block count mismatch: Original={len(mmcif_data_container.data)}, Imported={len(imported_container.data)}")
+    if len(mmcif.data) != len(imported_container.data):
+        print(f"   ❌ Block count mismatch: Original={len(mmcif.data)}, Imported={len(imported_container.data)}")
         return False
     
     # Compare first block
-    original_block = mmcif_data_container.data[0]
+    original_block = mmcif.data[0]
     imported_block = imported_container.data[0]
     
     # Compare category count
@@ -401,7 +401,7 @@ def demonstrate_round_trip(mmcif_data_container, imported_container, format_name
     print(f"   ✅ Round-trip validation complete")
     return True
 
-def demonstrate_schema_validation(mmcif_data_container, output_dir):
+def demonstrate_schema_validation(mmcif, output_dir):
     """Demonstrate schema validation for different formats."""
     print(f"\n🛡️ Demonstrating Schema Validation:")
     
@@ -638,15 +638,15 @@ Examples:
     try:
         # Parse the file
         print("⚡ Parsing file...")
-        mmcif_data_container = handler.parse(args.input, categories=args.categories)
+        mmcif = handler.parse(args.input, categories=args.categories)
         
         # Show file information
-        show_file_info(mmcif_data_container)
+        show_file_info(mmcif)
         
         # Setup validation if requested
-        if args.validate and mmcif_data_container.data:
+        if args.validate and mmcif.data:
             print(f"\n🛡️  Setting up validation...")
-            block = mmcif_data_container.data[0]
+            block = mmcif.data[0]
             
             # Register validators for available categories
             available_categories = block.categories[:2]  # First 2 for demo
@@ -674,17 +674,17 @@ Examples:
                     cat1.validate().against(cat2)
         
         # Demonstrate 2D slicing
-        demonstrate_2d_slicing(mmcif_data_container)
+        demonstrate_2d_slicing(mmcif)
         
         # Modify data
         print(f"\n✏️  Modifying data...")
-        modify_data(mmcif_data_container)
+        modify_data(mmcif)
         
         # Write output
         print(f"\n💾 Writing to: {args.output}")
         with open(args.output, 'w') as f:
             handler.file_obj = f
-            handler.write(mmcif_data_container)
+            handler.write(mmcif)
         
         print(f"✅ Successfully processed!")
         
@@ -695,22 +695,22 @@ Examples:
         
         # Demonstrate 2D slicing if available
         if hasattr(handler, 'demonstrate_2d_slicing'):
-            demonstrate_2d_slicing(mmcif_data_container)
+            demonstrate_2d_slicing(mmcif)
 
         # Demonstrate export functionality
         output_dir = "exports"
-        demonstrate_export_functionality(mmcif_data_container, output_dir)
+        demonstrate_export_functionality(mmcif, output_dir)
         
         # Demonstrate import functionality
         imported_containers = demonstrate_import_functionality(output_dir)
         
         # Demonstrate round-trip validation for each imported format
         for format_name, imported_container in imported_containers.items():
-            demonstrate_round_trip(mmcif_data_container, imported_container, format_name)
+            demonstrate_round_trip(mmcif, imported_container, format_name)
             
         # Demonstrate schema validation
         # Note: This is always included in demo mode
-        validation_dir = demonstrate_schema_validation(mmcif_data_container, output_dir)
+        validation_dir = demonstrate_schema_validation(mmcif, output_dir)
         
         # Clean up demo files if created
         if args.demo and os.path.exists("demo_structure.cif"):

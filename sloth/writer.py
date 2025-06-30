@@ -3,9 +3,9 @@ from .models import MMCIFDataContainer, Category
 
 class MMCIFWriter:
     """A class to write an mmCIF data container to a file."""
-    def write(self, file_obj: IO, mmcif_data_container: MMCIFDataContainer) -> None:
+    def write(self, file_obj: IO, mmcif: MMCIFDataContainer) -> None:
         try:
-            for data_block in mmcif_data_container:
+            for data_block in mmcif:
                 file_obj.write(f"data_{data_block.name}\n")
                 file_obj.write("#\n")
                 for category_name in data_block.categories:
