@@ -4,8 +4,6 @@
 
 > 🧠 *Lazy by design. Fast by default.*
 
-A Python library for parsing and writing mmCIF (macromolecular Crystallographic Information Framework) files with an ultra-simple API that's automatically optimized for performance.
-
 ![SLOTH: Lazy by Design, Fast by Default](https://img.shields.io/badge/SLOTH-Lazy%20by%20Design%2C%20Fast%20by%20Default-blueviolet?logo=python&logoColor=white)
 [![PyPI version](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
 [![Python versions](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
