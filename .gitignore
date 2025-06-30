@@ -165,5 +165,5 @@ exported_data.*
 *.yml
 csv_files/
 csv_output_dir/
-handler.*
+# handler.*
 test.cif

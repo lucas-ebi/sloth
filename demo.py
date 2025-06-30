@@ -11,7 +11,7 @@ import os
 import json
 import copy
 import tempfile
-from . import (
+from sloth import (
     MMCIFHandler, ValidatorFactory, DataSourceFormat,
     SchemaValidator, JSONSchemaValidator, XMLSchemaValidator, YAMLSchemaValidator, CSVSchemaValidator,
     SchemaValidatorFactory, ValidationError
