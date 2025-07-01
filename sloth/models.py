@@ -1,49 +1,53 @@
-from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator, Protocol, TypeVar, runtime_checkable, Type
+from typing import (
+    Dict,
+    List,
+    Union,
+    Optional,
+)
 from functools import cached_property
-import os
-import sys
-import mmap
 from enum import Enum, auto
 from abc import ABC, abstractmethod
 from .validator import ValidatorFactory, CategoryValidator
 import sys
-            
+
 
 class DataSourceFormat(Enum):
     """Enum to track the format source of mmCIF data."""
-    MMCIF = auto()     # Native mmCIF file
-    JSON = auto()      # JSON file or string
-    XML = auto()       # XML file or string
-    PICKLE = auto()    # Pickle file
-    YAML = auto()      # YAML file or string
-    CSV = auto()       # CSV directory
-    DICT = auto()      # Python dictionary
-    UNKNOWN = auto()   # Unknown source
+
+    MMCIF = auto()  # Native mmCIF file
+    JSON = auto()  # JSON file or string
+    XML = auto()  # XML file or string
+    PICKLE = auto()  # Pickle file
+    YAML = auto()  # YAML file or string
+    CSV = auto()  # CSV directory
+    DICT = auto()  # Python dictionary
+    UNKNOWN = auto()  # Unknown source
 
 
 class DataNode(ABC):
     """Abstract base class for all data nodes in the hierarchy."""
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
         """Get the name of the node."""
         pass
-    
+
     def __repr__(self):
         return f"{self.__class__.__name__}(name={self.name})"
 
+
 class DataContainer(DataNode):
     """Abstract base class for containers that hold other nodes."""
-    
+
     @abstractmethod
     def __getitem__(self, key: str):
         pass
-    
+
     @abstractmethod
     def __iter__(self):
         pass
-    
+
     @abstractmethod
     def __len__(self):
         pass
@@ -51,11 +55,11 @@ class DataContainer(DataNode):
 
 class Item(DataNode):
     """Represents a column/item in a category. Always uses eager loading."""
-    
+
     def __init__(self, name: str, values: Optional[List[str]] = None):
         """
-        Initialize an Item with either memory-mapped offsets or eager values.
-        
+        Initialize an Item with pre-loaded values.
+
         :param name: The name of the item
         :param values: Pre-loaded values
         """
@@ -72,7 +76,7 @@ class Item(DataNode):
         """Values with automatic caching via @cached_property."""
         if self._values is not None:
             return self._values
-            
+
     def add_value(self, value: str) -> None:
         """Add a value directly (for small datasets or immediate loading)."""
         if self._values is None:
@@ -107,11 +111,11 @@ class Item(DataNode):
 
 class Row(DataNode):
     """Represents a single row of data in a Category."""
-    
-    def __init__(self, category: 'Category', row_index: int):
+
+    def __init__(self, category: "Category", row_index: int):
         self._category = category
         self._row_index = row_index
-        
+
     @property
     def name(self) -> str:
         """Return name from the first item value in the row if available, otherwise the row index."""
@@ -122,7 +126,7 @@ class Row(DataNode):
             except (IndexError, KeyError):
                 pass
         return str(self._row_index)
-    
+
     def __getattr__(self, item_name: str) -> str:
         """Allow dot notation access to item values in this row."""
         if item_name in self._category._items:
@@ -130,8 +134,10 @@ class Row(DataNode):
             if self._row_index < len(values):
                 return values[self._row_index]
             raise IndexError(f"Row index {self._row_index} is out of range")
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
-    
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{item_name}'"
+        )
+
     def __getitem__(self, item_name: str) -> str:
         """Allow dictionary-style access to item values in this row."""
         if item_name in self._category._items:
@@ -140,7 +146,7 @@ class Row(DataNode):
                 return values[self._row_index]
             raise KeyError(f"Item '{item_name}' at index {self._row_index} not found")
         raise KeyError(item_name)
-    
+
     @property
     def data(self) -> Dict[str, str]:
         """Return all item values for this row as a dictionary."""
@@ -157,23 +163,25 @@ class Row(DataNode):
 
 class LazyRowList:
     """A list-like object that creates Row objects only when accessed."""
-    
-    def __init__(self, category: 'Category', row_count: int):
+
+    def __init__(self, category: "Category", row_count: int):
         self._category = category
         self._row_count = row_count
-        self._cached_rows: Dict[int, 'Row'] = {}  # Cache created rows
-    
+        self._cached_rows: Dict[int, "Row"] = {}  # Cache created rows
+
     def __len__(self) -> int:
         return self._row_count
-    
-    def __getitem__(self, index: Union[int, slice]) -> Union['Row', List['Row']]:
+
+    def __getitem__(self, index: Union[int, slice]) -> Union["Row", List["Row"]]:
         if isinstance(index, int):
             # Handle negative indices
             if index < 0:
                 index = self._row_count + index
             if index < 0 or index >= self._row_count:
-                raise IndexError(f"Row index {index} is out of range (0-{self._row_count-1})")
-            
+                raise IndexError(
+                    f"Row index {index} is out of range (0-{self._row_count-1})"
+                )
+
             # Return cached row or create new one
             if index not in self._cached_rows:
                 self._cached_rows[index] = Row(self._category, index)
@@ -183,57 +191,64 @@ class LazyRowList:
             indices = range(*index.indices(self._row_count))
             return [self[i] for i in indices]
         else:
-            raise TypeError(f"Row indices must be integers or slices, not {type(index).__name__}")
-    
+            raise TypeError(
+                f"Row indices must be integers or slices, not {type(index).__name__}"
+            )
+
     def __iter__(self):
         for i in range(self._row_count):
             yield self[i]
-    
+
     def __repr__(self):
         return f"LazyRowList({self._row_count} rows, {len(self._cached_rows)} cached)"
 
 
 class LazyItemDict:
     """A dict-like object that only loads Item values when accessed, providing O(1) creation."""
-    
-    def __init__(self, items: Dict[str, Union[List[str], 'Item']]):
+
+    def __init__(self, items: Dict[str, Union[List[str], "Item"]]):
         self._items = items
         self._cached_values: Dict[str, List[str]] = {}
-    
+
     def __getitem__(self, key: str) -> List[str]:
         if key not in self._cached_values:
             item = self._items[key]
-            self._cached_values[key] = item.values if hasattr(item, 'values') and callable(getattr(item, 'values', None)) is False else item
+            self._cached_values[key] = (
+                item.values
+                if hasattr(item, "values")
+                and callable(getattr(item, "values", None)) is False
+                else item
+            )
         return self._cached_values[key]
-    
+
     def __setitem__(self, key: str, value: List[str]) -> None:
         # Read-only interface - raise error
         raise TypeError("LazyItemDict is read-only")
-    
+
     def __contains__(self, key: str) -> bool:
         return key in self._items
-    
+
     def __iter__(self):
         return iter(self._items.keys())
-    
+
     def __len__(self) -> int:
         return len(self._items)
-    
+
     def keys(self):
         return self._items.keys()
-    
+
     def values(self):
         return [self[k] for k in self.keys()]
-    
+
     def items(self):
         return [(k, self[k]) for k in self.keys()]
-    
+
     def get(self, key: str, default=None):
         try:
             return self[key]
         except KeyError:
             return default
-    
+
     def __eq__(self, other) -> bool:
         if isinstance(other, LazyItemDict):
             # Compare all items (forces loading)
@@ -255,11 +270,11 @@ class LazyItemDict:
 
 class LazyKeyList:
     """A list that dynamically generates prefixed keys without storing them, providing O(1) creation."""
-    
+
     def __init__(self, collection: dict, prefix: str = ""):
         self._collection = collection
         self._prefix = prefix
-    
+
     def __getitem__(self, index: Union[int, slice]) -> Union[str, List[str]]:
         if isinstance(index, int):
             keys = list(self._collection.keys())
@@ -268,31 +283,33 @@ class LazyKeyList:
             keys = list(self._collection.keys())
             return [f"{self._prefix}{key}" for key in keys[index]]
         else:
-            raise TypeError(f"LazyKeyList indices must be integers or slices, not {type(index).__name__}")
-    
+            raise TypeError(
+                f"LazyKeyList indices must be integers or slices, not {type(index).__name__}"
+            )
+
     def __len__(self) -> int:
         return len(self._collection)
-    
+
     def __iter__(self):
         for key in self._collection.keys():
             yield f"{self._prefix}{key}"
-    
+
     def __contains__(self, item: str) -> bool:
         if item.startswith(self._prefix):
-            stripped = item[len(self._prefix):]
+            stripped = item[len(self._prefix) :]
             return stripped in self._collection
         return False
-    
+
     def index(self, item: str) -> int:
         if item.startswith(self._prefix):
-            stripped = item[len(self._prefix):]
+            stripped = item[len(self._prefix) :]
             keys = list(self._collection.keys())
             return keys.index(stripped)
         raise ValueError(f"{item} is not in list")
-    
+
     def count(self, item: str) -> int:
         return 1 if item in self else 0
-    
+
     def __eq__(self, other) -> bool:
         if isinstance(other, LazyKeyList):
             return list(self) == list(other)
@@ -306,30 +323,38 @@ class LazyKeyList:
 
 class Category(DataContainer):
     """A class to represent a category in a data block."""
-    
+
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        '_name', '_items', '_validator_factory', '_mmap_obj', '_batch_buffer', '_row_cache',
-        'name', 'validator_factory', 'items', 'data', 'row_count', 'rows'
+        "_name",
+        "_items",
+        "_validator_factory",
+        "_batch_buffer",
+        "_row_cache",
+        "name",
+        "validator_factory",
+        "items",
+        "data",
+        "row_count",
+        "rows",
     }
-            
-    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory] = None,
-                 mmap_obj: Optional[mmap.mmap] = None):
+
+    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory] = None):
         # Store the stripped name internally (remove _ prefix if present)
-        if name.startswith('_'):
+        if name.startswith("_"):
             self._name = name[1:]  # Store without the _ prefix
         else:
             self._name = name  # Already stripped
         self._items: Dict[str, Union[List[str], Item]] = {}
         self._validator_factory = validator_factory
         self._batch_buffer: Dict[str, List] = {}  # For batching value additions
-        self._row_cache: Dict[int, 'Row'] = {}  # Cache for Row objects
+        self._row_cache: Dict[int, "Row"] = {}  # Cache for Row objects
 
     @property
     def name(self) -> str:
         # Return the full name with _ prefix for external API consistency
         return f"_{self._name}"
-        
+
     @property
     def validator_factory(self) -> Optional[ValidatorFactory]:
         return self._validator_factory
@@ -346,47 +371,57 @@ class Category(DataContainer):
             if isinstance(item, Item):
                 return item.values
             return item
-        elif item_name == 'validate':
+        elif item_name == "validate":
             if self._validator_factory is None:
                 raise ValueError("No validator factory provided to this category")
             return CategoryValidator(self.name, self._validator_factory)
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item_name}'")
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{item_name}'"
+        )
 
     def __setattr__(self, name: str, value) -> None:
         """
         Enable dot notation assignment for mmCIF items.
-        
+
         Reserved attributes and internal attributes are handled normally.
         Everything else is treated as mmCIF item assignment.
         """
         # Handle reserved attributes and internal attributes normally
-        if name in self._RESERVED_ATTRS or name.startswith('__') or name.startswith('_'):
+        if (
+            name in self._RESERVED_ATTRS
+            or name.startswith("__")
+            or name.startswith("_")
+        ):
             super().__setattr__(name, value)
             return
-            
+
         # During object initialization, _items might not exist yet
-        if not hasattr(self, '_items'):
+        if not hasattr(self, "_items"):
             super().__setattr__(name, value)
             return
-            
+
         # Validate value type for mmCIF items
         if not isinstance(value, (list, Item)):
-            raise TypeError(f"mmCIF item '{name}' must be a list or Item object, got {type(value)}")
-            
+            raise TypeError(
+                f"mmCIF item '{name}' must be a list or Item object, got {type(value)}"
+            )
+
         # Set as mmCIF item (equivalent to self[name] = value)
         self._items[name] = value
         # Invalidate cached properties when items change
-        if hasattr(self, 'items'):
-            delattr(self, 'items')
-        if hasattr(self, 'data'):
-            delattr(self, 'data')
-        if hasattr(self, 'rows'):
-            delattr(self, 'rows')
+        if hasattr(self, "items"):
+            delattr(self, "items")
+        if hasattr(self, "data"):
+            delattr(self, "data")
+        if hasattr(self, "rows"):
+            delattr(self, "rows")
 
-    def __getitem__(self, key: Union[str, int, slice]) -> Union[List[str], 'Row', List['Row']]:
+    def __getitem__(
+        self, key: Union[str, int, slice]
+    ) -> Union[List[str], "Row", List["Row"]]:
         """
         Access values by item name or row index/slice.
-        
+
         If key is a string, return all values for that item (column-wise access).
         If key is an integer or slice, return Row(s) (row-wise access).
         """
@@ -399,13 +434,13 @@ class Category(DataContainer):
             row_count = self.row_count
             if row_count == 0:
                 raise IndexError("Cannot access rows in empty category")
-                
+
             # Handle negative indices
             if key < 0:
                 key = row_count + key
             if key < 0 or key >= row_count:
                 raise IndexError(f"Row index {key} is out of range (0-{row_count-1})")
-            
+
             # OPTIMIZATION: Cache Row objects to avoid repeated creation
             if key not in self._row_cache:
                 self._row_cache[key] = Row(self, key)
@@ -415,25 +450,28 @@ class Category(DataContainer):
             row_count = self.row_count
             if row_count == 0:
                 return []
-                
+
             # OPTIMIZATION: Return lazy slice instead of creating all Row objects
             indices = range(*key.indices(row_count))
             return [self[i] for i in indices]  # This will use the int case above
         else:
-            raise TypeError(f"Category indices must be strings, integers or slices, not {type(key).__name__}")
+            raise TypeError(
+                f"Category indices must be strings, integers or slices, not {type(key).__name__}"
+            )
 
     def __setitem__(self, item_name: str, value: Union[List[str], Item]) -> None:
         self._items[item_name] = value
         # Invalidate cached properties when items change
-        if hasattr(self, 'items'):
-            delattr(self, 'items')
-        if hasattr(self, 'data'):
-            delattr(self, 'data')
-        if hasattr(self, 'rows'):
-            delattr(self, 'rows')
+        if hasattr(self, "items"):
+            delattr(self, "items")
+        if hasattr(self, "data"):
+            delattr(self, "data")
+        if hasattr(self, "rows"):
+            delattr(self, "rows")
 
     def __iter__(self):
-        return iter(self._items.items())
+        # Iterate over rows, not items, for user-facing API consistency
+        return iter(self.rows)
 
     def __len__(self):
         return len(self._items)
@@ -451,11 +489,11 @@ class Category(DataContainer):
         """Returns the number of rows in this category."""
         if not self._items:
             return 0
-        
+
         # Get the length of the first item to determine row count
         any_item = next(iter(self._items.values()))
         return len(any_item)
-        
+
     @cached_property
     def rows(self) -> LazyRowList:
         """Returns all rows in this category as a lazy list (O(1) creation, cached for performance)."""
@@ -474,7 +512,7 @@ class Category(DataContainer):
         """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
             self._items[item_name] = Item(item_name)
-        
+
         if isinstance(self._items[item_name], Item):
             self._items[item_name].add_value(value)
         else:
@@ -487,7 +525,7 @@ class Category(DataContainer):
             item = Item(item_name, values=existing_values)
             item.add_value(value)
             self._items[item_name] = item
-        
+
         # Invalidate cached properties when values are added
         self._invalidate_caches()
 
@@ -497,33 +535,37 @@ class Category(DataContainer):
         if item_name not in self._batch_buffer:
             self._batch_buffer[item_name] = []
             # Pre-allocate space for common case (helps avoid repeated list resizing)
-            if hasattr(self._batch_buffer[item_name], 'extend'):
+            if hasattr(self._batch_buffer[item_name], "extend"):
                 # Reserve space for typical category sizes
-                reserved_size = 1000 if item_name in ['id', 'Cartn_x', 'Cartn_y', 'Cartn_z'] else 100
+                reserved_size = (
+                    1000
+                    if item_name in ["id", "Cartn_x", "Cartn_y", "Cartn_z"]
+                    else 100
+                )
                 self._batch_buffer[item_name] = [None] * reserved_size
                 self._batch_buffer[item_name].clear()  # Clear but keep capacity
-        
+
         self._batch_buffer[item_name].append(value)
-        
+
         # Commit batch when it gets large enough (larger batches for fewer invalidations)
         if len(self._batch_buffer[item_name]) >= 2000:  # Increased from 500
             self._commit_batch(item_name)
-        
+
         # OPTIMIZATION: Only invalidate caches when batch is committed, not on every add
         # This reduces cache invalidation calls from 7000+ to ~20
-    
+
     def _commit_batch(self, item_name: str) -> None:
         """Commit batched values to the actual items storage."""
         if item_name not in self._batch_buffer:
             return
-            
+
         values = self._batch_buffer[item_name]
         if not values:
             return
-        
+
         # OPTIMIZATION: Apply string interning to reduce memory usage
         interned_values = [intern_common_value(v) for v in values]
-            
+
         if item_name not in self._items:
             self._items[item_name] = interned_values
         else:
@@ -531,19 +573,19 @@ class Category(DataContainer):
                 self._items[item_name].extend(interned_values)
             else:
                 # Convert Item to list and extend
-                if hasattr(self._items[item_name], 'values'):
+                if hasattr(self._items[item_name], "values"):
                     existing_values = self._items[item_name].values[:]
                 else:
                     existing_values = []
                 existing_values.extend(interned_values)
                 self._items[item_name] = existing_values
-        
+
         # Clear the batch
         self._batch_buffer[item_name] = []
-        
+
         # Invalidate caches when batch is committed
         self._invalidate_caches()
-    
+
     def _commit_all_batches(self) -> None:
         """Commit all remaining batches at end of parsing."""
         for item_name in list(self._batch_buffer.keys()):
@@ -551,7 +593,7 @@ class Category(DataContainer):
 
     def _invalidate_caches(self) -> None:
         """Invalidate all cached properties when data changes."""
-        cache_attrs = ['items', 'data', 'rows']
+        cache_attrs = ["items", "data", "rows"]
         for attr in cache_attrs:
             if hasattr(self, attr):
                 delattr(self, attr)
@@ -561,7 +603,7 @@ class Category(DataContainer):
 
 class CategoryCollection(dict):
     """A collection that supports both dict and list access for categories, with automatic _ prefix handling."""
-    
+
     def __getitem__(self, key):
         if isinstance(key, int):
             # List-like access: categories[0], categories[1], etc.
@@ -575,49 +617,47 @@ class CategoryCollection(dict):
             # Dict-like access with automatic _ prefix handling
             if isinstance(key, str):
                 # If key starts with _, strip it for internal storage lookup
-                if key.startswith('_'):
+                if key.startswith("_"):
                     internal_key = key[1:]  # Remove the '_' prefix
                     return super().__getitem__(internal_key)
                 else:
                     # Allow access without _ prefix too
                     return super().__getitem__(key)
             return super().__getitem__(key)
-    
+
     def __setitem__(self, key, value):
-        if isinstance(key, str) and key.startswith('_'):
+        if isinstance(key, str) and key.startswith("_"):
             # Strip the _ prefix for internal storage
             internal_key = key[1:]
             super().__setitem__(internal_key, value)
         else:
             super().__setitem__(key, value)
-    
+
     def __contains__(self, key):
-        if isinstance(key, str) and key.startswith('_'):
+        if isinstance(key, str) and key.startswith("_"):
             # Strip the _ prefix for internal storage lookup
             internal_key = key[1:]
             return super().__contains__(internal_key)
         return super().__contains__(key)
-    
+
     def __iter__(self):
         # Iterate over values (Category objects) for consistency with list behavior
         return iter(self.values())
-    
+
     def keys(self):
         # Return stripped keys for internal use
         return list(super().keys())
-    
+
     def __repr__(self):
         return f"CategoryCollection({len(self)} categories)"
 
 
 class DataBlock(DataContainer):
     """A class to represent a data block in an mmCIF file."""
-    
-    # Define attributes that should be handled as normal Python attributes  
-    _RESERVED_ATTRS = {
-        '_name', '_categories', 'name', 'categories', 'data'
-    }
-    
+
+    # Define attributes that should be handled as normal Python attributes
+    _RESERVED_ATTRS = {"_name", "_categories", "name", "categories", "data"}
+
     def __init__(self, name: str, categories: Dict[str, Category] = None):
         self._name = name
         # Convert categories to use CategoryCollection with stripped names
@@ -625,7 +665,7 @@ class DataBlock(DataContainer):
             # Strip _ prefix from category names for internal storage
             stripped_categories = {}
             for cat_name, category in categories.items():
-                if cat_name.startswith('_'):
+                if cat_name.startswith("_"):
                     stripped_categories[cat_name[1:]] = category
                 else:
                     stripped_categories[cat_name] = category
@@ -655,8 +695,8 @@ class DataBlock(DataContainer):
         # Handle both prefixed (_category) and unprefixed (category) names
         self._categories[category_name] = category
         # Invalidate cached properties when categories change
-        if hasattr(self, 'categories'):
-            delattr(self, 'categories')
+        if hasattr(self, "categories"):
+            delattr(self, "categories")
 
     def __getattr__(self, category_name: str) -> Category:
         try:
@@ -665,40 +705,51 @@ class DataBlock(DataContainer):
             return self._categories[category_name]
         except KeyError:
             # Auto-create the category if it starts with _ (typical mmCIF category)
-            if category_name.startswith('_'):
+            if category_name.startswith("_"):
                 new_category = Category(category_name)
-                self._categories[category_name] = new_category  # CategoryCollection handles _ stripping
+                self._categories[
+                    category_name
+                ] = new_category  # CategoryCollection handles _ stripping
                 # Invalidate cached properties when categories change
-                if hasattr(self, 'categories'):
-                    delattr(self, 'categories')
+                if hasattr(self, "categories"):
+                    delattr(self, "categories")
                 return new_category
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{category_name}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{category_name}'"
+            )
 
     def __setattr__(self, name: str, value) -> None:
         """
         Enable dot notation assignment for categories.
-        
+
         Reserved attributes and internal attributes are handled normally.
         Category names (starting with _ or regular names) are treated as category assignment.
         """
         # Handle reserved attributes and internal attributes normally
-        if name in self._RESERVED_ATTRS or name.startswith('__'):
+        if name in self._RESERVED_ATTRS or name.startswith("__"):
             super().__setattr__(name, value)
             return
-            
+
         # During object initialization, _categories might not exist yet
-        if not hasattr(self, '_categories'):
+        if not hasattr(self, "_categories"):
             super().__setattr__(name, value)
             return
-            
+
         # For category names (starting with _ or regular category names), validate and set
-        if name.startswith('_') or (hasattr(self, '_categories') and (name in self._categories or f"_{name}" in self._categories)):
+        if name.startswith("_") or (
+            hasattr(self, "_categories")
+            and (name in self._categories or f"_{name}" in self._categories)
+        ):
             if not isinstance(value, Category):
-                raise TypeError(f"Category '{name}' must be a Category object, got {type(value)}")
-            self._categories[name] = value  # CategoryCollection handles _ stripping/adding
+                raise TypeError(
+                    f"Category '{name}' must be a Category object, got {type(value)}"
+                )
+            self._categories[
+                name
+            ] = value  # CategoryCollection handles _ stripping/adding
             # Invalidate cached properties when categories change
-            if hasattr(self, 'categories'):
-                delattr(self, 'categories')
+            if hasattr(self, "categories"):
+                delattr(self, "categories")
         else:
             # Non-category attributes are handled normally
             super().__setattr__(name, value)
@@ -715,7 +766,7 @@ class DataBlock(DataContainer):
 
 class DataBlockCollection(dict):
     """A collection that supports both dict and list access for data blocks, with automatic data_ prefix handling."""
-    
+
     def __getitem__(self, key):
         if isinstance(key, int):
             # List-like access: data[0], data[1], etc.
@@ -729,51 +780,55 @@ class DataBlockCollection(dict):
             # Dict-like access with automatic data_ prefix handling
             if isinstance(key, str):
                 # If key starts with data_, strip it for internal storage lookup
-                if key.startswith('data_'):
+                if key.startswith("data_"):
                     internal_key = key[5:]  # Remove the 'data_' prefix
                     return super().__getitem__(internal_key)
                 else:
                     # Allow access without data_ prefix too
                     return super().__getitem__(key)
             return super().__getitem__(key)
-    
+
     def __setitem__(self, key, value):
-        if isinstance(key, str) and key.startswith('data_'):
+        if isinstance(key, str) and key.startswith("data_"):
             # Strip the data_ prefix for internal storage
             internal_key = key[5:]
             super().__setitem__(internal_key, value)
         else:
             super().__setitem__(key, value)
-    
+
     def __contains__(self, key):
-        if isinstance(key, str) and key.startswith('data_'):
+        if isinstance(key, str) and key.startswith("data_"):
             # Strip the data_ prefix for internal storage lookup
             internal_key = key[5:]
             return super().__contains__(internal_key)
         return super().__contains__(key)
-    
+
     def __iter__(self):
         # Iterate over values (DataBlock objects) for consistency with list behavior
         return iter(self.values())
-    
+
     def keys(self):
         # Return stripped keys for internal use
         return list(super().keys())
-    
+
     def __repr__(self):
         return f"DataBlockCollection({len(self)} blocks)"
 
 
 class MMCIFDataContainer(DataContainer):
     """A class to represent an mmCIF data container."""
-    
+
     # Define attributes that should be handled as normal Python attributes
-    _RESERVED_ATTRS = {
-        '_data_blocks', 'source_format', 'name', 'blocks', 'data'
-    }
-    
-    def __init__(self, data_blocks: Dict[str, DataBlock] = None, source_format: DataSourceFormat = DataSourceFormat.MMCIF):
-        self._data_blocks = DataBlockCollection(data_blocks if data_blocks is not None else {})
+    _RESERVED_ATTRS = {"_data_blocks", "source_format", "name", "blocks", "data"}
+
+    def __init__(
+        self,
+        data_blocks: Dict[str, DataBlock] = None,
+        source_format: DataSourceFormat = DataSourceFormat.MMCIF,
+    ):
+        self._data_blocks = DataBlockCollection(
+            data_blocks if data_blocks is not None else {}
+        )
         self.source_format = source_format
 
     @property
@@ -788,8 +843,8 @@ class MMCIFDataContainer(DataContainer):
         # Handle both prefixed (data_block) and unprefixed (block) names
         self._data_blocks[block_name] = block
         # Invalidate cached properties when blocks change
-        if hasattr(self, 'blocks'):
-            delattr(self, 'blocks')
+        if hasattr(self, "blocks"):
+            delattr(self, "blocks")
 
     def __getattr__(self, block_name: str) -> DataBlock:
         if block_name.startswith("data_"):
@@ -801,37 +856,41 @@ class MMCIFDataContainer(DataContainer):
                 new_block = DataBlock(actual_block_name)
                 self._data_blocks[actual_block_name] = new_block
                 # Invalidate cached properties when blocks change
-                if hasattr(self, 'blocks'):
-                    delattr(self, 'blocks')
+                if hasattr(self, "blocks"):
+                    delattr(self, "blocks")
                 return new_block
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{block_name}'")
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{block_name}'"
+        )
 
     def __setattr__(self, name: str, value) -> None:
         """
         Enable dot notation assignment for data blocks.
-        
+
         Reserved attributes and internal attributes are handled normally.
         Data block names (with data_ prefix) are treated as block assignment.
         """
         # Handle reserved attributes and internal attributes normally
-        if name in self._RESERVED_ATTRS or name.startswith('__'):
+        if name in self._RESERVED_ATTRS or name.startswith("__"):
             super().__setattr__(name, value)
             return
-            
+
         # During object initialization, _data_blocks might not exist yet
-        if not hasattr(self, '_data_blocks'):
+        if not hasattr(self, "_data_blocks"):
             super().__setattr__(name, value)
             return
-            
+
         # For data block names (with data_ prefix), validate and set
-        if name.startswith('data_'):
+        if name.startswith("data_"):
             block_name = name[5:]  # Remove 'data_' prefix
             if not isinstance(value, DataBlock):
-                raise TypeError(f"Data block 'data_{block_name}' must be a DataBlock object, got {type(value)}")
+                raise TypeError(
+                    f"Data block 'data_{block_name}' must be a DataBlock object, got {type(value)}"
+                )
             self._data_blocks[block_name] = value
             # Invalidate cached properties when blocks change
-            if hasattr(self, 'blocks'):
-                delattr(self, 'blocks')
+            if hasattr(self, "blocks"):
+                delattr(self, "blocks")
         else:
             # Non-block attributes are handled normally
             super().__setattr__(name, value)
@@ -858,11 +917,43 @@ class MMCIFDataContainer(DataContainer):
 
 # Common mmCIF value interning for memory efficiency
 _COMMON_VALUES = {
-    'ATOM', 'HETATM', 'C', 'N', 'O', 'P', 'S', 'CA', 'CB', 'CG', 'CD', 'CE', 'CF',
-    'A', 'B', 'X', 'Y', 'Z', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-    '.', '?', 'yes', 'no', 'true', 'false'
+    "ATOM",
+    "HETATM",
+    "C",
+    "N",
+    "O",
+    "P",
+    "S",
+    "CA",
+    "CB",
+    "CG",
+    "CD",
+    "CE",
+    "CF",
+    "A",
+    "B",
+    "X",
+    "Y",
+    "Z",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+    ".",
+    "?",
+    "yes",
+    "no",
+    "true",
+    "false",
 }
 _INTERNED_VALUES = {val: sys.intern(val) for val in _COMMON_VALUES}
+
 
 def intern_common_value(value: str) -> str:
     """Intern common mmCIF values to save memory."""
