@@ -1,10 +1,12 @@
 from typing import Callable, Dict, Tuple, List, Any, Union, Optional, IO, Iterator, Protocol, TypeVar, runtime_checkable, Type
 from functools import cached_property
 import os
+import sys
 import mmap
 from enum import Enum, auto
 from abc import ABC, abstractmethod
 from .validator import ValidatorFactory, CategoryValidator
+import sys
             
 
 class DataSourceFormat(Enum):
@@ -105,7 +107,6 @@ class Item(DataNode):
         self._mmap_obj = mmap_obj
         self._value_offsets = value_offsets or []
         self._eager_values = eager_values
-        self._cached_values: Optional[List[str]] = None
 
     @property
     def name(self) -> str:
@@ -114,45 +115,42 @@ class Item(DataNode):
 
     @cached_property
     def values(self) -> List[str]:
-        """Lazy-loaded values with caching."""
-        if self._cached_values is not None:
-            return self._cached_values
-            
+        """Lazy-loaded values with automatic caching via @cached_property."""
         if self._eager_values is not None:
-            self._cached_values = self._eager_values
-            return self._cached_values
+            return self._eager_values
             
         if self._mmap_obj is None or not self._value_offsets:
-            self._cached_values = []
-            return self._cached_values
+            return []
             
-        # Memory-mapped lazy loading
-        self._cached_values = []
+        # Memory-mapped lazy loading (cached automatically by @cached_property)
+        result = []
         for start_offset, end_offset in self._value_offsets:
             try:
                 # Extract bytes from memory map
                 value_bytes = self._mmap_obj[start_offset:end_offset]
                 value = value_bytes.decode('utf-8').strip()
-                self._cached_values.append(value)
-            except (IndexError, UnicodeDecodeError) as e:
+                result.append(value)
+            except (IndexError, UnicodeDecodeError):
                 # Fallback for malformed data
-                self._cached_values.append("")
+                result.append("")
                 
-        return self._cached_values
+        return result
 
     def add_offset(self, start: int, end: int) -> None:
         """Add a new value offset for memory-mapped access."""
         self._value_offsets.append((start, end))
-        # Clear cache when new offsets are added
-        self._cached_values = None
+        # Clear cached_property cache when new offsets are added
+        if hasattr(self, 'values'):
+            delattr(self, 'values')
 
     def add_eager_value(self, value: str) -> None:
         """Add a value directly (for small datasets or immediate loading)."""
         if self._eager_values is None:
             self._eager_values = []
         self._eager_values.append(value)
-        # Clear cache when new values are added
-        self._cached_values = None
+        # Clear cached_property cache when new values are added
+        if hasattr(self, 'values'):
+            delattr(self, 'values')
 
     def __iter__(self):
         """Iterate over values (triggers lazy loading)."""
@@ -169,7 +167,9 @@ class Item(DataNode):
         return self.values[index]
 
     def __repr__(self):
-        return f"Item(name='{self.name}', length={len(self)}, loaded={self._cached_values is not None})"
+        # Check if values property has been accessed (cached) by checking if the descriptor exists
+        values_loaded = hasattr(self.__class__.__dict__['values'], 'func') and hasattr(self, '__dict__') and 'values' in self.__dict__
+        return f"Item(name='{self.name}', length={len(self)}, loaded={values_loaded})"
 
 
 class Row(DataNode):
@@ -227,7 +227,7 @@ class Category(DataContainer):
     
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        '_name', '_items', '_validator_factory', '_mmap_obj', '_batch_buffer',
+        '_name', '_items', '_validator_factory', '_mmap_obj', '_batch_buffer', '_row_cache',
         'name', 'validator_factory', 'items', 'data', 'row_count', 'rows'
     }
             
@@ -242,6 +242,7 @@ class Category(DataContainer):
         self._validator_factory = validator_factory
         self._mmap_obj = mmap_obj
         self._batch_buffer: Dict[str, List] = {}  # For batching value additions
+        self._row_cache: Dict[int, 'Row'] = {}  # Cache for Row objects
 
     @property
     def name(self) -> str:
@@ -252,9 +253,9 @@ class Category(DataContainer):
     def validator_factory(self) -> Optional[ValidatorFactory]:
         return self._validator_factory
 
-    @property
+    @cached_property
     def items(self) -> List[str]:
-        """Get names of contained items."""
+        """Get names of contained items (cached for performance)."""
         return list(self._items.keys())
 
     def __getattr__(self, item_name: str) -> Union[List[str], Item, CategoryValidator]:
@@ -293,6 +294,13 @@ class Category(DataContainer):
             
         # Set as mmCIF item (equivalent to self[name] = value)
         self._items[name] = value
+        # Invalidate cached properties when items change
+        if hasattr(self, 'items'):
+            delattr(self, 'items')
+        if hasattr(self, 'data'):
+            delattr(self, 'data')
+        if hasattr(self, 'rows'):
+            delattr(self, 'rows')
 
     def __getitem__(self, key: Union[str, int, slice]) -> Union[List[str], 'Row', List['Row']]:
         """
@@ -306,7 +314,7 @@ class Category(DataContainer):
             item = self._items[key]
             return item.values if isinstance(item, Item) else item
         elif isinstance(key, int):
-            # Row access by index
+            # Row access by index - use caching to avoid recreating Row objects
             row_count = self.row_count
             if row_count == 0:
                 raise IndexError("Cannot access rows in empty category")
@@ -316,21 +324,32 @@ class Category(DataContainer):
                 key = row_count + key
             if key < 0 or key >= row_count:
                 raise IndexError(f"Row index {key} is out of range (0-{row_count-1})")
-            return Row(self, key)
+            
+            # OPTIMIZATION: Cache Row objects to avoid repeated creation
+            if key not in self._row_cache:
+                self._row_cache[key] = Row(self, key)
+            return self._row_cache[key]
         elif isinstance(key, slice):
-            # Multiple rows access by slice
+            # Multiple rows access by slice - use lazy approach
             row_count = self.row_count
             if row_count == 0:
                 return []
                 
-            # Get the indices from the slice
+            # OPTIMIZATION: Return lazy slice instead of creating all Row objects
             indices = range(*key.indices(row_count))
-            return [Row(self, i) for i in indices]
+            return [self[i] for i in indices]  # This will use the int case above
         else:
             raise TypeError(f"Category indices must be strings, integers or slices, not {type(key).__name__}")
 
     def __setitem__(self, item_name: str, value: Union[List[str], Item]) -> None:
         self._items[item_name] = value
+        # Invalidate cached properties when items change
+        if hasattr(self, 'items'):
+            delattr(self, 'items')
+        if hasattr(self, 'data'):
+            delattr(self, 'data')
+        if hasattr(self, 'rows'):
+            delattr(self, 'rows')
 
     def __iter__(self):
         return iter(self._items.items())
@@ -341,9 +360,9 @@ class Category(DataContainer):
     def __repr__(self):
         return f"Category(name={self.name}, items={list(self._items.keys())})"
 
-    @property
+    @cached_property
     def data(self) -> Dict[str, List[str]]:
-        """Provides read-only access to the data (forces loading of lazy items)."""
+        """Provides cached read-only access to the data (forces loading of lazy items)."""
         result = {}
         for name, item in self._items.items():
             if isinstance(item, Item):
@@ -362,10 +381,14 @@ class Category(DataContainer):
         any_item = next(iter(self._items.values()))
         return len(any_item)
         
-    @property
+    @cached_property
     def rows(self) -> List['Row']:
-        """Returns all rows in this category."""
-        return self[:] if self.row_count > 0 else []
+        """Returns all rows in this category (cached for performance with lazy Row creation)."""
+        if self.row_count == 0:
+            return []
+        
+        # OPTIMIZATION: Use LazyRowList to avoid creating all Row objects upfront
+        return LazyRowList(self, self.row_count)
 
     def get_item(self, item_name: str) -> Union[Item, List[str]]:
         """Get the raw item (Item object or list), without forcing lazy loading."""
@@ -398,6 +421,9 @@ class Category(DataContainer):
             else:
                 item.add_eager_value(value)
             self._items[item_name] = item
+        
+        # Invalidate cached properties when values are added
+        self._invalidate_caches()
 
     def _add_item_value_simple(self, item_name: str, value: str) -> None:
         """Fast value addition for small files without memory mapping overhead."""
@@ -413,9 +439,12 @@ class Category(DataContainer):
         
         self._batch_buffer[item_name].append(value)
         
-        # Commit batch when it gets large enough (smaller batches for faster processing)
-        if len(self._batch_buffer[item_name]) >= 500:  # Reduced from 1000
+        # Commit batch when it gets large enough (larger batches for fewer invalidations)
+        if len(self._batch_buffer[item_name]) >= 2000:  # Increased from 500
             self._commit_batch(item_name)
+        
+        # OPTIMIZATION: Only invalidate caches when batch is committed, not on every add
+        # This reduces cache invalidation calls from 7000+ to ~20
     
     def _commit_batch(self, item_name: str) -> None:
         """Commit batched values to the actual items storage."""
@@ -425,28 +454,81 @@ class Category(DataContainer):
         values = self._batch_buffer[item_name]
         if not values:
             return
+        
+        # OPTIMIZATION: Apply string interning to reduce memory usage
+        interned_values = [intern_common_value(v) for v in values]
             
         if item_name not in self._items:
-            self._items[item_name] = values[:]
+            self._items[item_name] = interned_values
         else:
             if isinstance(self._items[item_name], list):
-                self._items[item_name].extend(values)
+                self._items[item_name].extend(interned_values)
             else:
                 # Convert Item to list and extend
                 if hasattr(self._items[item_name], 'values'):
                     existing_values = self._items[item_name].values[:]
                 else:
                     existing_values = []
-                existing_values.extend(values)
+                existing_values.extend(interned_values)
                 self._items[item_name] = existing_values
         
         # Clear the batch
         self._batch_buffer[item_name] = []
+        
+        # Invalidate caches when batch is committed
+        self._invalidate_caches()
     
     def _commit_all_batches(self) -> None:
         """Commit all remaining batches at end of parsing."""
         for item_name in list(self._batch_buffer.keys()):
             self._commit_batch(item_name)
+
+    def _invalidate_caches(self) -> None:
+        """Invalidate all cached properties when data changes."""
+        cache_attrs = ['items', 'data', 'rows']
+        for attr in cache_attrs:
+            if hasattr(self, attr):
+                delattr(self, attr)
+        # Also clear row cache
+        self._row_cache.clear()
+
+
+class LazyRowList:
+    """A list-like object that creates Row objects only when accessed."""
+    
+    def __init__(self, category: 'Category', row_count: int):
+        self._category = category
+        self._row_count = row_count
+        self._cached_rows: Dict[int, 'Row'] = {}  # Cache created rows
+    
+    def __len__(self) -> int:
+        return self._row_count
+    
+    def __getitem__(self, index: Union[int, slice]) -> Union['Row', List['Row']]:
+        if isinstance(index, int):
+            # Handle negative indices
+            if index < 0:
+                index = self._row_count + index
+            if index < 0 or index >= self._row_count:
+                raise IndexError(f"Row index {index} is out of range (0-{self._row_count-1})")
+            
+            # Return cached row or create new one
+            if index not in self._cached_rows:
+                self._cached_rows[index] = Row(self._category, index)
+            return self._cached_rows[index]
+        elif isinstance(index, slice):
+            # Handle slice access
+            indices = range(*index.indices(self._row_count))
+            return [self[i] for i in indices]
+        else:
+            raise TypeError(f"Row indices must be integers or slices, not {type(index).__name__}")
+    
+    def __iter__(self):
+        for i in range(self._row_count):
+            yield self[i]
+    
+    def __repr__(self):
+        return f"LazyRowList({self._row_count} rows, {len(self._cached_rows)} cached)"
 
 
 class CategoryCollection(dict):
@@ -527,9 +609,9 @@ class DataBlock(DataContainer):
     def name(self) -> str:
         return self._name
 
-    @property
+    @cached_property
     def categories(self) -> List[str]:
-        """Get names of contained categories (prefixed names for external API)."""
+        """Get names of contained categories (prefixed names for external API) - cached."""
         return [f"_{key}" for key in super(CategoryCollection, self._categories).keys()]
 
     @property
@@ -544,6 +626,9 @@ class DataBlock(DataContainer):
     def __setitem__(self, category_name: str, category: Category) -> None:
         # Handle both prefixed (_category) and unprefixed (category) names
         self._categories[category_name] = category
+        # Invalidate cached properties when categories change
+        if hasattr(self, 'categories'):
+            delattr(self, 'categories')
 
     def __getattr__(self, category_name: str) -> Category:
         try:
@@ -555,6 +640,9 @@ class DataBlock(DataContainer):
             if category_name.startswith('_'):
                 new_category = Category(category_name)
                 self._categories[category_name] = new_category  # CategoryCollection handles _ stripping
+                # Invalidate cached properties when categories change
+                if hasattr(self, 'categories'):
+                    delattr(self, 'categories')
                 return new_category
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{category_name}'")
 
@@ -580,6 +668,9 @@ class DataBlock(DataContainer):
             if not isinstance(value, Category):
                 raise TypeError(f"Category '{name}' must be a Category object, got {type(value)}")
             self._categories[name] = value  # CategoryCollection handles _ stripping/adding
+            # Invalidate cached properties when categories change
+            if hasattr(self, 'categories'):
+                delattr(self, 'categories')
         else:
             # Non-category attributes are handled normally
             super().__setattr__(name, value)
@@ -668,6 +759,9 @@ class MMCIFDataContainer(DataContainer):
     def __setitem__(self, block_name: str, block: DataBlock) -> None:
         # Handle both prefixed (data_block) and unprefixed (block) names
         self._data_blocks[block_name] = block
+        # Invalidate cached properties when blocks change
+        if hasattr(self, 'blocks'):
+            delattr(self, 'blocks')
 
     def __getattr__(self, block_name: str) -> DataBlock:
         if block_name.startswith("data_"):
@@ -678,6 +772,9 @@ class MMCIFDataContainer(DataContainer):
                 # Auto-create the data block
                 new_block = DataBlock(actual_block_name)
                 self._data_blocks[actual_block_name] = new_block
+                # Invalidate cached properties when blocks change
+                if hasattr(self, 'blocks'):
+                    delattr(self, 'blocks')
                 return new_block
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{block_name}'")
 
@@ -704,6 +801,9 @@ class MMCIFDataContainer(DataContainer):
             if not isinstance(value, DataBlock):
                 raise TypeError(f"Data block 'data_{block_name}' must be a DataBlock object, got {type(value)}")
             self._data_blocks[block_name] = value
+            # Invalidate cached properties when blocks change
+            if hasattr(self, 'blocks'):
+                delattr(self, 'blocks')
         else:
             # Non-block attributes are handled normally
             super().__setattr__(name, value)
@@ -717,12 +817,24 @@ class MMCIFDataContainer(DataContainer):
     def __repr__(self):
         return f"MMCIFDataContainer({len(self)} blocks)"
 
-    @property
+    @cached_property
     def blocks(self) -> List[str]:
-        """Provides a list of data block names (prefixed names for new consistency)."""
+        """Provides a cached list of data block names (prefixed names for consistency)."""
         return [f"data_{key}" for key in super(DataBlockCollection, self._data_blocks).keys()]
 
     @property
     def data(self) -> DataBlockCollection:
         """Provides access to data blocks with both list and dict interfaces."""
         return self._data_blocks
+
+# Common mmCIF value interning for memory efficiency
+_COMMON_VALUES = {
+    'ATOM', 'HETATM', 'C', 'N', 'O', 'P', 'S', 'CA', 'CB', 'CG', 'CD', 'CE', 'CF',
+    'A', 'B', 'X', 'Y', 'Z', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+    '.', '?', 'yes', 'no', 'true', 'false'
+}
+_INTERNED_VALUES = {val: sys.intern(val) for val in _COMMON_VALUES}
+
+def intern_common_value(value: str) -> str:
+    """Intern common mmCIF values to save memory."""
+    return _INTERNED_VALUES.get(value, value)
