@@ -11,39 +11,40 @@
 
 ## 🚀 Overview
 
-**SLOTH** is a memory-mapped, lazily-loaded mmCIF parser written in pure Python.  
-It only loads what you need, when you need it — no more, no less.
+**SLOTH** is a fast, Pythonic mmCIF parser that embraces lazy evaluation for maximum efficiency.
+
+It eagerly parses files but lazily creates data objects only when accessed, giving you the best of both worlds.
 
 Built for speed, simplicity, and elegance, SLOTH is ideal for:
 
-- ⚡ Interactive structural analysis
-- 📊 Automated pipelines
-- 🧠 Efficient exploration of massive mmCIF files
+- ⚡ Interactive structural analysis with instant navigation  
+- 📊 Automated pipelines that process only what they need
+- 🧠 Efficient exploration of large structural datasets
 
 ---
 
 ## ✨ Key Features
 
 ✅ **Simple API** – One optimal way to create, parse, and access  
-⚡ **Fast and Lazy** – Memory-mapped + lazy loading = instant access  
+⚡ **Smart Lazy Loading** – Row and item objects created only when accessed  
 📦 **Complete** – Access to all mmCIF blocks, categories, and items  
-🔧 **Robust** – Handles anything from tiny files to >1GB behemoths  
+🔧 **Robust** – Handles files from tiny samples to large structures  
 🔄 **Import/Export** – JSON, XML, YAML, Pickle, CSV, Pandas  
 
 ---
 
 ## 🧠 Philosophy
 
-> "*Why rush when you can prefetch?*"  
+> "*Why rush when you can be lazy?*"  
 > "*Not everything needs to be a C++ monument.*"
 
 SLOTH is unapologetically Pythonic:
 
 - No overengineering
-- No runtime flags
+- No runtime flags  
 - No manual optimization
 
-Just smart defaults and expressive code.
+Just smart defaults, lazy evaluation, and expressive code.
 
 ---
 
@@ -135,9 +136,9 @@ mmcif = handler.import_auto_detect("structure.json")
 mmcif = handler.parse("large_file.cif", categories=["_atom_site", "_entry"])
 ```
 
-- **Startup time**: Fast  
-- **Access time**: Instant (lazy evaluation)  
-- **Memory usage**: Minimal  
+- **Startup time**: Fast (eager parsing)  
+- **Object creation**: Lazy (on-demand Row/Item objects)  
+- **Memory usage**: Optimized (cached with smart invalidation)  
 
 ---
 
@@ -623,25 +624,41 @@ twine check dist/*
 
 | File Size     | Full Parse   | Selective Parse | Access Speed | Memory Usage | Example |
 |---------------|--------------|-----------------|--------------|---------------|---------|
-| <1KB          | Instant (~1ms) | Instant (~1ms) | Instant      | ~20KB        | Small samples |
-| 1KB–1MB       | Fast (~5-50ms) | Fast (~2-20ms) | Fast         | ~1-5MB       | Typical structures |  
-| 1MB–10MB      | Moderate (~100ms-1s) | Fast (~50-200ms) | Fast    | ~10-50MB     | Large complexes |
-| 10MB–100MB    | Slow (1-10s) | **Recommended** | On-demand    | ~50-200MB    | Massive datasets |
-| >100MB        | Very Slow (>10s) | **Highly Recommended** | On-demand | ~200MB+ | Archive files |
+| <10KB         | ~500μs       | ~400μs          | ~100μs       | ~30KB        | Small samples |
+| 10KB–100KB    | ~3-30ms      | ~3-30ms         | ~25μs        | ~100KB-1MB   | Tiny structures |  
+| 100KB–1MB     | ~30-300ms    | ~30-300ms       | ~30μs        | ~1-10MB      | Small structures |
+| 1MB–10MB      | ~300ms-3s    | ~300ms-3s       | ~40μs        | ~10-100MB    | Medium structures |
+| 10MB–100MB    | ~3-15s       | ~3-15s          | ~60μs        | ~100-400MB   | Large structures |
+| >100MB        | >15s         | **Recommended** | ~80μs        | >400MB       | Massive datasets |
 
-💡 **Pro tip**: Use `categories=['_atom_site', '_entry', ...]` for files >1MB to get instant startup!  
-🦥 **Architecture**: All data access is lazy-loaded regardless of file size  
-📊 **Real example**: 1.6MB file → 47MB memory (29x ratio) with 70 categories instantly accessible
+💡 **Pro tip**: Use `categories=['_atom_site', '_entry', ...]` for selective parsing on large files!  
+🦥 **Architecture**: Row and item objects are lazily created and cached for efficiency  
+📊 **Real benchmarks**: Based on actual SLOTH performance tests with structures up to 60MB
 
-### Memory Usage Explained
+### Memory Usage and Lazy Architecture
 
-SLOTH's memory usage varies by file size due to a combination of fixed overhead and scaling factors:
+SLOTH uses a smart lazy approach for optimal memory efficiency:
 
-**Small files (<1KB):** High memory ratios (50-150x) due to Python object overhead dominating tiny content  
-**Medium files (1KB-10MB):** Moderate ratios (10-50x) as file structure scales with fixed infrastructure costs  
-**Large files (>10MB):** Lower ratios (5-20x) as content size dominates the fixed overhead  
+**File parsing**: Fast and eager - the entire file is parsed into memory structures  
+**Object creation**: Lazy and cached - Row objects, LazyItemDict, and data access objects are created only when first accessed  
+**Data access**: Intelligent caching - frequently accessed objects are cached, while rarely used ones are created on-demand  
 
-**Key insight:** The actual file content stays on disk - only metadata and accessed data consume RAM. This means a 100MB file might use 500MB to parse (5x ratio) but accessing just a few categories uses minimal additional memory.
+**Key insight:** While file content is parsed eagerly, the expensive object creation and data organization is lazy. This means you get fast parsing combined with memory-efficient access patterns.
+
+**Memory efficiency observations:**
+
+- **Small files (<100KB)**: ~10-30x memory overhead due to Python object infrastructure
+- **Medium files (100KB-10MB)**: ~10-20x overhead as content scales with fixed costs  
+- **Large files (>10MB)**: ~5-15x overhead as raw data dominates object overhead
+- **Access speed**: Consistently fast (20-80μs) regardless of file size due to lazy loading
+
+**Lazy components in SLOTH:**
+
+- **LazyRowList**: Row objects created only when accessed, with smart caching
+- **LazyItemDict**: Item values loaded only when first requested  
+- **LazyKeyList**: Key enumeration with O(1) prefix operations
+- **Row caching**: Individual rows cached after first access for repeated use
+- **Cached properties**: Expensive computations cached using `@cached_property`
 
 ---
 
