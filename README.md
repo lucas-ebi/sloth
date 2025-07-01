@@ -1,4 +1,4 @@
-# 🦥 SLOTH – Structural Loader with On-demand Tokenization and Handling
+# 🦥 SLOTH – Structural Loader with On-demand Traversal Handling
 
 > 🧠 *Lazy by design. Fast by default.*
 

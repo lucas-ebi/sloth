@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sloth-mmcif"
 dynamic = ["version"]
-description = "SLOTH: Structural Loader with On-demand Tokenization and Handling - Lazy by design. Fast by default."
+description = "SLOTH: Structural Loader with On-demand Traversal Handling - Lazy by design. Fast by default."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [

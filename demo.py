@@ -857,7 +857,7 @@ def demonstrate_auto_creation():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
+        description="SLOTH - Structural Loader with On-demand Traversal Handling | Lazy by design. Fast by default.",
         epilog="""
 Examples:
   python demo.py input.cif output.cif
