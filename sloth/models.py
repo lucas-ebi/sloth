@@ -473,6 +473,30 @@ class DataBlock(DataContainer):
         return f"DataBlock(name={self.name}, categories={list(self.categories)})"
 
 
+class DataBlockCollection(dict):
+    """A collection that supports both dict and list access for data blocks."""
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            # List-like access: data[0], data[1], etc.
+            values_list = list(self.values())
+            return values_list[key]
+        elif isinstance(key, slice):
+            # Slice access: data[0:2], data[1:], etc.
+            values_list = list(self.values())
+            return values_list[key]
+        else:
+            # Dict-like access: data["1ABC"], data["block_name"], etc.
+            return super().__getitem__(key)
+    
+    def __iter__(self):
+        # Iterate over values (DataBlock objects) for consistency with list behavior
+        return iter(self.values())
+    
+    def __repr__(self):
+        return f"DataBlockCollection({len(self)} blocks)"
+
+
 class MMCIFDataContainer(DataContainer):
     """A class to represent an mmCIF data container."""
     
@@ -482,7 +506,7 @@ class MMCIFDataContainer(DataContainer):
     }
     
     def __init__(self, data_blocks: Dict[str, DataBlock] = None, source_format: DataSourceFormat = DataSourceFormat.MMCIF):
-        self._data_blocks = data_blocks if data_blocks is not None else {}
+        self._data_blocks = DataBlockCollection(data_blocks if data_blocks is not None else {})
         self.source_format = source_format
 
     @property
@@ -549,8 +573,8 @@ class MMCIFDataContainer(DataContainer):
         return list(self._data_blocks.keys())
 
     @property
-    def data(self) -> List[DataBlock]:
-        """Provides read-only access to the data blocks."""
-        return list(self._data_blocks.values())
+    def data(self) -> DataBlockCollection:
+        """Provides access to data blocks with both list and dict interfaces."""
+        return self._data_blocks
 
 
