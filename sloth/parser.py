@@ -114,9 +114,9 @@ class MMCIFParser:
             if line.startswith("loop_"):
                 self._start_loop()
         elif first_char == "_":
-            self._handle_item_line_simple(line)
+            self._handle_item_line(line)
         elif self._in_loop and first_char not in ["#", "d", "l", "_"]:
-            self._handle_loop_value_line_simple(line)
+            self._handle_loop_value_line(line)
         elif self._multi_line_value:
             self._handle_non_loop_multiline(line)
 
@@ -131,25 +131,6 @@ class MMCIFParser:
     def _start_loop(self):
         self._in_loop = True
         self._loop_items = []
-
-    def _handle_item_line(self, line: str):
-        parts = shlex.split(line)
-        if len(parts) == 2:
-            self._handle_simple_item(*parts)
-        else:
-            self._handle_loop_item(parts[0], line[len(parts[0]) :].strip())
-
-    def _handle_simple_item(self, item_full: str, value: str):
-        category, item = item_full.split(".", 1)
-        if not self._should_include_category(category):
-            return
-        self._ensure_current_data(category)
-        if value.startswith(";"):
-            self._multi_line_value = True
-            self._multi_line_item_name = item
-            self._multi_line_value_buffer = []
-        else:
-            self._current_data._add_item_value(item, value.strip())
 
     def _handle_loop_item(self, item_full: str, value: str):
         # Handle malformed item names gracefully
@@ -167,96 +148,7 @@ class MMCIFParser:
                 item, value
             )
 
-    def _handle_loop_value_line(self, line: str):
-        item_names = [item.split(".", 1)[1] for item in self._loop_items]
-        if not self._multi_line_value:
-            values = shlex.split(line)
-            while (
-                len(self._current_row_values) < len(self._loop_items)
-                and values
-            ):
-                value = values.pop(0)
-                if value.startswith(";"):
-                    self._multi_line_value = True
-                    self._multi_line_item_name = item_names[
-                        len(self._current_row_values)
-                    ]
-                    self._multi_line_value_buffer.append(value[1:])
-                    self._current_row_values.append(None)
-                    break
-                else:
-                    self._current_row_values.append(value)
-                    self._value_counter += 1
-            self._maybe_commit_loop_row()
-        else:
-            if line == ";":
-                self._multi_line_value = False
-                full_value = "\n".join(self._multi_line_value_buffer)
-                self._current_row_values[-1] = full_value
-                self._multi_line_value_buffer = []
-                self._value_counter += 1
-                self._maybe_commit_loop_row()
-            else:
-                self._multi_line_value_buffer.append(line)
-
-    def _maybe_commit_loop_row(self):
-        """Commit loop row (fallback method for non-offset parsing)."""
-        if self._value_counter == len(self._loop_items):
-            for i, val in enumerate(self._current_row_values):
-                item_name = self._loop_items[i].split(".", 1)[1]
-                self._current_data._add_item_value(
-                    item_name, val
-                )
-            self._current_row_values = []
-            self._value_counter = 0
-
-    def _handle_non_loop_multiline(self, line: str):
-        if line == ";":
-            self._multi_line_value = False
-            full_value = "\n".join(self._multi_line_value_buffer)
-            self._current_data._add_item_value(self._multi_line_item_name, full_value)
-            self._multi_line_value_buffer = []
-        else:
-            self._multi_line_value_buffer.append(line)
-
-    def _should_include_category(self, category: str) -> bool:
-        return not self.categories or category in self.categories
-
-    def _ensure_current_data(self, category: str):
-        if self._current_category != category:
-            self._current_category = category
-            if category not in self._data_blocks[self._current_block]._categories:
-                self._data_blocks[self._current_block]._categories[category] = Category(
-                    category, self.validator_factory
-                )
-            self._current_data = self._data_blocks[self._current_block]._categories[
-                category
-            ]
-
-    def _handle_item_line_simple(self, line: str) -> None:
-        """Handle item lines for small files without offset tracking."""
-        parts = fast_mmcif_split(line)
-        if len(parts) == 2:
-            self._handle_simple_item_simple(parts[0], parts[1])
-        else:
-            self._handle_loop_item(parts[0], line[len(parts[0]) :].strip())
-
-    def _handle_simple_item_simple(self, item_full: str, value: str) -> None:
-        """Handle simple items for small files without memory mapping."""
-        category, item = item_full.split(".", 1)
-        if not self._should_include_category(category):
-            return
-        self._ensure_current_data_simple(category)
-
-        if value.startswith(";"):
-            self._multi_line_value = True
-            self._multi_line_item_name = item
-            self._multi_line_value_buffer = []
-        else:
-            # Direct value storage without offsets
-            self._current_data._add_item_value_simple(item, value.strip())
-
-    def _handle_loop_value_line_simple(self, line: str) -> None:
+    def _handle_loop_value_line(self, line: str) -> None:
         """Optimized loop value line handling for small files."""
         if not self._multi_line_value:
             # Fast tokenization optimized for common cases
@@ -285,7 +177,7 @@ class MMCIFParser:
                     values_processed += 1
 
             self._value_counter += values_processed
-            self._maybe_commit_loop_row_simple()
+            self._maybe_commit_loop_row()
         else:
             if line == ";":
                 self._multi_line_value = False
@@ -293,9 +185,71 @@ class MMCIFParser:
                 self._current_row_values[-1] = full_value
                 self._multi_line_value_buffer = []
                 self._value_counter += 1
-                self._maybe_commit_loop_row_simple()
+                self._maybe_commit_loop_row()
             else:
                 self._multi_line_value_buffer.append(line)
+
+    def _maybe_commit_loop_row(self):
+        """Optimized loop row commit for small files."""
+        if self._value_counter == len(self._loop_items):
+            # Batch process all values for this row at once
+            item_names = [item.split(".", 1)[1] for item in self._loop_items]
+
+            for i, value in enumerate(self._current_row_values):
+                if value is not None:
+                    self._current_data._add_item_value(
+                        item_names[i], value
+                    )
+
+            # Reset row state (reuse lists instead of creating new ones)
+            self._current_row_values.clear()
+            self._value_counter = 0
+
+    def _handle_non_loop_multiline(self, line: str):
+        if line == ";":
+            self._multi_line_value = False
+            full_value = "\n".join(self._multi_line_value_buffer)
+            self._current_data._add_item_value(self._multi_line_item_name, full_value)
+            self._multi_line_value_buffer = []
+        else:
+            self._multi_line_value_buffer.append(line)
+
+    def _should_include_category(self, category: str) -> bool:
+        return not self.categories or category in self.categories
+
+    def _ensure_current_data(self, category: str):
+        if self._current_category != category:
+            self._current_category = category
+            if category not in self._data_blocks[self._current_block]._categories:
+                self._data_blocks[self._current_block]._categories[category] = Category(
+                    category, self.validator_factory
+                )
+            self._current_data = self._data_blocks[self._current_block]._categories[
+                category
+            ]
+
+    def _handle_item_line(self, line: str) -> None:
+        """Handle item lines for small files without offset tracking."""
+        parts = fast_mmcif_split(line)
+        if len(parts) == 2:
+            self._handle_simple_item(parts[0], parts[1])
+        else:
+            self._handle_loop_item(parts[0], line[len(parts[0]) :].strip())
+
+    def _handle_simple_item(self, item_full: str, value: str) -> None:
+        """Handle simple items for small files without memory mapping."""
+        category, item = item_full.split(".", 1)
+        if not self._should_include_category(category):
+            return
+        self._ensure_current_data(category)
+
+        if value.startswith(";"):
+            self._multi_line_value = True
+            self._multi_line_item_name = item
+            self._multi_line_value_buffer = []
+        else:
+            # Direct value storage with batch optimization
+            self._current_data._add_item_value(item, value.strip())
 
     def _fast_tokenize_loop_line(self, line: str) -> List[str]:
         """Ultra-fast tokenization optimized for loop value lines."""
@@ -337,31 +291,3 @@ class MMCIFParser:
                 tokens.append(line[start:i])
 
         return tokens
-
-    def _maybe_commit_loop_row_simple(self):
-        """Optimized loop row commit for small files."""
-        if self._value_counter == len(self._loop_items):
-            # Batch process all values for this row at once
-            item_names = [item.split(".", 1)[1] for item in self._loop_items]
-
-            for i, value in enumerate(self._current_row_values):
-                if value is not None:
-                    self._current_data._add_item_value_simple(
-                        item_names[i], value
-                    )
-
-            # Reset row state (reuse lists instead of creating new ones)
-            self._current_row_values.clear()
-            self._value_counter = 0
-
-    def _ensure_current_data_simple(self, category: str):
-        """Ensure current data for small files without memory mapping."""
-        if self._current_category != category:
-            self._current_category = category
-            if category not in self._data_blocks[self._current_block]._categories:
-                self._data_blocks[self._current_block]._categories[category] = Category(
-                    category, self.validator_factory
-                )
-            self._current_data = self._data_blocks[self._current_block]._categories[
-                category
-            ]

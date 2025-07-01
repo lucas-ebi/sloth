@@ -96,6 +96,8 @@ class TestMMCIFWriter(unittest.TestCase):
         )
         self.data_block["_database_2"]._add_item_value("database_id", "PDB")
         self.data_block["_database_2"]._add_item_value("database_code", "7XJP")
+        # Commit batches to make data available for writing
+        self.data_block["_database_2"]._commit_all_batches()
         self.mmcif = MMCIFDataContainer(data_blocks={"7XJP": self.data_block})
         self.writer = MMCIFWriter()
 
@@ -152,6 +154,8 @@ _database_2.database_code    7XJP
         )
         data_block["_database_2"]._add_item_value("database_id", "PDB")
         data_block["_database_2"]._add_item_value("database_code", "7XJP")
+        # Commit batches to make data available for writing
+        data_block["_database_2"]._commit_all_batches()
         mmcif = MMCIFDataContainer(data_blocks={"7XJP": data_block})
         with open("dummy.cif", "w") as f:
             self.handler.file_obj = f
@@ -244,6 +248,8 @@ class TestItemAndCategory(unittest.TestCase):
         category._add_item_value("item1", "value1")
         category._add_item_value("item1", "value2")
         category._add_item_value("item2", "valueA")
+        # Commit batches to make data available
+        category._commit_all_batches()
 
         # Check values
         self.assertEqual(category.item1, ["value1", "value2"])
@@ -265,6 +271,8 @@ class TestItemAndCategory(unittest.TestCase):
         category._add_item_value("city", "New York")
         category._add_item_value("city", "Boston")
         category._add_item_value("city", "Chicago")
+        # Commit batches to make data available
+        category._commit_all_batches()
 
         # Test single row access
         row0 = category[0]
@@ -305,6 +313,8 @@ class TestItemAndCategory(unittest.TestCase):
         for i in range(5):
             category._add_item_value("id", str(i))
             category._add_item_value("value", f"value_{i}")
+        # Commit batches to make data available
+        category._commit_all_batches()
 
         # Test slicing
         rows = category[1:4]
@@ -336,6 +346,8 @@ class TestItemAndCategory(unittest.TestCase):
         category._add_item_value("id", "1")
         category._add_item_value("id", "2")
         category._add_item_value("id", "3")
+        # Commit batches to make data available
+        category._commit_all_batches()
 
         self.assertEqual(category.row_count, 3)
         self.assertEqual(len(category.rows), 3)
@@ -353,6 +365,8 @@ class TestItemAndCategory(unittest.TestCase):
         category._add_item_value("x", "2")
         category._add_item_value("y", "10")
         category._add_item_value("y", "20")
+        # Commit batches to make data available
+        category._commit_all_batches()
 
         # Column access
         self.assertEqual(category["x"], ["1", "2"])

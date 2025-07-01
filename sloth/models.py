@@ -509,27 +509,6 @@ class Category(DataContainer):
         return isinstance(self._items.get(item_name), Item)
 
     def _add_item_value(self, item_name: str, value: str) -> None:
-        """Adds a value to the list of values for the given item name."""
-        if item_name not in self._items:
-            self._items[item_name] = Item(item_name)
-
-        if isinstance(self._items[item_name], Item):
-            self._items[item_name].add_value(value)
-        else:
-            # Convert existing list to Item
-            existing_values = (
-                self._items[item_name]
-                if isinstance(self._items[item_name], list)
-                else []
-            )
-            item = Item(item_name, values=existing_values)
-            item.add_value(value)
-            self._items[item_name] = item
-
-        # Invalidate cached properties when values are added
-        self._invalidate_caches()
-
-    def _add_item_value_simple(self, item_name: str, value: str) -> None:
         """Fast value addition for small files without memory mapping overhead."""
         # Use batching for better performance with pre-allocation
         if item_name not in self._batch_buffer:
