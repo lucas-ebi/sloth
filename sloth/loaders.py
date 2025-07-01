@@ -249,15 +249,24 @@ class CsvLoader(FormatLoader):
                 if block_name not in data_dict:
                     data_dict[block_name] = {}
                     
-                df = pd.read_csv(csv_file)
-                
-                # Store dataframe with filename for validation
-                csv_file_data[os.path.basename(csv_file)] = {
-                    'file': os.path.basename(csv_file),
-                    'data': df
-                }
-                
-                data_dict[block_name][category_name] = df.to_dict('records')
+                try:
+                    df = pd.read_csv(csv_file)
+                    
+                    # Skip empty files (no data rows)
+                    if df.empty:
+                        continue
+                    
+                    # Store dataframe with filename for validation
+                    csv_file_data[os.path.basename(csv_file)] = {
+                        'file': os.path.basename(csv_file),
+                        'data': df
+                    }
+                    
+                    data_dict[block_name][category_name] = df.to_dict('records')
+                    
+                except pd.errors.EmptyDataError:
+                    # Skip files with no columns or empty files
+                    continue
         
         # Validate CSV data if a schema validator is provided
         # Pass each CSV file's data to the validator

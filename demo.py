@@ -572,7 +572,7 @@ def demonstrate_schema_validation(mmcif, output_dir):
         
         if os.path.exists(auto_detect_path):
             handler = MMCIFHandler()
-            container = handler.import_auto_detect(auto_detect_path, validate_schema=True)
+            mmcif = handler.import_auto_detect(auto_detect_path, validate_schema=True)
             print(f"   ✅ Auto-detected format and validated successfully")
         else:
             print(f"   ⚠️ File not found for auto-detection")
@@ -615,7 +615,7 @@ ATOM 2 C 11.234 21.567 31.890
         from sloth.models import MMCIFDataContainer, DataBlock, Category
         
         # Create container and block
-        container = MMCIFDataContainer()
+        mmcif = MMCIFDataContainer()
         block = DataBlock("1ABC")
         
         # Create categories and add data using dictionary-style assignment
@@ -643,68 +643,57 @@ ATOM 2 C 11.234 21.567 31.890
         block["_atom_site"] = atom_site_category
         
         # Add block to container
-        container["1ABC"] = block
+        mmcif["1ABC"] = block
         
         # Write using SLOTH
         programmatic_file = "sample_programmatic.cif"
         handler = MMCIFHandler()
         with open(programmatic_file, 'w') as f:
             handler.file_obj = f
-            handler.write(container)
+            handler.write(mmcif)
         print(f"   ✅ Created programmatic sample: {programmatic_file}")
         
-        # Method 3: NEW! Elegant dot notation creation
-        print("\n✨ Method 3: Elegant dot notation creation (NEW!)")
+        # Method 3: NEW! Auto-creation with Elegant Dot Notation (README example)
+        print("\n✨ Method 3: ✨ Auto-creation with Elegant Dot Notation (README example)")
+        print("   SLOTH can automatically create nested objects with elegant dot notation!")
         
-        # Create everything with pure dot notation!
-        container_dot = MMCIFDataContainer()
-        block_dot = DataBlock("1ABC_DOT")
+        # Create an empty container
+        mmcif = MMCIFDataContainer()
         
-        # Create categories using dot notation
-        entry_cat = Category("_entry")
-        entry_cat.id = ["1ABC_DOT_STRUCTURE"]  # Dot notation assignment!
+        # Use dot notation to auto-create everything - just like in the README!
+        mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
+        mmcif.data_1ABC._database_2.database_id = ["PDB"]
+        mmcif.data_1ABC._database_2.database_code = ["1ABC"]
         
-        database_cat = Category("_database_2")
-        database_cat.database_id = ["PDB"]      # Dot notation assignment!
-        database_cat.database_code = ["1ABC"]   # Dot notation assignment!
+        # Add atom data
+        mmcif.data_1ABC._atom_site.group_PDB = ["ATOM", "ATOM"] 
+        mmcif.data_1ABC._atom_site.id = ["1", "2"]
+        mmcif.data_1ABC._atom_site.type_symbol = ["N", "C"]
+        mmcif.data_1ABC._atom_site.Cartn_x = ["10.123", "11.234"]
+        mmcif.data_1ABC._atom_site.Cartn_y = ["20.456", "21.567"]
+        mmcif.data_1ABC._atom_site.Cartn_z = ["30.789", "31.890"]
         
-        atom_cat = Category("_atom_site")
-        atom_cat.group_PDB = ["ATOM", "ATOM"]   # Dot notation assignment!
-        atom_cat.id = ["1", "2"]                # Dot notation assignment!
-        atom_cat.type_symbol = ["N", "C"]       # Dot notation assignment!
-        atom_cat.Cartn_x = ["10.123", "11.234"] # Dot notation assignment!
-        atom_cat.Cartn_y = ["20.456", "21.567"] # Dot notation assignment!
-        atom_cat.Cartn_z = ["30.789", "31.890"] # Dot notation assignment!
-        
-        # Assign categories using dot notation!
-        block_dot._entry = entry_cat           # Dot notation assignment!
-        block_dot._database_2 = database_cat   # Dot notation assignment!
-        block_dot._atom_site = atom_cat        # Dot notation assignment!
-        
-        # Assign block using dot notation!
-        container_dot.data_1ABC_DOT = block_dot # Dot notation assignment!
-        
-        # Write using SLOTH
+        # Write using SLOTH (just like in the README)
         dot_notation_file = "sample_dot_notation.cif"
         with open(dot_notation_file, 'w') as f:
             handler.file_obj = f
-            handler.write(container_dot)
+            handler.write(mmcif)
         print(f"   ✅ Created dot notation sample: {dot_notation_file}")
         
         # Parse all files to verify they work
         manual_mmcif = handler.parse(manual_file)
         programmatic_mmcif = handler.parse(programmatic_file)
-        dot_notation_mmcif = handler.parse(dot_notation_file)
+        auto_creation_mmcif = handler.parse(dot_notation_file)
         
         print(f"\n🔍 Verification:")
         print(f"   Manual approach: {len(manual_mmcif.data[0].categories)} categories")
         print(f"   Dictionary approach: {len(programmatic_mmcif.data[0].categories)} categories")
-        print(f"   Dot notation approach: {len(dot_notation_mmcif.data[0].categories)} categories")
+        print(f"   Dot notation approach: {len(auto_creation_mmcif.data[0].categories)} categories")
         
         # Demonstrate the elegance of dot notation access
         print(f"\n💡 Demonstrating dot notation elegance:")
-        print(f"   dot_notation_mmcif.data_1ABC_DOT._entry.id[0]: {dot_notation_mmcif.data_1ABC_DOT._entry.id[0]}")
-        print(f"   dot_notation_mmcif.data_1ABC_DOT._atom_site.type_symbol: {dot_notation_mmcif.data_1ABC_DOT._atom_site.type_symbol}")
+        print(f"   auto_creation_mmcif.data_1ABC._entry.id[0]: {auto_creation_mmcif.data_1ABC._entry.id[0]}")
+        print(f"   auto_creation_mmcif.data_1ABC._atom_site.type_symbol: {auto_creation_mmcif.data_1ABC._atom_site.type_symbol}")
         
         return manual_file, programmatic_file, dot_notation_file
         
@@ -716,6 +705,84 @@ ATOM 2 C 11.234 21.567 31.890
         print(f"   ❌ Error in programmatic approach: {e}")
         return manual_file, None, None
 
+def demonstrate_auto_creation():
+    """Demonstrate the auto-creation feature as described in the README."""
+    print("\n🪄 Auto-Creation Feature Demonstration")
+    print("=" * 50)
+    print("✨ SLOTH can automatically create nested objects with elegant dot notation!")
+    print("   This is the exact example from the README.md file.\n")
+    
+    try:
+        from sloth.models import MMCIFDataContainer
+        from sloth.handler import MMCIFHandler
+        
+        # Create an empty container - this is all you need!
+        print("📝 Creating an empty container...")
+        mmcif = MMCIFDataContainer()
+        print("   mmcif = MMCIFDataContainer()")
+        
+        # Use dot notation to auto-create everything
+        print("\n🚀 Using dot notation to auto-create everything...")
+        print("   mmcif.data_1ABC._entry.id = ['1ABC_STRUCTURE']")
+        mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
+        
+        print("   mmcif.data_1ABC._database_2.database_id = ['PDB']")
+        mmcif.data_1ABC._database_2.database_id = ["PDB"]
+        
+        print("   mmcif.data_1ABC._database_2.database_code = ['1ABC']")
+        mmcif.data_1ABC._database_2.database_code = ["1ABC"]
+        
+        # Add atom data
+        print("\n🧬 Adding atom data...")
+        print("   mmcif.data_1ABC._atom_site.group_PDB = ['ATOM', 'ATOM']")
+        mmcif.data_1ABC._atom_site.group_PDB = ["ATOM", "ATOM"] 
+        
+        print("   mmcif.data_1ABC._atom_site.type_symbol = ['N', 'C']")
+        mmcif.data_1ABC._atom_site.type_symbol = ["N", "C"]
+        
+        print("   mmcif.data_1ABC._atom_site.Cartn_x = ['10.123', '11.234']")
+        mmcif.data_1ABC._atom_site.Cartn_x = ["10.123", "11.234"]
+        
+        # Show what was created automatically
+        print(f"\n🔍 What was auto-created:")
+        print(f"   📦 Container: {len(mmcif)} block(s)")
+        print(f"   🧱 Block '1ABC': {len(mmcif.data_1ABC.categories)} categories")
+        print(f"   📂 Categories: {', '.join(mmcif.data_1ABC.categories)}")
+        
+        # Show elegant access
+        print(f"\n💎 Elegant data access:")
+        print(f"   Entry ID: {mmcif.data_1ABC._entry.id[0]}")
+        print(f"   Database: {mmcif.data_1ABC._database_2.database_id[0]}")
+        print(f"   Atom types: {mmcif.data_1ABC._atom_site.type_symbol}")
+        print(f"   X coordinates: {mmcif.data_1ABC._atom_site.Cartn_x}")
+        
+        # Write using SLOTH
+        print(f"\n💾 Writing to file...")
+        handler = MMCIFHandler()
+        output_file = "auto_creation_demo.cif"
+        with open(output_file, 'w') as f:
+            handler.file_obj = f
+            handler.write(mmcif)
+        print(f"   ✅ Saved to: {output_file}")
+        
+        # Parse it back to verify
+        print(f"\n🔄 Verifying by parsing the file back...")
+        parsed = handler.parse(output_file)
+        print(f"   ✅ Successfully parsed {len(parsed)} block(s)")
+        print(f"   ✅ Entry ID matches: {parsed.data_1ABC._entry.id[0]}")
+        print(f"   ✅ Atom count: {len(parsed.data_1ABC._atom_site.type_symbol)} atoms")
+        
+        print(f"\n🎉 Dot notation demonstration completed successfully!")
+        print(f"💡 No manual DataBlock or Category creation required!")
+        print(f"🚀 Just write what you want, SLOTH creates what you need!")
+        
+        return output_file
+        
+    except Exception as e:
+        print(f"   ❌ Error in auto-creation demonstration: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Tokenization and Handling | Lazy by design. Fast by default.",
@@ -779,6 +846,9 @@ Examples:
         # Demonstrate sample data creation methods (in demo mode)
         if args.demo:
             demonstrate_sample_data_creation()
+            
+            # Demonstrate the auto-creation feature
+            demonstrate_auto_creation()
         
         # Setup validation if requested
         if args.validate and mmcif.data:

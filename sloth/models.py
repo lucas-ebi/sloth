@@ -430,6 +430,11 @@ class DataBlock(DataContainer):
         try:
             return self._categories[category_name]
         except KeyError:
+            # Auto-create the category if it starts with _ (typical mmCIF category)
+            if category_name.startswith('_'):
+                new_category = Category(category_name)
+                self._categories[category_name] = new_category
+                return new_category
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{category_name}'")
 
     def __setattr__(self, name: str, value) -> None:
@@ -492,9 +497,14 @@ class MMCIFDataContainer(DataContainer):
 
     def __getattr__(self, block_name: str) -> DataBlock:
         if block_name.startswith("data_"):
-            block_name = block_name[5:]  # Remove the 'data_' prefix
-        if block_name in self._data_blocks:
-            return self._data_blocks[block_name]
+            actual_block_name = block_name[5:]  # Remove the 'data_' prefix
+            if actual_block_name in self._data_blocks:
+                return self._data_blocks[actual_block_name]
+            else:
+                # Auto-create the data block
+                new_block = DataBlock(actual_block_name)
+                self._data_blocks[actual_block_name] = new_block
+                return new_block
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{block_name}'")
 
     def __setattr__(self, name: str, value) -> None:
@@ -542,3 +552,5 @@ class MMCIFDataContainer(DataContainer):
     def data(self) -> List[DataBlock]:
         """Provides read-only access to the data blocks."""
         return list(self._data_blocks.values())
+
+
