@@ -49,110 +49,18 @@ class DataContainer(DataNode):
         pass
 
 
-class DataValueLoader(ABC):
-    """Abstract base for value loading strategies."""
-    
-    @abstractmethod
-    def load_values(self) -> List[str]:
-        pass
-
-class MMapValueLoader(DataValueLoader):
-    """Loads values from memory-mapped file."""
-    
-    def __init__(self, mmap_obj: mmap.mmap, value_offsets: List[Tuple[int, int]]):
-        self._mmap_obj = mmap_obj
-        self._value_offsets = value_offsets
-    
-    def load_values(self) -> List[str]:
-        values = []
-        for start_offset, end_offset in self._value_offsets:
-            try:
-                value_bytes = self._mmap_obj[start_offset:end_offset]
-                values.append(value_bytes.decode('utf-8').strip())
-            except (IndexError, UnicodeDecodeError):
-                values.append("")
-        return values
-
-class EagerValueLoader(DataValueLoader):
-    """Holds pre-loaded values."""
-    
-    def __init__(self, values: List[str]):
-        self._values = values
-    
-    def load_values(self) -> List[str]:
-        return self._values.copy()
-
-class EmptyValueLoader(DataValueLoader):
-    """Fallback for empty items."""
-    
-    def load_values(self) -> List[str]:
-        return []
-
-
-class LazyValueList:
-    """A list-like object that loads values from mmap on-demand by index, providing O(1) per-value access."""
-    
-    def __init__(self, mmap_obj: mmap.mmap, value_offsets: List[Tuple[int, int]]):
-        self._mmap_obj = mmap_obj
-        self._value_offsets = value_offsets
-        self._cached_values: Dict[int, str] = {}
-    
-    def __getitem__(self, index: Union[int, slice]) -> Union[str, List[str]]:
-        if isinstance(index, int):
-            # Handle negative indices
-            if index < 0:
-                index = len(self._value_offsets) + index
-            if index < 0 or index >= len(self._value_offsets):
-                raise IndexError(f"Value index {index} is out of range")
-            
-            # Load value on-demand
-            if index not in self._cached_values:
-                start_offset, end_offset = self._value_offsets[index]
-                try:
-                    value_bytes = self._mmap_obj[start_offset:end_offset]
-                    self._cached_values[index] = value_bytes.decode('utf-8').strip()
-                except (IndexError, UnicodeDecodeError):
-                    self._cached_values[index] = ""
-            
-            return self._cached_values[index]
-        elif isinstance(index, slice):
-            # Handle slice access
-            indices = range(*index.indices(len(self._value_offsets)))
-            return [self[i] for i in indices]
-        else:
-            raise TypeError(f"Value indices must be integers or slices, not {type(index).__name__}")
-    
-    def __len__(self) -> int:
-        return len(self._value_offsets)
-    
-    def __iter__(self):
-        for i in range(len(self._value_offsets)):
-            yield self[i]
-    
-    def __repr__(self):
-        cached_count = len(self._cached_values)
-        total_count = len(self._value_offsets)
-        return f"LazyValueList({total_count} values, {cached_count} loaded)"
-
-
 class Item(DataNode):
-    """A lazy-loaded item that uses memory mapping for efficient access to large files."""
+    """Represents a column/item in a category. Always uses eager loading."""
     
-    def __init__(self, name: str, mmap_obj: Optional[mmap.mmap] = None, 
-                 value_offsets: Optional[List[Tuple[int, int]]] = None,
-                 eager_values: Optional[List[str]] = None):
+    def __init__(self, name: str, values: Optional[List[str]] = None):
         """
         Initialize an Item with either memory-mapped offsets or eager values.
         
         :param name: The name of the item
-        :param mmap_obj: Memory-mapped file object
-        :param value_offsets: List of (start, end) byte offsets for values in the mmap
-        :param eager_values: Pre-loaded values (fallback for small datasets)
+        :param values: Pre-loaded values
         """
         self._name = name
-        self._mmap_obj = mmap_obj
-        self._value_offsets = value_offsets or []
-        self._eager_values = eager_values
+        self._values = values
 
     @property
     def name(self) -> str:
@@ -160,50 +68,40 @@ class Item(DataNode):
         return self._name
 
     @cached_property
-    def values(self) -> Union[List[str], LazyValueList]:
-        """Lazy-loaded values with automatic caching via @cached_property."""
-        if self._eager_values is not None:
-            return self._eager_values
+    def values(self) -> List[str]:
+        """Values with automatic caching via @cached_property."""
+        if self._values is not None:
+            return self._values
             
-        if self._mmap_obj is None or not self._value_offsets:
-            return []
-        
-        # ALWAYS use LazyValueList for memory-mapped data - consistent O(1) behavior regardless of size
-        return LazyValueList(self._mmap_obj, self._value_offsets)
-
-    def add_offset(self, start: int, end: int) -> None:
-        """Add a new value offset for memory-mapped access."""
-        self._value_offsets.append((start, end))
-        # Clear cached_property cache when new offsets are added
-        if hasattr(self, 'values'):
-            delattr(self, 'values')
-
-    def add_eager_value(self, value: str) -> None:
+    def add_value(self, value: str) -> None:
         """Add a value directly (for small datasets or immediate loading)."""
-        if self._eager_values is None:
-            self._eager_values = []
-        self._eager_values.append(value)
+        if self._values is None:
+            self._values = []
+        self._values.append(value)
         # Clear cached_property cache when new values are added
-        if hasattr(self, 'values'):
-            delattr(self, 'values')
+        if hasattr(self, "values"):
+            delattr(self, "values")
 
     def __iter__(self):
-        """Iterate over values (triggers lazy loading)."""
+        """Iterate over values."""
         return iter(self.values)
 
     def __len__(self):
         """Get the number of values."""
-        if self._eager_values is not None:
-            return len(self._eager_values)
-        return len(self._value_offsets)
+        if self._values is not None:
+            return len(self._values)
+        return 0
 
     def __getitem__(self, index: Union[int, slice]) -> Union[str, List[str]]:
-        """Get value(s) by index (triggers lazy loading)."""
+        """Get value(s) by index."""
         return self.values[index]
 
     def __repr__(self):
-        # Check if values property has been accessed (cached) by checking if the descriptor exists
-        values_loaded = hasattr(self.__class__.__dict__['values'], 'func') and hasattr(self, '__dict__') and 'values' in self.__dict__
+        values_loaded = (
+            hasattr(self.__class__.__dict__["values"], "func")
+            and hasattr(self, "__dict__")
+            and "values" in self.__dict__
+        )
         return f"Item(name='{self.name}', length={len(self)}, loaded={values_loaded})"
 
 
@@ -424,7 +322,6 @@ class Category(DataContainer):
             self._name = name  # Already stripped
         self._items: Dict[str, Union[List[str], Item]] = {}
         self._validator_factory = validator_factory
-        self._mmap_obj = mmap_obj
         self._batch_buffer: Dict[str, List] = {}  # For batching value additions
         self._row_cache: Dict[int, 'Row'] = {}  # Cache for Row objects
 
@@ -573,28 +470,22 @@ class Category(DataContainer):
         """Check if an item is lazy-loaded."""
         return isinstance(self._items.get(item_name), Item)
 
-    def _add_item_value(self, item_name: str, value: str, 
-                       start_offset: Optional[int] = None, 
-                       end_offset: Optional[int] = None) -> None:
-        """Adds a value to the list of values for the given item name using memory mapping."""
+    def _add_item_value(self, item_name: str, value: str) -> None:
+        """Adds a value to the list of values for the given item name."""
         if item_name not in self._items:
-            self._items[item_name] = Item(item_name, self._mmap_obj)
+            self._items[item_name] = Item(item_name)
         
         if isinstance(self._items[item_name], Item):
-            if self._mmap_obj is not None and start_offset is not None and end_offset is not None:
-                # Memory-mapped lazy loading with byte offsets
-                self._items[item_name].add_offset(start_offset, end_offset)
-            else:
-                # Fallback to eager loading if offsets not available
-                self._items[item_name].add_eager_value(value)
+            self._items[item_name].add_value(value)
         else:
             # Convert existing list to Item
-            existing_values = self._items[item_name] if isinstance(self._items[item_name], list) else []
-            item = Item(item_name, self._mmap_obj, eager_values=existing_values)
-            if self._mmap_obj is not None and start_offset is not None and end_offset is not None:
-                item.add_offset(start_offset, end_offset)
-            else:
-                item.add_eager_value(value)
+            existing_values = (
+                self._items[item_name]
+                if isinstance(self._items[item_name], list)
+                else []
+            )
+            item = Item(item_name, values=existing_values)
+            item.add_value(value)
             self._items[item_name] = item
         
         # Invalidate cached properties when values are added
