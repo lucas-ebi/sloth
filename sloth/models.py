@@ -227,7 +227,7 @@ class Category(DataContainer):
     
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        '_name', '_items', '_validator_factory', '_mmap_obj', 
+        '_name', '_items', '_validator_factory', '_mmap_obj', '_batch_buffer',
         'name', 'validator_factory', 'items', 'data', 'row_count', 'rows'
     }
             
@@ -241,6 +241,7 @@ class Category(DataContainer):
         self._items: Dict[str, Union[List[str], Item]] = {}
         self._validator_factory = validator_factory
         self._mmap_obj = mmap_obj
+        self._batch_buffer: Dict[str, List] = {}  # For batching value additions
 
     @property
     def name(self) -> str:
@@ -397,6 +398,55 @@ class Category(DataContainer):
             else:
                 item.add_eager_value(value)
             self._items[item_name] = item
+
+    def _add_item_value_simple(self, item_name: str, value: str) -> None:
+        """Fast value addition for small files without memory mapping overhead."""
+        # Use batching for better performance with pre-allocation
+        if item_name not in self._batch_buffer:
+            self._batch_buffer[item_name] = []
+            # Pre-allocate space for common case (helps avoid repeated list resizing)
+            if hasattr(self._batch_buffer[item_name], 'extend'):
+                # Reserve space for typical category sizes
+                reserved_size = 1000 if item_name in ['id', 'Cartn_x', 'Cartn_y', 'Cartn_z'] else 100
+                self._batch_buffer[item_name] = [None] * reserved_size
+                self._batch_buffer[item_name].clear()  # Clear but keep capacity
+        
+        self._batch_buffer[item_name].append(value)
+        
+        # Commit batch when it gets large enough (smaller batches for faster processing)
+        if len(self._batch_buffer[item_name]) >= 500:  # Reduced from 1000
+            self._commit_batch(item_name)
+    
+    def _commit_batch(self, item_name: str) -> None:
+        """Commit batched values to the actual items storage."""
+        if item_name not in self._batch_buffer:
+            return
+            
+        values = self._batch_buffer[item_name]
+        if not values:
+            return
+            
+        if item_name not in self._items:
+            self._items[item_name] = values[:]
+        else:
+            if isinstance(self._items[item_name], list):
+                self._items[item_name].extend(values)
+            else:
+                # Convert Item to list and extend
+                if hasattr(self._items[item_name], 'values'):
+                    existing_values = self._items[item_name].values[:]
+                else:
+                    existing_values = []
+                existing_values.extend(values)
+                self._items[item_name] = existing_values
+        
+        # Clear the batch
+        self._batch_buffer[item_name] = []
+    
+    def _commit_all_batches(self) -> None:
+        """Commit all remaining batches at end of parsing."""
+        for item_name in list(self._batch_buffer.keys()):
+            self._commit_batch(item_name)
 
 
 class CategoryCollection(dict):
