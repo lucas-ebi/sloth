@@ -89,6 +89,52 @@ class EmptyValueLoader(DataValueLoader):
         return []
 
 
+class LazyValueList:
+    """A list-like object that loads values from mmap on-demand by index, providing O(1) per-value access."""
+    
+    def __init__(self, mmap_obj: mmap.mmap, value_offsets: List[Tuple[int, int]]):
+        self._mmap_obj = mmap_obj
+        self._value_offsets = value_offsets
+        self._cached_values: Dict[int, str] = {}
+    
+    def __getitem__(self, index: Union[int, slice]) -> Union[str, List[str]]:
+        if isinstance(index, int):
+            # Handle negative indices
+            if index < 0:
+                index = len(self._value_offsets) + index
+            if index < 0 or index >= len(self._value_offsets):
+                raise IndexError(f"Value index {index} is out of range")
+            
+            # Load value on-demand
+            if index not in self._cached_values:
+                start_offset, end_offset = self._value_offsets[index]
+                try:
+                    value_bytes = self._mmap_obj[start_offset:end_offset]
+                    self._cached_values[index] = value_bytes.decode('utf-8').strip()
+                except (IndexError, UnicodeDecodeError):
+                    self._cached_values[index] = ""
+            
+            return self._cached_values[index]
+        elif isinstance(index, slice):
+            # Handle slice access
+            indices = range(*index.indices(len(self._value_offsets)))
+            return [self[i] for i in indices]
+        else:
+            raise TypeError(f"Value indices must be integers or slices, not {type(index).__name__}")
+    
+    def __len__(self) -> int:
+        return len(self._value_offsets)
+    
+    def __iter__(self):
+        for i in range(len(self._value_offsets)):
+            yield self[i]
+    
+    def __repr__(self):
+        cached_count = len(self._cached_values)
+        total_count = len(self._value_offsets)
+        return f"LazyValueList({total_count} values, {cached_count} loaded)"
+
+
 class Item(DataNode):
     """A lazy-loaded item that uses memory mapping for efficient access to large files."""
     
@@ -114,27 +160,16 @@ class Item(DataNode):
         return self._name
 
     @cached_property
-    def values(self) -> List[str]:
+    def values(self) -> Union[List[str], LazyValueList]:
         """Lazy-loaded values with automatic caching via @cached_property."""
         if self._eager_values is not None:
             return self._eager_values
             
         if self._mmap_obj is None or not self._value_offsets:
             return []
-            
-        # Memory-mapped lazy loading (cached automatically by @cached_property)
-        result = []
-        for start_offset, end_offset in self._value_offsets:
-            try:
-                # Extract bytes from memory map
-                value_bytes = self._mmap_obj[start_offset:end_offset]
-                value = value_bytes.decode('utf-8').strip()
-                result.append(value)
-            except (IndexError, UnicodeDecodeError):
-                # Fallback for malformed data
-                result.append("")
-                
-        return result
+        
+        # ALWAYS use LazyValueList for memory-mapped data - consistent O(1) behavior regardless of size
+        return LazyValueList(self._mmap_obj, self._value_offsets)
 
     def add_offset(self, start: int, end: int) -> None:
         """Add a new value offset for memory-mapped access."""
@@ -222,6 +257,155 @@ class Row(DataNode):
         return f"Row({self._row_index}, {self._category.name})"
 
 
+class LazyRowList:
+    """A list-like object that creates Row objects only when accessed."""
+    
+    def __init__(self, category: 'Category', row_count: int):
+        self._category = category
+        self._row_count = row_count
+        self._cached_rows: Dict[int, 'Row'] = {}  # Cache created rows
+    
+    def __len__(self) -> int:
+        return self._row_count
+    
+    def __getitem__(self, index: Union[int, slice]) -> Union['Row', List['Row']]:
+        if isinstance(index, int):
+            # Handle negative indices
+            if index < 0:
+                index = self._row_count + index
+            if index < 0 or index >= self._row_count:
+                raise IndexError(f"Row index {index} is out of range (0-{self._row_count-1})")
+            
+            # Return cached row or create new one
+            if index not in self._cached_rows:
+                self._cached_rows[index] = Row(self._category, index)
+            return self._cached_rows[index]
+        elif isinstance(index, slice):
+            # Handle slice access
+            indices = range(*index.indices(self._row_count))
+            return [self[i] for i in indices]
+        else:
+            raise TypeError(f"Row indices must be integers or slices, not {type(index).__name__}")
+    
+    def __iter__(self):
+        for i in range(self._row_count):
+            yield self[i]
+    
+    def __repr__(self):
+        return f"LazyRowList({self._row_count} rows, {len(self._cached_rows)} cached)"
+
+
+class LazyItemDict:
+    """A dict-like object that only loads Item values when accessed, providing O(1) creation."""
+    
+    def __init__(self, items: Dict[str, Union[List[str], 'Item']]):
+        self._items = items
+        self._cached_values: Dict[str, List[str]] = {}
+    
+    def __getitem__(self, key: str) -> List[str]:
+        if key not in self._cached_values:
+            item = self._items[key]
+            self._cached_values[key] = item.values if hasattr(item, 'values') and callable(getattr(item, 'values', None)) is False else item
+        return self._cached_values[key]
+    
+    def __setitem__(self, key: str, value: List[str]) -> None:
+        # Read-only interface - raise error
+        raise TypeError("LazyItemDict is read-only")
+    
+    def __contains__(self, key: str) -> bool:
+        return key in self._items
+    
+    def __iter__(self):
+        return iter(self._items.keys())
+    
+    def __len__(self) -> int:
+        return len(self._items)
+    
+    def keys(self):
+        return self._items.keys()
+    
+    def values(self):
+        return [self[k] for k in self.keys()]
+    
+    def items(self):
+        return [(k, self[k]) for k in self.keys()]
+    
+    def get(self, key: str, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+    
+    def __eq__(self, other) -> bool:
+        if isinstance(other, LazyItemDict):
+            # Compare all items (forces loading)
+            if len(self) != len(other):
+                return False
+            for key in self.keys():
+                if key not in other or self[key] != other[key]:
+                    return False
+            return True
+        elif isinstance(other, dict):
+            return dict(self.items()) == other
+        return False
+
+    def __repr__(self):
+        cached_count = len(self._cached_values)
+        total_count = len(self._items)
+        return f"LazyItemDict({total_count} items, {cached_count} loaded)"
+
+
+class LazyKeyList:
+    """A list that dynamically generates prefixed keys without storing them, providing O(1) creation."""
+    
+    def __init__(self, collection: dict, prefix: str = ""):
+        self._collection = collection
+        self._prefix = prefix
+    
+    def __getitem__(self, index: Union[int, slice]) -> Union[str, List[str]]:
+        if isinstance(index, int):
+            keys = list(self._collection.keys())
+            return f"{self._prefix}{keys[index]}"
+        elif isinstance(index, slice):
+            keys = list(self._collection.keys())
+            return [f"{self._prefix}{key}" for key in keys[index]]
+        else:
+            raise TypeError(f"LazyKeyList indices must be integers or slices, not {type(index).__name__}")
+    
+    def __len__(self) -> int:
+        return len(self._collection)
+    
+    def __iter__(self):
+        for key in self._collection.keys():
+            yield f"{self._prefix}{key}"
+    
+    def __contains__(self, item: str) -> bool:
+        if item.startswith(self._prefix):
+            stripped = item[len(self._prefix):]
+            return stripped in self._collection
+        return False
+    
+    def index(self, item: str) -> int:
+        if item.startswith(self._prefix):
+            stripped = item[len(self._prefix):]
+            keys = list(self._collection.keys())
+            return keys.index(stripped)
+        raise ValueError(f"{item} is not in list")
+    
+    def count(self, item: str) -> int:
+        return 1 if item in self else 0
+    
+    def __eq__(self, other) -> bool:
+        if isinstance(other, LazyKeyList):
+            return list(self) == list(other)
+        elif isinstance(other, list):
+            return list(self) == other
+        return False
+
+    def __repr__(self):
+        return f"LazyKeyList({len(self)} keys with prefix '{self._prefix}')"
+
+
 class Category(DataContainer):
     """A class to represent a category in a data block."""
     
@@ -254,9 +438,9 @@ class Category(DataContainer):
         return self._validator_factory
 
     @cached_property
-    def items(self) -> List[str]:
-        """Get names of contained items (cached for performance)."""
-        return list(self._items.keys())
+    def items(self) -> LazyKeyList:
+        """Get names of contained items - O(1) lazy list."""
+        return LazyKeyList(self._items, "")
 
     def __getattr__(self, item_name: str) -> Union[List[str], Item, CategoryValidator]:
         if item_name in self._items:
@@ -361,15 +545,9 @@ class Category(DataContainer):
         return f"Category(name={self.name}, items={list(self._items.keys())})"
 
     @cached_property
-    def data(self) -> Dict[str, List[str]]:
-        """Provides cached read-only access to the data (forces loading of lazy items)."""
-        result = {}
-        for name, item in self._items.items():
-            if isinstance(item, Item):
-                result[name] = item.values
-            else:
-                result[name] = item
-        return result
+    def data(self) -> LazyItemDict:
+        """Provides O(1) lazy read-only access to the data (loads items on-demand)."""
+        return LazyItemDict(self._items)
 
     @property
     def row_count(self) -> int:
@@ -382,12 +560,9 @@ class Category(DataContainer):
         return len(any_item)
         
     @cached_property
-    def rows(self) -> List['Row']:
-        """Returns all rows in this category (cached for performance with lazy Row creation)."""
-        if self.row_count == 0:
-            return []
-        
-        # OPTIMIZATION: Use LazyRowList to avoid creating all Row objects upfront
+    def rows(self) -> LazyRowList:
+        """Returns all rows in this category as a lazy list (O(1) creation, cached for performance)."""
+        # Always use LazyRowList for consistent O(1) behavior and memory efficiency
         return LazyRowList(self, self.row_count)
 
     def get_item(self, item_name: str) -> Union[Item, List[str]]:
@@ -493,44 +668,6 @@ class Category(DataContainer):
         self._row_cache.clear()
 
 
-class LazyRowList:
-    """A list-like object that creates Row objects only when accessed."""
-    
-    def __init__(self, category: 'Category', row_count: int):
-        self._category = category
-        self._row_count = row_count
-        self._cached_rows: Dict[int, 'Row'] = {}  # Cache created rows
-    
-    def __len__(self) -> int:
-        return self._row_count
-    
-    def __getitem__(self, index: Union[int, slice]) -> Union['Row', List['Row']]:
-        if isinstance(index, int):
-            # Handle negative indices
-            if index < 0:
-                index = self._row_count + index
-            if index < 0 or index >= self._row_count:
-                raise IndexError(f"Row index {index} is out of range (0-{self._row_count-1})")
-            
-            # Return cached row or create new one
-            if index not in self._cached_rows:
-                self._cached_rows[index] = Row(self._category, index)
-            return self._cached_rows[index]
-        elif isinstance(index, slice):
-            # Handle slice access
-            indices = range(*index.indices(self._row_count))
-            return [self[i] for i in indices]
-        else:
-            raise TypeError(f"Row indices must be integers or slices, not {type(index).__name__}")
-    
-    def __iter__(self):
-        for i in range(self._row_count):
-            yield self[i]
-    
-    def __repr__(self):
-        return f"LazyRowList({self._row_count} rows, {len(self._cached_rows)} cached)"
-
-
 class CategoryCollection(dict):
     """A collection that supports both dict and list access for categories, with automatic _ prefix handling."""
     
@@ -610,9 +747,9 @@ class DataBlock(DataContainer):
         return self._name
 
     @cached_property
-    def categories(self) -> List[str]:
-        """Get names of contained categories (prefixed names for external API) - cached."""
-        return [f"_{key}" for key in super(CategoryCollection, self._categories).keys()]
+    def categories(self) -> LazyKeyList:
+        """Get names of contained categories (prefixed names for external API) - O(1) lazy."""
+        return LazyKeyList(self._categories, "_")
 
     @property
     def data(self) -> CategoryCollection:
@@ -818,14 +955,15 @@ class MMCIFDataContainer(DataContainer):
         return f"MMCIFDataContainer({len(self)} blocks)"
 
     @cached_property
-    def blocks(self) -> List[str]:
-        """Provides a cached list of data block names (prefixed names for consistency)."""
-        return [f"data_{key}" for key in super(DataBlockCollection, self._data_blocks).keys()]
+    def blocks(self) -> LazyKeyList:
+        """Provides O(1) lazy list of data block names (prefixed names for consistency)."""
+        return LazyKeyList(self._data_blocks, "data_")
 
     @property
     def data(self) -> DataBlockCollection:
         """Provides access to data blocks with both list and dict interfaces."""
         return self._data_blocks
+
 
 # Common mmCIF value interning for memory efficiency
 _COMMON_VALUES = {

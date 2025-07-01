@@ -197,8 +197,8 @@ class MMCIFExporter:
                 # Get all data (this will force loading of lazy items)
                 items = category.data
                 
-                # Create DataFrame from items
-                df = pd.DataFrame(items)
+                # Create DataFrame from items - convert LazyItemDict to regular dict first
+                df = pd.DataFrame(dict(items))
                 block_dict[category_name] = df
             
             result[block.name] = block_dict
@@ -236,8 +236,8 @@ class MMCIFExporter:
                 # Get all data (this will force loading of lazy items)
                 items = category.data
                 
-                # Create DataFrame from items
-                df = pd.DataFrame(items)
+                # Create DataFrame from items - convert LazyItemDict to regular dict first
+                df = pd.DataFrame(dict(items))
                 
                 # Create CSV filename
                 filename = f"{prefix}{block.name}_{category_name}.csv"
