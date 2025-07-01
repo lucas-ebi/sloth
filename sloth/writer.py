@@ -8,6 +8,7 @@ class MMCIFWriter:
             for data_block in mmcif:
                 file_obj.write(f"data_{data_block.name}\n")
                 file_obj.write("#\n")
+                # Use categories property to get prefixed category names for mmCIF output
                 for category_name in data_block.categories:
                     category = data_block.data[category_name]
                     if isinstance(category, Category):
