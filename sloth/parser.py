@@ -37,7 +37,7 @@ def fast_mmcif_split(line: str) -> List[str]:
 
 
 class MMCIFParser:
-    """Memory-mapped mmCIF parser with lazy loading for optimal performance."""
+    """mmCIF parser with lazy loading for optimal performance."""
 
     def __init__(
         self,
