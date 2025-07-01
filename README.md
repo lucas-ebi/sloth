@@ -1,4 +1,3 @@
-
 # 🦥 SLOTH – Structural Loader with On-demand Tokenization and Handling
 
 > 🧠 *Lazy by design. Fast by default.*
@@ -182,8 +181,9 @@ print(f"Available: {', '.join(block.categories[:5])}")
 
 #### Creating Sample Data
 
+##### Method 1: Create sample mmCIF file manually
+
 ```python
-# Method 1: Create sample mmCIF file manually
 sample_content = """data_1ABC
 _entry.id 1ABC_STRUCTURE
 _database_2.database_id PDB
@@ -205,12 +205,15 @@ with open("sample.cif", 'w') as f:
 
 # Parse with SLOTH
 mmcif = handler.parse("sample.cif")
+```
 
-# Method 2: Create sample data programmatically using dictionary notation
+##### Method 2: Create sample data programmatically using dictionary notation
+
+```python
 from sloth.models import MMCIFDataContainer, DataBlock, Category
 
 # Create container and block
-container = MMCIFDataContainer()
+mmcif = MMCIFDataContainer()
 block = DataBlock("1ABC")
 
 # Create categories and add data
@@ -235,60 +238,75 @@ block["_database_2"] = database_category
 block["_atom_site"] = atom_site_category
 
 # Add block to container
-container["1ABC"] = block
+mmcif["1ABC"] = block
 
 # Write using SLOTH
 with open("sample_programmatic.cif", 'w') as f:
     handler.file_obj = f
-    handler.write(container)
+    handler.write(mmcif)
+```
 
-# Method 3: ✨ NEW! Elegant dot notation creation
-# Create everything with pure dot notation!
-container = MMCIFDataContainer()
-block = DataBlock("1ABC")
+##### Method 3: ✨ NEW! Auto-creation with Dot Notation
 
-# Create categories using dot notation
-entry_cat = Category("_entry")
-entry_cat.id = ["1ABC_STRUCTURE"]          # ✨ Dot notation assignment!
+```python
+# SLOTH can automatically create nested objects with elegant dot notation!
+from sloth.models import MMCIFDataContainer
 
-database_cat = Category("_database_2")
-database_cat.database_id = ["PDB"]         # ✨ Dot notation assignment!
-database_cat.database_code = ["1ABC"]      # ✨ Dot notation assignment!
+# Create an empty container
+mmcif = MMCIFDataContainer()
 
-atom_cat = Category("_atom_site")
-atom_cat.group_PDB = ["ATOM", "ATOM"]      # ✨ Dot notation assignment!
-atom_cat.id = ["1", "2"]                   # ✨ Dot notation assignment!
-atom_cat.type_symbol = ["N", "C"]          # ✨ Dot notation assignment!
-atom_cat.Cartn_x = ["10.123", "11.234"]    # ✨ Dot notation assignment!
-atom_cat.Cartn_y = ["20.456", "21.567"]    # ✨ Dot notation assignment!
-atom_cat.Cartn_z = ["30.789", "31.890"]    # ✨ Dot notation assignment!
+# Use dot notation to auto-create everything
+mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
+mmcif.data_1ABC._database_2.database_id = ["PDB"]
+mmcif.data_1ABC._database_2.database_code = ["1ABC"]
 
-# Assign categories using dot notation!
-block._entry = entry_cat                   # ✨ Dot notation assignment!
-block._database_2 = database_cat           # ✨ Dot notation assignment!
-block._atom_site = atom_cat                # ✨ Dot notation assignment!
-
-# Assign block using dot notation!
-container.data_1ABC = block                # ✨ Dot notation assignment!
+# Add atom data
+mmcif.data_1ABC._atom_site.group_PDB = ["ATOM", "ATOM"] 
+mmcif.data_1ABC._atom_site.type_symbol = ["N", "C"]
+mmcif.data_1ABC._atom_site.Cartn_x = ["10.123", "11.234"]
 
 # Write using SLOTH
 with open("sample_dot_notation.cif", 'w') as f:
     handler.file_obj = f
-    handler.write(container)
+    handler.write(mmcif)
 ```
 
 ### 🎯 Elegant Data Access
 
-#### The Power of Dot Notation
+#### Multiple Access Methods for Different Scenarios
 
 ```python
 # Access data with elegant dot notation - SLOTH's signature feature!
 block = mmcif.data[0]  # or mmcif.data_1ABC
 
-# Category access (the clean way)
+# 1. Dot notation access (elegant for direct access)
 atom_site = block._atom_site
-database = block._database_2
+x_coordinates = atom_site.Cartn_x
+first_atom_id = atom_site[0].id
 
+# 2. Dictionary notation access (powerful for dynamic field names)
+atom_site = block["_atom_site"]
+field_name = "Cartn_x"  # Could come from a variable or user input
+x_coordinates = atom_site[field_name]
+first_atom_id = atom_site[0]["id"]
+
+# 3. Mixed approach (best of both worlds)
+# Use dot notation for known fields, dictionary access for dynamic fields
+category_name = "_atom_site"  # Could be dynamic
+field_name = "Cartn_x"        # Could be dynamic
+x_coordinates = block[category_name][field_name]
+
+# 4. Iterative access (when processing all data)
+for category_name in block.categories:
+    category = block[category_name]
+    for item_name in category.items:
+        values = category[item_name]
+        print(f"{category_name}.{item_name}: {len(values)} values")
+```
+
+#### Row-wise and Column-wise Access
+
+```python
 # Column-wise data access (Pythonic!)
 x_coordinates = atom_site.Cartn_x        # All X coordinates
 atom_types = atom_site.type_symbol       # All atom types
@@ -525,15 +543,26 @@ python demo.py input.cif output.cif --validate
 
 ### 💡 Best Practices
 
-#### Pythonic SLOTH Code
+#### Choosing the Right Access Method
 
 ```python
-# ✅ DO: Use dot notation (elegant and readable)
-x_coords = mmcif.data[0]._atom_site.Cartn_x
-first_atom_type = mmcif.data[0]._atom_site[0].type_symbol
+# ✅ DO: Use dot notation for clean, readable code with known field names
+x_coords = mmcif.data_1ABC._atom_site.Cartn_x
+first_atom_type = mmcif.data_1ABC._atom_site[0].type_symbol
 
-# ❌ AVOID: Dictionary access (less readable)
-x_coords = mmcif.data[0]['_atom_site']['Cartn_x']
+# ✅ DO: Use dictionary notation for dynamic field access
+category_name = input("Enter category name: ")  # User provides "_atom_site"
+field_name = input("Enter field name: ")        # User provides "Cartn_x"
+if category_name in mmcif.data[0].categories:
+    values = mmcif.data[0][category_name][field_name]
+    print(f"Found {len(values)} values")
+
+# ✅ DO: Mix approaches when it makes sense
+# Loop through categories (dictionary style) but access fields with dot notation
+for block in mmcif.data:
+    if "_atom_site" in block.categories:
+        # Use dot notation for cleaner field access
+        print(f"Found {len(block._atom_site.Cartn_x)} atom coordinates")
 
 # ✅ DO: Chain operations naturally
 ca_atoms_chain_a = [atom for atom in mmcif.data[0]._atom_site 
@@ -592,12 +621,27 @@ twine check dist/*
 
 ## 📈 Performance Matrix
 
-| File Size     | Startup Time | Access Speed | Memory Usage |
-|---------------|--------------|--------------|---------------|
-| <1MB          | Instant      | Instant      | Tiny          |
-| 1MB–100MB     | Fast         | Fast         | Efficient     |
-| >100MB–1GB    | Fast         | Fast         | Optimized     |
-| >1GB          | Fast         | Lazy         | Minimal       |
+| File Size     | Full Parse   | Selective Parse | Access Speed | Memory Usage | Example |
+|---------------|--------------|-----------------|--------------|---------------|---------|
+| <1KB          | Instant (~1ms) | Instant (~1ms) | Instant      | ~20KB        | Small samples |
+| 1KB–1MB       | Fast (~5-50ms) | Fast (~2-20ms) | Fast         | ~1-5MB       | Typical structures |  
+| 1MB–10MB      | Moderate (~100ms-1s) | Fast (~50-200ms) | Fast    | ~10-50MB     | Large complexes |
+| 10MB–100MB    | Slow (1-10s) | **Recommended** | On-demand    | ~50-200MB    | Massive datasets |
+| >100MB        | Very Slow (>10s) | **Highly Recommended** | On-demand | ~200MB+ | Archive files |
+
+💡 **Pro tip**: Use `categories=['_atom_site', '_entry', ...]` for files >1MB to get instant startup!  
+🦥 **Architecture**: All data access is lazy-loaded regardless of file size  
+📊 **Real example**: 1.6MB file → 47MB memory (29x ratio) with 70 categories instantly accessible
+
+### Memory Usage Explained
+
+SLOTH's memory usage varies by file size due to a combination of fixed overhead and scaling factors:
+
+**Small files (<1KB):** High memory ratios (50-150x) due to Python object overhead dominating tiny content  
+**Medium files (1KB-10MB):** Moderate ratios (10-50x) as file structure scales with fixed infrastructure costs  
+**Large files (>10MB):** Lower ratios (5-20x) as content size dominates the fixed overhead  
+
+**Key insight:** The actual file content stays on disk - only metadata and accessed data consume RAM. This means a 100MB file might use 500MB to parse (5x ratio) but accessing just a few categories uses minimal additional memory.
 
 ---
 

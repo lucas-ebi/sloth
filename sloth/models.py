@@ -233,14 +233,19 @@ class Category(DataContainer):
             
     def __init__(self, name: str, validator_factory: Optional[ValidatorFactory] = None,
                  mmap_obj: Optional[mmap.mmap] = None):
-        self._name = name
+        # Store the stripped name internally (remove _ prefix if present)
+        if name.startswith('_'):
+            self._name = name[1:]  # Store without the _ prefix
+        else:
+            self._name = name  # Already stripped
         self._items: Dict[str, Union[List[str], Item]] = {}
         self._validator_factory = validator_factory
         self._mmap_obj = mmap_obj
 
     @property
     def name(self) -> str:
-        return self._name
+        # Return the full name with _ prefix for external API consistency
+        return f"_{self._name}"
         
     @property
     def validator_factory(self) -> Optional[ValidatorFactory]:
@@ -394,6 +399,57 @@ class Category(DataContainer):
             self._items[item_name] = item
 
 
+class CategoryCollection(dict):
+    """A collection that supports both dict and list access for categories, with automatic _ prefix handling."""
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            # List-like access: categories[0], categories[1], etc.
+            values_list = list(self.values())
+            return values_list[key]
+        elif isinstance(key, slice):
+            # Slice access: categories[0:2], categories[1:], etc.
+            values_list = list(self.values())
+            return values_list[key]
+        else:
+            # Dict-like access with automatic _ prefix handling
+            if isinstance(key, str):
+                # If key starts with _, strip it for internal storage lookup
+                if key.startswith('_'):
+                    internal_key = key[1:]  # Remove the '_' prefix
+                    return super().__getitem__(internal_key)
+                else:
+                    # Allow access without _ prefix too
+                    return super().__getitem__(key)
+            return super().__getitem__(key)
+    
+    def __setitem__(self, key, value):
+        if isinstance(key, str) and key.startswith('_'):
+            # Strip the _ prefix for internal storage
+            internal_key = key[1:]
+            super().__setitem__(internal_key, value)
+        else:
+            super().__setitem__(key, value)
+    
+    def __contains__(self, key):
+        if isinstance(key, str) and key.startswith('_'):
+            # Strip the _ prefix for internal storage lookup
+            internal_key = key[1:]
+            return super().__contains__(internal_key)
+        return super().__contains__(key)
+    
+    def __iter__(self):
+        # Iterate over values (Category objects) for consistency with list behavior
+        return iter(self.values())
+    
+    def keys(self):
+        # Return stripped keys for internal use
+        return list(super().keys())
+    
+    def __repr__(self):
+        return f"CategoryCollection({len(self)} categories)"
+
+
 class DataBlock(DataContainer):
     """A class to represent a data block in an mmCIF file."""
     
@@ -404,7 +460,18 @@ class DataBlock(DataContainer):
     
     def __init__(self, name: str, categories: Dict[str, Category] = None):
         self._name = name
-        self._categories = categories if categories is not None else {}
+        # Convert categories to use CategoryCollection with stripped names
+        if categories is not None:
+            # Strip _ prefix from category names for internal storage
+            stripped_categories = {}
+            for cat_name, category in categories.items():
+                if cat_name.startswith('_'):
+                    stripped_categories[cat_name[1:]] = category
+                else:
+                    stripped_categories[cat_name] = category
+            self._categories = CategoryCollection(stripped_categories)
+        else:
+            self._categories = CategoryCollection()
 
     @property
     def name(self) -> str:
@@ -412,24 +479,33 @@ class DataBlock(DataContainer):
 
     @property
     def categories(self) -> List[str]:
-        """Get names of contained categories."""
-        return list(self._categories.keys())
+        """Get names of contained categories (prefixed names for external API)."""
+        return [f"_{key}" for key in super(CategoryCollection, self._categories).keys()]
 
     @property
-    def data(self) -> Dict[str, Category]:
+    def data(self) -> CategoryCollection:
         """Provides read-only access to the category objects."""
         return self._categories
 
     def __getitem__(self, category_name: str) -> Category:
+        # Handle both prefixed (_category) and unprefixed (category) names
         return self._categories[category_name]
 
     def __setitem__(self, category_name: str, category: Category) -> None:
+        # Handle both prefixed (_category) and unprefixed (category) names
         self._categories[category_name] = category
 
     def __getattr__(self, category_name: str) -> Category:
         try:
+            # Handle both prefixed (_category) and unprefixed (category) names
+            # CategoryCollection automatically handles _ prefix stripping/adding
             return self._categories[category_name]
         except KeyError:
+            # Auto-create the category if it starts with _ (typical mmCIF category)
+            if category_name.startswith('_'):
+                new_category = Category(category_name)
+                self._categories[category_name] = new_category  # CategoryCollection handles _ stripping
+                return new_category
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{category_name}'")
 
     def __setattr__(self, name: str, value) -> None:
@@ -437,7 +513,7 @@ class DataBlock(DataContainer):
         Enable dot notation assignment for categories.
         
         Reserved attributes and internal attributes are handled normally.
-        Category names (starting with _) are treated as category assignment.
+        Category names (starting with _ or regular names) are treated as category assignment.
         """
         # Handle reserved attributes and internal attributes normally
         if name in self._RESERVED_ATTRS or name.startswith('__'):
@@ -449,11 +525,11 @@ class DataBlock(DataContainer):
             super().__setattr__(name, value)
             return
             
-        # For category names (should start with _), validate and set
-        if name.startswith('_'):
+        # For category names (starting with _ or regular category names), validate and set
+        if name.startswith('_') or (hasattr(self, '_categories') and (name in self._categories or f"_{name}" in self._categories)):
             if not isinstance(value, Category):
                 raise TypeError(f"Category '{name}' must be a Category object, got {type(value)}")
-            self._categories[name] = value
+            self._categories[name] = value  # CategoryCollection handles _ stripping/adding
         else:
             # Non-category attributes are handled normally
             super().__setattr__(name, value)
@@ -468,6 +544,57 @@ class DataBlock(DataContainer):
         return f"DataBlock(name={self.name}, categories={list(self.categories)})"
 
 
+class DataBlockCollection(dict):
+    """A collection that supports both dict and list access for data blocks, with automatic data_ prefix handling."""
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            # List-like access: data[0], data[1], etc.
+            values_list = list(self.values())
+            return values_list[key]
+        elif isinstance(key, slice):
+            # Slice access: data[0:2], data[1:], etc.
+            values_list = list(self.values())
+            return values_list[key]
+        else:
+            # Dict-like access with automatic data_ prefix handling
+            if isinstance(key, str):
+                # If key starts with data_, strip it for internal storage lookup
+                if key.startswith('data_'):
+                    internal_key = key[5:]  # Remove the 'data_' prefix
+                    return super().__getitem__(internal_key)
+                else:
+                    # Allow access without data_ prefix too
+                    return super().__getitem__(key)
+            return super().__getitem__(key)
+    
+    def __setitem__(self, key, value):
+        if isinstance(key, str) and key.startswith('data_'):
+            # Strip the data_ prefix for internal storage
+            internal_key = key[5:]
+            super().__setitem__(internal_key, value)
+        else:
+            super().__setitem__(key, value)
+    
+    def __contains__(self, key):
+        if isinstance(key, str) and key.startswith('data_'):
+            # Strip the data_ prefix for internal storage lookup
+            internal_key = key[5:]
+            return super().__contains__(internal_key)
+        return super().__contains__(key)
+    
+    def __iter__(self):
+        # Iterate over values (DataBlock objects) for consistency with list behavior
+        return iter(self.values())
+    
+    def keys(self):
+        # Return stripped keys for internal use
+        return list(super().keys())
+    
+    def __repr__(self):
+        return f"DataBlockCollection({len(self)} blocks)"
+
+
 class MMCIFDataContainer(DataContainer):
     """A class to represent an mmCIF data container."""
     
@@ -477,7 +604,7 @@ class MMCIFDataContainer(DataContainer):
     }
     
     def __init__(self, data_blocks: Dict[str, DataBlock] = None, source_format: DataSourceFormat = DataSourceFormat.MMCIF):
-        self._data_blocks = data_blocks if data_blocks is not None else {}
+        self._data_blocks = DataBlockCollection(data_blocks if data_blocks is not None else {})
         self.source_format = source_format
 
     @property
@@ -485,16 +612,23 @@ class MMCIFDataContainer(DataContainer):
         return f"MMCIFDataContainer({len(self)} blocks)"
 
     def __getitem__(self, block_name: str) -> DataBlock:
+        # Handle both prefixed (data_block) and unprefixed (block) names
         return self._data_blocks[block_name]
 
     def __setitem__(self, block_name: str, block: DataBlock) -> None:
+        # Handle both prefixed (data_block) and unprefixed (block) names
         self._data_blocks[block_name] = block
 
     def __getattr__(self, block_name: str) -> DataBlock:
         if block_name.startswith("data_"):
-            block_name = block_name[5:]  # Remove the 'data_' prefix
-        if block_name in self._data_blocks:
-            return self._data_blocks[block_name]
+            actual_block_name = block_name[5:]  # Remove the 'data_' prefix
+            if actual_block_name in self._data_blocks:
+                return self._data_blocks[actual_block_name]
+            else:
+                # Auto-create the data block
+                new_block = DataBlock(actual_block_name)
+                self._data_blocks[actual_block_name] = new_block
+                return new_block
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{block_name}'")
 
     def __setattr__(self, name: str, value) -> None:
@@ -535,10 +669,10 @@ class MMCIFDataContainer(DataContainer):
 
     @property
     def blocks(self) -> List[str]:
-        """Provides a list of data block names."""
-        return list(self._data_blocks.keys())
+        """Provides a list of data block names (prefixed names for new consistency)."""
+        return [f"data_{key}" for key in super(DataBlockCollection, self._data_blocks).keys()]
 
     @property
-    def data(self) -> List[DataBlock]:
-        """Provides read-only access to the data blocks."""
-        return list(self._data_blocks.values())
+    def data(self) -> DataBlockCollection:
+        """Provides access to data blocks with both list and dict interfaces."""
+        return self._data_blocks

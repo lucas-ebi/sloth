@@ -50,7 +50,7 @@ _database_2.database_code    7XJP
         try:
             mmcif = self.handler.parse(temp_file)
             self.assertEqual(len(mmcif), 1)
-            self.assertIn("empty", mmcif.blocks)
+            self.assertIn("data_empty", mmcif.blocks)
         finally:
             os.unlink(temp_file)
 
@@ -65,7 +65,7 @@ _database_2.database_code    7XJP
         
         try:
             mmcif = self.handler.parse(temp_file, categories=['_database_2'])
-            self.assertIn("7XJP", mmcif.blocks)
+            self.assertIn("data_7XJP", mmcif.blocks)
             data_block = mmcif["7XJP"]
             self.assertIn("_database_2", data_block.categories)
             category = data_block["_database_2"]
@@ -119,7 +119,7 @@ _database_2.database_code    7XJP
         
         try:
             mmcif = self.handler.parse(temp_file, categories=['_database_2'])
-            self.assertIn("7XJP", mmcif.blocks)
+            self.assertIn("data_7XJP", mmcif.blocks)
             data_block = mmcif["7XJP"]
             self.assertIn("_database_2", data_block.categories)
             category = data_block["_database_2"]
@@ -390,7 +390,7 @@ ATOM   4    O  O   21.346 8.963  21.523
         mmcif = handler.parse(self.temp_file.name)
         
         # Verify structure
-        self.assertEqual(list(mmcif.blocks), ["TEST"])
+        self.assertEqual(list(mmcif.blocks), ["data_TEST"])
         
         # Get test block
         block = mmcif.data[0]
@@ -1173,7 +1173,7 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = MMCIFImporter.from_dict(data_dict)
         
         # Verify structure
-        self.assertIn('test', imported_container.blocks)
+        self.assertIn('data_test', imported_container.blocks)
         self.assertIn('_entry', imported_container['test'].categories)
         self.assertIn('_atom_site', imported_container['test'].categories)
         
@@ -1195,7 +1195,7 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_json(self.json_path)
         
         # Verify structure and content
-        self.assertIn('test', imported_container.blocks)
+        self.assertIn('data_test', imported_container.blocks)
         self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
         self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
         
@@ -1204,7 +1204,7 @@ ATOM   3    C  12.345 22.678 32.901
             json_str = f.read()
         
         imported_container_from_str = self.importer.from_json(json_str)
-        self.assertIn('test', imported_container_from_str.blocks)
+        self.assertIn('data_test', imported_container_from_str.blocks)
         self.assertEqual(imported_container_from_str['test']['_entry']['id'][0], 'test_structure')
 
     def test_from_xml(self):
@@ -1213,7 +1213,7 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_xml(self.xml_path)
         
         # Verify structure and content
-        self.assertIn('test', imported_container.blocks)
+        self.assertIn('data_test', imported_container.blocks)
         self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
         self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
         
@@ -1222,7 +1222,7 @@ ATOM   3    C  12.345 22.678 32.901
             xml_str = f.read()
         
         imported_container_from_str = self.importer.from_xml(xml_str)
-        self.assertIn('test', imported_container_from_str.blocks)
+        self.assertIn('data_test', imported_container_from_str.blocks)
         self.assertEqual(imported_container_from_str['test']['_entry']['id'][0], 'test_structure')
 
     def test_from_pickle(self):
@@ -1230,7 +1230,7 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_pickle(self.pkl_path)
         
         # Verify structure and content
-        self.assertIn('test', imported_container.blocks)
+        self.assertIn('data_test', imported_container.blocks)
         self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
         self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
 
@@ -1243,7 +1243,7 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_yaml(self.yaml_path)
         
         # Verify structure and content
-        self.assertIn('test', imported_container.blocks)
+        self.assertIn('data_test', imported_container.blocks)
         self.assertEqual(imported_container['test']['_entry']['id'][0], 'test_structure')
         self.assertEqual(imported_container['test']['_atom_site']['Cartn_x'][0], '10.123')
         
@@ -1252,7 +1252,7 @@ ATOM   3    C  12.345 22.678 32.901
             yaml_str = f.read()
         
         imported_container_from_str = self.importer.from_yaml(yaml_str)
-        self.assertIn('test', imported_container_from_str.blocks)
+        self.assertIn('data_test', imported_container_from_str.blocks)
         self.assertEqual(imported_container_from_str['test']['_entry']['id'][0], 'test_structure')
 
     def test_from_csv_files(self):
@@ -1263,7 +1263,7 @@ ATOM   3    C  12.345 22.678 32.901
         imported_container = self.importer.from_csv_files(self.csv_dir)
         
         # Verify structure and content
-        self.assertIn('test', imported_container.blocks)
+        self.assertIn('data_test', imported_container.blocks)
         self.assertIn('_entry', imported_container['test'].categories)
         self.assertIn('_atom_site', imported_container['test'].categories)
         
@@ -1278,28 +1278,28 @@ ATOM   3    C  12.345 22.678 32.901
         """Test auto-detection of file formats."""
         # Test JSON auto-detection
         json_container = MMCIFImporter.auto_detect_format(self.json_path)
-        self.assertIn('test', json_container.blocks)
+        self.assertIn('data_test', json_container.blocks)
         self.assertEqual(json_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test XML auto-detection
         xml_container = MMCIFImporter.auto_detect_format(self.xml_path)
-        self.assertIn('test', xml_container.blocks)
+        self.assertIn('data_test', xml_container.blocks)
         self.assertEqual(xml_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test Pickle auto-detection
         pkl_container = MMCIFImporter.auto_detect_format(self.pkl_path)
-        self.assertIn('test', pkl_container.blocks)
+        self.assertIn('data_test', pkl_container.blocks)
         self.assertEqual(pkl_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test CIF auto-detection (original file)
         cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
-        self.assertIn('test', cif_container.blocks)
+        self.assertIn('data_test', cif_container.blocks)
         self.assertEqual(cif_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test YAML auto-detection if available
         if self.yaml_available:
             yaml_container = MMCIFImporter.auto_detect_format(self.yaml_path)
-            self.assertIn('test', yaml_container.blocks)
+            self.assertIn('data_test', yaml_container.blocks)
             self.assertEqual(yaml_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test invalid extension
@@ -1312,22 +1312,22 @@ ATOM   3    C  12.345 22.678 32.901
         
         # Test JSON import
         json_container = handler.import_from_json(self.json_path)
-        self.assertIn('test', json_container.blocks)
+        self.assertIn('data_test', json_container.blocks)
         self.assertEqual(json_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test XML import
         xml_container = handler.import_from_xml(self.xml_path)
-        self.assertIn('test', xml_container.blocks)
+        self.assertIn('data_test', xml_container.blocks)
         self.assertEqual(xml_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test Pickle import
         pkl_container = handler.import_from_pickle(self.pkl_path)
-        self.assertIn('test', pkl_container.blocks)
+        self.assertIn('data_test', pkl_container.blocks)
         self.assertEqual(pkl_container['test']['_entry']['id'][0], 'test_structure')
         
         # Test auto-detection
         auto_container = handler.import_auto_detect(self.json_path)
-        self.assertIn('test', auto_container.blocks)
+        self.assertIn('data_test', auto_container.blocks)
         self.assertEqual(auto_container['test']['_entry']['id'][0], 'test_structure')
 
     def test_round_trip_json(self):
@@ -1451,7 +1451,7 @@ class TestDictToMMCIFConverter(unittest.TestCase):
         
         # Verify block structure
         self.assertEqual(len(container.blocks), 1)
-        self.assertIn("block1", container.blocks)
+        self.assertIn("data_block1", container.blocks)
         
         block = container["block1"]
         
@@ -1551,7 +1551,7 @@ class TestJsonLoader(TestFormatLoaders):
         
         # Verify structure
         self.assertEqual(len(container.blocks), 1)
-        self.assertIn("test_block", container.blocks)
+        self.assertIn("data_test_block", container.blocks)
         self.assertEqual(container["test_block"]["_test_category"]["item1"][0], "value1")
         
         # Verify source format
@@ -1639,7 +1639,7 @@ class TestXmlLoader(TestFormatLoaders):
         
         # Verify structure
         self.assertEqual(len(container.blocks), 1)
-        self.assertIn("test_block", container.blocks)
+        self.assertIn("data_test_block", container.blocks)
         self.assertEqual(container["test_block"]["_test_category"]["item1"][0], "value1")
         
         # Verify source format
@@ -1703,7 +1703,7 @@ class TestPickleLoader(TestFormatLoaders):
         
         # Verify structure
         self.assertEqual(len(container.blocks), 1)
-        self.assertIn("test_block", container.blocks)
+        self.assertIn("data_test_block", container.blocks)
         self.assertEqual(container["test_block"]["_test_category"]["item1"][0], "value1")
         
         # Verify source format
@@ -1760,7 +1760,7 @@ class TestYamlLoader(TestFormatLoaders):
             
             # Verify structure
             self.assertEqual(len(container.blocks), 1)
-            self.assertIn("test_block", container.blocks)
+            self.assertIn("data_test_block", container.blocks)
             self.assertEqual(container["test_block"]["_test_category"]["item1"][0], "value1")
             
             # Verify source format
@@ -1845,7 +1845,7 @@ class TestCsvLoader(TestFormatLoaders):
             
             # Verify structure
             self.assertEqual(len(container.blocks), 1)
-            self.assertIn("block1", container.blocks)
+            self.assertIn("data_block1", container.blocks)
             
             # Get the category name with underscore prefix (core functionality doesn't add prefixes)
             category_names = list(container["block1"]._categories.keys())
@@ -1891,6 +1891,41 @@ class TestCsvLoader(TestFormatLoaders):
             self.assertEqual(len(container.blocks), 0)
         except ImportError:
             self.skipTest("pandas not installed")
+    
+    def test_empty_and_invalid_csv_files(self):
+        """Test that CSV loader skips empty and invalid CSV files."""
+        import tempfile
+        import os
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create a proper CSV file
+            proper_csv = os.path.join(temp_dir, "1ABC__entry.csv")
+            with open(proper_csv, 'w') as f:
+                f.write("id\nTEST_VALUE\n")
+            
+            # Create an empty CSV file
+            empty_csv = os.path.join(temp_dir, "1ABC___empty.csv")
+            with open(empty_csv, 'w') as f:
+                f.write("")
+            
+            # Create a CSV with only headers (no data)
+            headers_only_csv = os.path.join(temp_dir, "1ABC___headers.csv")
+            with open(headers_only_csv, 'w') as f:
+                f.write("id\n")
+            
+            # Load should succeed and only include the proper file
+            loader = CsvLoader()
+            container = loader.load(temp_dir)
+            
+            # Should have one block with one category
+            self.assertEqual(len(container.blocks), 1)
+            block = container.data[0]
+            self.assertEqual(len(block.categories), 1)
+            self.assertIn("_entry", block.categories)
+            
+            # Verify the data
+            entry_cat = block._entry
+            self.assertEqual(entry_cat.id, ["TEST_VALUE"])
 
 
 class TestFormatLoaderIntegration(unittest.TestCase):
@@ -2224,8 +2259,8 @@ class TestDotNotationAssignment(unittest.TestCase):
         # Verify assignment
         self.assertEqual(container.data_BLOCK1._test1.item1, ["value1"])
         self.assertEqual(container.data_BLOCK2._test2.item2, ["value2"])
-        self.assertIn("BLOCK1", container.blocks)
-        self.assertIn("BLOCK2", container.blocks)
+        self.assertIn("data_BLOCK1", container.blocks)
+        self.assertIn("data_BLOCK2", container.blocks)
         self.assertEqual(len(container.blocks), 2)
         
         # Test that it's equivalent to dictionary assignment
@@ -2430,6 +2465,233 @@ class TestDotNotationAssignment(unittest.TestCase):
         # Verify both approaches created the same number of items
         self.assertEqual(len(category_dict.items), len(category_dot.items))
 
+
+class TestAutoCreation(unittest.TestCase):
+    """Comprehensive tests for the auto-creation feature that allows elegant dot notation creation."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.handler = MMCIFHandler()
+    
+    def test_complete_auto_creation_from_scratch(self):
+        """Test complete auto-creation from empty container (README example)."""
+        # This is the exact example from the README
+        mmcif = MMCIFDataContainer()
+        
+        # Use dot notation to auto-create everything
+        mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
+        mmcif.data_1ABC._database_2.database_id = ["PDB"]
+        mmcif.data_1ABC._database_2.database_code = ["1ABC"]
+        
+        # Add atom data
+        mmcif.data_1ABC._atom_site.group_PDB = ["ATOM", "ATOM"] 
+        mmcif.data_1ABC._atom_site.type_symbol = ["N", "C"]
+        mmcif.data_1ABC._atom_site.Cartn_x = ["10.123", "11.234"]
+        
+        # Verify the chain was created
+        self.assertEqual(len(mmcif), 1, "Container should have 1 block")
+        self.assertIn("data_1ABC", mmcif.blocks, "Block 1ABC should exist")
+        self.assertIn("_entry", mmcif.data_1ABC.categories, "Category _entry should exist")
+        self.assertIn("_database_2", mmcif.data_1ABC.categories, "Category _database_2 should exist")
+        self.assertIn("_atom_site", mmcif.data_1ABC.categories, "Category _atom_site should exist")
+        
+        # Verify values
+        self.assertEqual(mmcif.data_1ABC._entry.id, ["1ABC_STRUCTURE"])
+        self.assertEqual(mmcif.data_1ABC._database_2.database_id, ["PDB"])
+        self.assertEqual(mmcif.data_1ABC._database_2.database_code, ["1ABC"])
+        self.assertEqual(mmcif.data_1ABC._atom_site.group_PDB, ["ATOM", "ATOM"])
+        self.assertEqual(mmcif.data_1ABC._atom_site.type_symbol, ["N", "C"])
+        self.assertEqual(len(mmcif.data_1ABC._atom_site.Cartn_x), 2)
+    
+    def test_auto_creation_with_existing_block(self):
+        """Test auto-creation with existing block."""
+        mmcif = MMCIFDataContainer()
+        # Manually create a block first
+        mmcif["TEST"] = DataBlock("TEST")
+        
+        # Now auto-create a category in the existing block via dot notation
+        mmcif.data_TEST._new_category.new_item = ["value1", "value2"]
+        
+        self.assertIn("_new_category", mmcif.data_TEST.categories, "New category should exist")
+        self.assertEqual(mmcif.data_TEST._new_category.new_item, ["value1", "value2"], "Item should have correct values")
+    
+    def test_auto_creation_with_existing_category(self):
+        """Test auto-creation with existing category."""
+        mmcif = MMCIFDataContainer()
+        # Manually create block and category
+        block = DataBlock("MANUAL")
+        category = Category("_existing_cat")
+        category["existing_item"] = ["existing_value"]
+        block["_existing_cat"] = category
+        mmcif["MANUAL"] = block
+        
+        # Now auto-create new items in existing category
+        mmcif.data_MANUAL._existing_cat.new_item = ["new_value"]
+        
+        self.assertEqual(mmcif.data_MANUAL._existing_cat.existing_item, ["existing_value"], "Existing item should be preserved")
+        self.assertEqual(mmcif.data_MANUAL._existing_cat.new_item, ["new_value"], "New item should be created")
+    
+    def test_complex_multi_level_auto_creation(self):
+        """Test complex multi-level auto-creation."""
+        mmcif = MMCIFDataContainer()
+        
+        # Create a complex structure in one go
+        mmcif.data_COMPLEX._struct.title = ["Complex Structure"]
+        mmcif.data_COMPLEX._struct_conf.id = ["HELIX_1"]
+        mmcif.data_COMPLEX._struct_sheet.id = ["SHEET_1"]
+        
+        # Verify all levels were created
+        self.assertEqual(len(mmcif), 1, "Should have 1 block")
+        self.assertEqual(len(mmcif.data_COMPLEX.categories), 3, "Should have 3 categories")
+        self.assertIn("_struct", mmcif.data_COMPLEX.categories)
+        self.assertIn("_struct_conf", mmcif.data_COMPLEX.categories)  
+        self.assertIn("_struct_sheet", mmcif.data_COMPLEX.categories)
+    
+    def test_file_output_with_auto_created_structure(self):
+        """Test file output with auto-created structure."""
+        mmcif = MMCIFDataContainer()
+        
+        # Create structure using auto-creation
+        mmcif.data_OUTPUT._entry.id = ["OUTPUT_TEST"]
+        mmcif.data_OUTPUT._database_2.database_id = ["PDB"]
+        mmcif.data_OUTPUT._database_2.database_code = ["OUTPUT"]
+        mmcif.data_OUTPUT._atom_site.group_PDB = ["ATOM", "HETATM"]
+        mmcif.data_OUTPUT._atom_site.id = ["1", "2"]
+        mmcif.data_OUTPUT._atom_site.type_symbol = ["C", "N"]
+        
+        # Write to file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            output_file = f.name
+        
+        try:
+            with open(output_file, 'w') as f:
+                self.handler.file_obj = f
+                self.handler.write(mmcif)
+            
+            # Parse it back and verify
+            parsed = self.handler.parse(output_file)
+            self.assertEqual(len(parsed), 1, "Parsed file should have 1 block")
+            self.assertEqual(parsed.data_OUTPUT._entry.id, ["OUTPUT_TEST"], "Entry ID should match")
+            self.assertEqual(parsed.data_OUTPUT._atom_site.type_symbol, ["C", "N"], "Atom types should match")
+        finally:
+            os.unlink(output_file)
+    
+    def test_auto_creation_edge_cases(self):
+        """Test edge cases and error conditions for auto-creation."""
+        mmcif = MMCIFDataContainer()
+        block = mmcif.data_TEST  # This should auto-create
+        
+        # Non-category attribute access should still raise AttributeError
+        with self.assertRaises(AttributeError):
+            invalid = block.invalid_attr  # doesn't start with '_'
+    
+    def test_manual_and_auto_creation_combination(self):
+        """Test that manual creation still works alongside auto-creation."""
+        mmcif = MMCIFDataContainer()
+        
+        # Manual creation
+        manual_block = DataBlock("MANUAL")
+        manual_category = Category("_manual_cat")
+        manual_category["manual_item"] = ["manual_value"]
+        manual_block["_manual_cat"] = manual_category
+        mmcif["MANUAL"] = manual_block
+        
+        # Auto-creation in same container
+        mmcif.data_AUTO._auto_cat.auto_item = ["auto_value"]
+        
+        # Both should work
+        self.assertEqual(mmcif.data_MANUAL._manual_cat.manual_item, ["manual_value"])
+        self.assertEqual(mmcif.data_AUTO._auto_cat.auto_item, ["auto_value"])
+        self.assertEqual(len(mmcif), 2, "Should have both blocks")
+    
+    def test_reserved_attributes_not_auto_created(self):
+        """Test reserved attributes are not auto-created."""
+        mmcif = MMCIFDataContainer()
+        
+        # Reserved attributes should work normally
+        blocks = mmcif.blocks  # Should not auto-create
+        data = mmcif.data      # Should not auto-create
+        
+        # Container should still be empty
+        self.assertEqual(len(mmcif), 0, "Container should be empty after accessing reserved attributes")
+    
+    def test_type_validation_with_auto_creation(self):
+        """Test type validation still works with auto-creation."""
+        mmcif = MMCIFDataContainer()
+        
+        # Auto-create the block first
+        mmcif.data_TYPE_TEST._test_cat.test_item = ["value"]
+        
+        # Now try to assign wrong type - should fail
+        with self.assertRaises(TypeError):
+            mmcif.data_TYPE_TEST._wrong_cat = "not_a_category"  # Should fail
+        
+        # Try wrong item type
+        with self.assertRaises(TypeError):
+            mmcif.data_TYPE_TEST._test_cat.wrong_item = 123  # Should fail
+    
+    def test_complex_chaining_scenarios(self):
+        """Test complex chaining scenarios."""
+        mmcif = MMCIFDataContainer()
+        
+        # Multiple blocks with similar category names
+        mmcif.data_BLOCK1._shared_cat.item1 = ["value1"]
+        mmcif.data_BLOCK2._shared_cat.item2 = ["value2"] 
+        mmcif.data_BLOCK1._unique_cat.unique_item = ["unique"]
+        
+        # Verify isolation
+        self.assertEqual(mmcif.data_BLOCK1._shared_cat.item1, ["value1"])
+        self.assertEqual(mmcif.data_BLOCK2._shared_cat.item2, ["value2"])
+        self.assertEqual(mmcif.data_BLOCK1._unique_cat.unique_item, ["unique"])
+        
+        # Verify BLOCK2 doesn't have BLOCK1's unique category
+        with self.assertRaises(AttributeError):
+            mmcif.data_BLOCK2._unique_cat.unique_item
+    
+    def test_dot_notation_access_for_existing_elements(self):
+        """Test that dot notation access still works for existing elements."""
+        mmcif = MMCIFDataContainer()
+        
+        # Create via auto-creation
+        mmcif.data_EXISTING._test_cat.test_item = ["original"]
+        
+        # Access via dot notation (should not create new ones)
+        value = mmcif.data_EXISTING._test_cat.test_item
+        self.assertEqual(value, ["original"], "Should get original value")
+        
+        # Verify we still have only one block and one category
+        self.assertEqual(len(mmcif), 1)
+        self.assertEqual(len(mmcif.data_EXISTING.categories), 1)
+    
+    def test_auto_creation_integration_with_existing_features(self):
+        """Test auto-creation works with existing SLOTH features."""
+        mmcif = MMCIFDataContainer()
+        
+        # Create structure with auto-creation
+        mmcif.data_INTEGRATION._entry.id = ["INTEGRATION_TEST"]
+        mmcif.data_INTEGRATION._atom_site.group_PDB = ["ATOM", "ATOM", "HETATM"]
+        mmcif.data_INTEGRATION._atom_site.id = ["1", "2", "3"]
+        mmcif.data_INTEGRATION._atom_site.type_symbol = ["N", "C", "O"]
+        
+        # Test row access
+        first_row = mmcif.data_INTEGRATION._atom_site[0]
+        self.assertEqual(first_row.group_PDB, "ATOM")
+        self.assertEqual(first_row.id, "1")
+        self.assertEqual(first_row.type_symbol, "N")
+        
+        # Test slicing
+        first_two_rows = mmcif.data_INTEGRATION._atom_site[0:2]
+        self.assertEqual(len(first_two_rows), 2)
+        
+        # Test row count
+        self.assertEqual(mmcif.data_INTEGRATION._atom_site.row_count, 3)
+        
+        # Test iteration
+        atom_count = 0
+        for row in mmcif.data_INTEGRATION._atom_site:
+            atom_count += 1
+        self.assertEqual(atom_count, 3)
+    
 
 if __name__ == "__main__":
     unittest.main()
