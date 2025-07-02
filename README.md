@@ -194,6 +194,25 @@ mmcif.data_1ABC._atom_site.validate()
 
 *All examples below are demonstrated in [`demo.py`](demo.py) - run `python demo.py --demo` to see them in action!*
 
+### 🚀 Getting Started
+
+#### Basic Parsing and Information
+
+```python
+from sloth import MMCIFHandler
+
+# Create handler and parse file
+handler = MMCIFHandler()
+mmcif = handler.parse("structure.cif")
+
+# Get file information
+print(f"Data blocks: {len(mmcif.data)}")
+block = mmcif.data[0]
+print(f"Block name: {block.name}")
+print(f"Categories: {len(block.categories)}")
+print(f"Available: {', '.join(block.categories[:5])}")
+```
+
 ### ⚡ High-Performance Parsing with Gemmi Backend
 
 For maximum performance with the same elegant API:
@@ -226,25 +245,6 @@ handler.export_to_xml(mmcif, "output.xml")
 - ⚡ **Faster parsing**: Uses gemmi's optimized C++ parser
 - 🎯 **Identical API**: Same dot notation, same methods, same everything
 - 💾 **All features**: Export/import, validation, lazy loading all work
-
-### 🚀 Getting Started
-
-#### Basic Parsing and Information
-
-```python
-from sloth import MMCIFHandler
-
-# Create handler and parse file
-handler = MMCIFHandler()
-mmcif = handler.parse("structure.cif")
-
-# Get file information
-print(f"Data blocks: {len(mmcif.data)}")
-block = mmcif.data[0]
-print(f"Block name: {block.name}")
-print(f"Categories: {len(block.categories)}")
-print(f"Available: {', '.join(block.categories[:5])}")
-```
 
 #### Creating Sample Data
 
