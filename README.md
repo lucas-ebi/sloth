@@ -54,6 +54,16 @@ Just smart defaults, lazy evaluation, and expressive code.
 pip install sloth-mmcif
 ```
 
+### Optional: High-Performance with gemmi
+
+For maximum parsing performance, install with gemmi support:
+
+```bash
+pip install sloth-mmcif[gemmi]
+# or
+pip install sloth-mmcif gemmi
+```
+
 ### Developer Install
 
 ```bash
@@ -76,6 +86,29 @@ mmcif = handler.parse("1abc.cif")
 print(mmcif.data_1ABC._struct.title[0])
 print(mmcif.data_1ABC._atom_site.Cartn_x[0])
 ```
+
+### 🚀 High-Performance Parsing with Gemmi Backend
+
+For faster parsing with the same elegant API, just add `use_gemmi=True`:
+
+```python
+from sloth import MMCIFHandler
+
+# Same handler, same API, gemmi backend for performance
+handler = MMCIFHandler(use_gemmi=True)
+mmcif = handler.parse("1abc.cif")
+
+# Identical API - same dot notation, same everything!
+print(mmcif.data_1ABC._struct.title[0])
+print(mmcif.data_1ABC._atom_site.Cartn_x[0])
+```
+
+**Key Benefits:**
+
+- 🔄 **Drop-in compatibility**: Just add `use_gemmi=True` parameter
+- ⚡ **Faster parsing**: Uses gemmi's optimized C++ parser  
+- 🎯 **Identical API**: Same dot notation, same methods, same everything
+- 💾 **All features**: Export/import, validation, lazy loading all work
 
 ---
 
@@ -160,6 +193,39 @@ mmcif.data_1ABC._atom_site.validate()
 ## 📚 Cookbook - Real-World Examples
 
 *All examples below are demonstrated in [`demo.py`](demo.py) - run `python demo.py --demo` to see them in action!*
+
+### ⚡ High-Performance Parsing with Gemmi Backend
+
+For maximum performance with the same elegant API:
+
+```python
+from sloth import MMCIFHandler
+
+# Same initialization, just add use_gemmi=True
+handler = MMCIFHandler(use_gemmi=True)
+mmcif = handler.parse("structure.cif")
+
+# Identical API - everything works exactly the same!
+print(mmcif.data_1ABC._atom_site.Cartn_x[0])
+ca_atoms = [a for a in mmcif.data_1ABC._atom_site if a.label_atom_id == "CA"]
+
+# All export/import methods work identically
+handler.export_to_json(mmcif, "output.json")
+handler.export_to_xml(mmcif, "output.xml")
+
+# Performance benefits:
+# - Same elegant SLOTH API
+# - Potentially faster parsing with gemmi's C++ backend
+# - Perfect drop-in compatibility
+# - All SLOTH features: lazy loading, dot notation, exports, etc.
+```
+
+**Key Benefits:**
+
+- 🔄 **Drop-in compatibility**: Just add `use_gemmi=True` parameter
+- ⚡ **Faster parsing**: Uses gemmi's optimized C++ parser
+- 🎯 **Identical API**: Same dot notation, same methods, same everything
+- 💾 **All features**: Export/import, validation, lazy loading all work
 
 ### 🚀 Getting Started
 
