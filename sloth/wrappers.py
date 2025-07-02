@@ -2,66 +2,61 @@
 SLOTH wrappers for external libraries - same elegant API, enhanced performance
 
 This module provides wrappers that maintain the exact same API as SLOTH's core handlers
-but use external libraries for parsing behind the scenes for maximum performance.
+but use external libraries for parsing and writing behind the scenes for maximum performance.
 """
 
 from typing import Optional, List, Union, Any, Dict
 from pathlib import Path
 from .models import MMCIFDataContainer, DataBlock, Category
+from .common import BaseParser, BaseWriter
 
 
-class GemmiWrapper:
+class GemmiParser(BaseParser):
     """
-    SLOTH wrapper for gemmi - maintains the exact same API as MMCIFHandler
+    SLOTH parser using gemmi backend - maintains the exact same API as MMCIFParser
     but uses gemmi for parsing behind the scenes for maximum performance.
     
     This class is typically not used directly - instead, use MMCIFHandler
     with use_gemmi=True parameter.
-    
-    Usage:
-        from sloth import MMCIFHandler
-        handler = MMCIFHandler(use_gemmi=True)
-        mmcif = handler.parse("structure.cif")
-        # Same elegant dot notation access as regular SLOTH!
-        print(mmcif.data_1ABC._atom_site.Cartn_x[0])
     """
     
-    def __init__(self, validator_factory=None):
+    def __init__(self, validator_factory=None, categories=None):
         """
-        Initialize the GemmiWrapper with the same interface as MMCIFHandler.
+        Initialize the GemmiParser with the same interface as MMCIFParser.
         
         :param validator_factory: Optional validator factory for data validation
+        :param categories: Optional list of categories to parse (for performance)
         """
-        self.validator_factory = validator_factory
-        self._file_obj = None
+        super().__init__(validator_factory, categories)
         
-    def parse(self, filename: Union[str, Path], categories: Optional[List[str]] = None) -> MMCIFDataContainer:
+    def parse_file(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """
         Parse mmCIF file using gemmi backend but return SLOTH data structures
         with the same elegant API.
         
-        :param filename: Path to mmCIF file
-        :type filename: Union[str, Path]
-        :param categories: Optional list of categories to parse (for performance)
-        :type categories: Optional[List[str]]
+        :param file_path: Path to mmCIF file
+        :type file_path: Union[str, Path]
         :return: MMCIFDataContainer with same API as regular SLOTH
         :rtype: MMCIFDataContainer
         """
+        # Use categories from instance initialization
+        parse_categories = self.categories
+        
         try:
             import gemmi
         except ImportError:
             raise ImportError(
-                "gemmi is required for GemmiWrapper. Install with: pip install gemmi"
+                "gemmi is required for GemmiParser. Install with: pip install gemmi"
             )
         
         # Use gemmi to parse the file
-        doc = gemmi.cif.read_file(str(filename))
+        doc = gemmi.cif.read_file(str(file_path))
         
         # Convert gemmi structure to SLOTH format
         container = MMCIFDataContainer()
         
         for block in doc:
-            sloth_block = self._convert_gemmi_block_to_sloth(block, categories)
+            sloth_block = self._convert_gemmi_block_to_sloth(block, parse_categories)
             container[block.name] = sloth_block
             
         return container
@@ -142,11 +137,27 @@ class GemmiWrapper:
         if '.' in tag:
             return tag.split('.', 1)[1]
         return tag
+
+
+class GemmiWriter(BaseWriter):
+    """
+    SLOTH writer using gemmi backend - maintains the exact same API as MMCIFWriter
+    but uses gemmi for writing behind the scenes for maximum performance.
     
-    def write(self, mmcif: MMCIFDataContainer) -> None:
+    This class is typically not used directly - instead, use MMCIFHandler
+    with use_gemmi=True parameter.
+    """
+    
+    def __init__(self):
+        """Initialize the GemmiWriter."""
+        pass
+        
+    def write(self, file_obj, mmcif):
         """
         Write SLOTH data structure to file using gemmi backend
         
+        :param file_obj: The file object to write to
+        :type file_obj: IO
         :param mmcif: SLOTH MMCIFDataContainer
         :type mmcif: MMCIFDataContainer
         :return: None
@@ -155,11 +166,8 @@ class GemmiWrapper:
             import gemmi
         except ImportError:
             raise ImportError(
-                "gemmi is required for GemmiWrapper. Install with: pip install gemmi"
+                "gemmi is required for GemmiWriter. Install with: pip install gemmi"
             )
-        
-        if not hasattr(self, "_file_obj") or not self._file_obj:
-            raise IOError("File is not open for writing")
         
         # Convert SLOTH structure back to gemmi format
         doc = gemmi.cif.Document()
@@ -171,7 +179,7 @@ class GemmiWrapper:
         
         # Write to file object
         content = doc.as_string()
-        self._file_obj.write(content)
+        file_obj.write(content)
     
     def _convert_sloth_block_to_gemmi(self, sloth_block: DataBlock):
         """Convert SLOTH DataBlock back to gemmi format"""
@@ -179,7 +187,7 @@ class GemmiWrapper:
             import gemmi
         except ImportError:
             raise ImportError(
-                "gemmi is required for GemmiWrapper. Install with: pip install gemmi"
+                "gemmi is required for GemmiWriter. Install with: pip install gemmi"
             )
         
         gemmi_block = gemmi.cif.Block(sloth_block.name)
@@ -226,13 +234,3 @@ class GemmiWrapper:
                     gemmi_block.set_pair(tag, value)
         
         return gemmi_block
-    
-    @property
-    def file_obj(self):
-        """Provides access to the file object."""
-        return self._file_obj
-
-    @file_obj.setter
-    def file_obj(self, file_obj):
-        """Sets the file object."""
-        self._file_obj = file_obj

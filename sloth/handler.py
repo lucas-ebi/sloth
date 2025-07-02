@@ -5,6 +5,7 @@ from .exporter import MMCIFExporter
 from .loaders import MMCIFImporter
 from .models import MMCIFDataContainer, DataSourceFormat
 from .validator import ValidatorFactory
+from .wrappers import GemmiParser, GemmiWriter
 
 
 class MMCIFHandler:
@@ -22,17 +23,6 @@ class MMCIFHandler:
         self._parser = None
         self._writer = None
         self._file_obj = None
-        self._gemmi_wrapper = None
-        
-        # Initialize gemmi wrapper if requested
-        if self.use_gemmi:
-            try:
-                from .wrappers import GemmiWrapper
-                self._gemmi_wrapper = GemmiWrapper(validator_factory)
-            except ImportError:
-                raise ImportError(
-                    "gemmi is required when use_gemmi=True. Install with: pip install gemmi"
-                )
 
     def parse(
         self, filename: str, categories: Optional[List[str]] = None
@@ -49,11 +39,11 @@ class MMCIFHandler:
         :rtype: MMCIFDataContainer
         """
         # Use gemmi wrapper if enabled
-        if self.use_gemmi and self._gemmi_wrapper:
-            return self._gemmi_wrapper.parse(filename, categories)
+        if self.use_gemmi:
+            self._parser = GemmiParser(self.validator_factory, categories)
+        else:
+            self._parser = MMCIFParser(self.validator_factory, categories)
         
-        # Use regular SLOTH parser
-        self._parser = MMCIFParser(self.validator_factory, categories)
         return self._parser.parse_file(filename)
 
     def write(self, mmcif: MMCIFDataContainer) -> None:
@@ -67,13 +57,14 @@ class MMCIFHandler:
         """
         if hasattr(self, "_file_obj") and self._file_obj:
             # Use gemmi wrapper if enabled
-            if self.use_gemmi and self._gemmi_wrapper:
-                self._gemmi_wrapper.file_obj = self._file_obj
-                self._gemmi_wrapper.write(mmcif)
+            if self.use_gemmi:
+                self._writer = GemmiWriter()
             else:
                 # Use regular SLOTH writer
                 self._writer = MMCIFWriter()
-                self._writer.write(self._file_obj, mmcif)
+            
+            # Both writers now have the same interface
+            self._writer.write(self._file_obj, mmcif)
         else:
             raise IOError("File is not open for writing")
 

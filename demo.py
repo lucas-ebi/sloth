@@ -12,7 +12,7 @@ import json
 import copy
 from sloth import (
     MMCIFHandler,
-    GemmiWrapper,  # High-performance gemmi backend wrapper
+    GemmiParser, GemmiWriter,  # High-performance gemmi backend components
     ValidatorFactory,
     DataSourceFormat,
     SchemaValidator,

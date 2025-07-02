@@ -1,12 +1,17 @@
 """
-Common utilities and shared dependencies for the sloth package.
+Common utilities and shared dependencies for the sloth package,
+including abstract base classes for SLOTH parsers and writers.
 
 This module contains shared functionality that would otherwise create circular imports
-between different modules in the package.
+between different modules in the package. It also defines the common interfaces that 
+all parsers and writers must implement, ensuring consistency across different backends 
+(native SLOTH, gemmi, etc.).
 """
 
 import os
-from typing import Optional
+from abc import ABC, abstractmethod
+from typing import Optional, Union, IO
+from pathlib import Path
 from .models import MMCIFDataContainer, DataSourceFormat
 from .validator import ValidatorFactory
 from .schemas import SchemaValidator
@@ -105,3 +110,60 @@ def auto_detect_format_and_load(
         container.source_format = DataSourceFormat.MMCIF
         return container
     raise ValueError(f"Unsupported file extension: {ext}")
+
+
+class BaseParser(ABC):
+    """
+    Abstract base class for mmCIF parsers.
+    
+    All parser implementations (MMCIFParser, GemmiParser, etc.) must inherit from this
+    class and implement the required abstract methods.
+    """
+    
+    def __init__(
+        self,
+        validator_factory: Optional[ValidatorFactory] = None,
+        categories: Optional[list] = None,
+    ):
+        """
+        Initialize the parser.
+        
+        :param validator_factory: Optional validator factory for data validation
+        :param categories: Optional list of categories to parse (for performance)
+        """
+        self.validator_factory = validator_factory
+        self.categories = categories
+    
+    @abstractmethod
+    def parse_file(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
+        """
+        Parse mmCIF file and return a data container.
+        
+        :param file_path: Path to the mmCIF file to parse
+        :type file_path: Union[str, Path]
+        :return: The data container with parsed mmCIF data
+        :rtype: MMCIFDataContainer
+        """
+        pass
+
+
+class BaseWriter(ABC):
+    """
+    Abstract base class for mmCIF writers.
+    
+    All writer implementations (MMCIFWriter, GemmiWriter, etc.) must inherit from this
+    class and implement the required abstract methods.
+    """
+    
+    @abstractmethod
+    def write(self, file_obj: IO, mmcif: MMCIFDataContainer) -> None:
+        """
+        Write mmCIF data container to a file object.
+        
+        :param file_obj: The file object to write to
+        :type file_obj: IO
+        :param mmcif: The data container to write
+        :type mmcif: MMCIFDataContainer
+        :return: None
+        """
+        pass

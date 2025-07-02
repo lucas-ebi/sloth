@@ -2028,19 +2028,20 @@ ATOM 2 C 11.234 21.567 31.890
 """
 
     def test_gemmi_wrapper_import(self):
-        """Test that GemmiWrapper can be imported"""
+        """Test that GemmiParser and GemmiWriter can be imported"""
         try:
-            from sloth import GemmiWrapper
+            from sloth import GemmiParser, GemmiWriter
             self.assertTrue(True)
         except ImportError:
-            self.fail("GemmiWrapper could not be imported")
+            self.fail("GemmiParser and GemmiWriter could not be imported")
 
     def test_gemmi_handler_use_gemmi_param(self):
         """Test MMCIFHandler with use_gemmi=True parameter"""
         try:
             handler = MMCIFHandler(use_gemmi=True)
             self.assertTrue(handler.use_gemmi)
-            self.assertIsNotNone(handler._gemmi_wrapper)
+            # Just check that the use_gemmi flag is set correctly
+            # There's no _gemmi_wrapper anymore since we're now using parser and writer directly
         except ImportError:
             self.skipTest("gemmi not available")
 
@@ -2158,7 +2159,7 @@ ATOM 2 C 11.234 21.567 31.890
         """Test that use_gemmi=False is the default"""
         handler = MMCIFHandler()
         self.assertFalse(handler.use_gemmi)
-        self.assertIsNone(handler._gemmi_wrapper)
+        # Just check that the use_gemmi flag is set correctly by default
 
 
 if __name__ == "__main__":

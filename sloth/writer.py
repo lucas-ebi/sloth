@@ -1,8 +1,9 @@
 from typing import IO
 from .models import MMCIFDataContainer, Category
+from .common import BaseWriter
 
 
-class MMCIFWriter:
+class MMCIFWriter(BaseWriter):
     """A class to write an mmCIF data container to a file."""
 
     def write(self, file_obj: IO, mmcif: MMCIFDataContainer) -> None:
