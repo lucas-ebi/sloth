@@ -1,7 +1,9 @@
 import os
-from typing import Optional, List
+from typing import Optional, List, Union
+from pathlib import Path
 from .models import Category, DataBlock, MMCIFDataContainer, DataSourceFormat
 from .validator import ValidatorFactory
+from .common import BaseParser
 import shlex
 
 
@@ -36,7 +38,7 @@ def fast_mmcif_split(line: str) -> List[str]:
         return line.split()
 
 
-class MMCIFParser:
+class MMCIFParser(BaseParser):
     """mmCIF parser with lazy loading for optimal performance."""
 
     def __init__(
@@ -44,8 +46,7 @@ class MMCIFParser:
         validator_factory: Optional[ValidatorFactory],
         categories: Optional[List[str]] = None,
     ):
-        self.validator_factory = validator_factory
-        self.categories = categories
+        super().__init__(validator_factory, categories)
         self._data_blocks = {}
         self._current_block = None
         self._current_category = None
@@ -59,19 +60,21 @@ class MMCIFParser:
         self._value_counter = 0
         self._file_path: Optional[str] = None
 
-    def parse_file(self, file_path: str) -> MMCIFDataContainer:
+    def parse_file(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """Parse a file using memory mapping with lazy loading."""
-        self._file_path = file_path
+        # Convert Path to string if needed
+        file_path_str = str(file_path)
+        self._file_path = file_path_str
 
         # Check file size first
-        file_size = os.path.getsize(file_path)
+        file_size = os.path.getsize(file_path_str)
 
         # Handle empty files
         if file_size == 0:
             return MMCIFDataContainer({})
         # Use regular file I/O for all files
         # Read entire file at once (faster than line-by-line for medium files)
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path_str, "r", encoding="utf-8") as f:
             content = f.read()
 
         # Split into lines once (faster than readlines())

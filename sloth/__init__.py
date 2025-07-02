@@ -33,7 +33,7 @@ from .loaders import (
     DictToMMCIFConverter,
 )
 from .handler import MMCIFHandler
-from .wrappers import GemmiWrapper
+from .wrappers import GemmiParser, GemmiWriter
 from .validator import ValidatorFactory
 from .schemas import (
     SchemaValidator,
@@ -49,7 +49,8 @@ from .schemas import (
 
 __all__ = [
     "MMCIFHandler",
-    "GemmiWrapper",
+    "GemmiParser",
+    "GemmiWriter",
     "MMCIFParser",
     "MMCIFWriter",
     "MMCIFExporter",
