@@ -10,22 +10,36 @@ from .validator import ValidatorFactory
 class MMCIFHandler:
     """A class to handle reading and writing mmCIF files with efficient memory mapping and lazy loading."""
 
-    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
+    def __init__(self, validator_factory: Optional[ValidatorFactory] = None, use_gemmi: bool = False):
         """
         Initialize the handler with memory mapping and lazy loading always enabled.
 
         :param validator_factory: Optional validator factory for data validation
+        :param use_gemmi: Whether to use gemmi backend for high-performance parsing
         """
         self.validator_factory = validator_factory
+        self.use_gemmi = use_gemmi
         self._parser = None
         self._writer = None
         self._file_obj = None
+        self._gemmi_wrapper = None
+        
+        # Initialize gemmi wrapper if requested
+        if self.use_gemmi:
+            try:
+                from .wrappers import GemmiWrapper
+                self._gemmi_wrapper = GemmiWrapper(validator_factory)
+            except ImportError:
+                raise ImportError(
+                    "gemmi is required when use_gemmi=True. Install with: pip install gemmi"
+                )
 
     def parse(
         self, filename: str, categories: Optional[List[str]] = None
     ) -> MMCIFDataContainer:
         """
         Parses an mmCIF file and returns a data container using memory mapping and lazy loading.
+        If use_gemmi=True, uses gemmi's high-performance C++ parser.
 
         :param filename: The name of the file to parse.
         :type filename: str
@@ -34,20 +48,32 @@ class MMCIFHandler:
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
+        # Use gemmi wrapper if enabled
+        if self.use_gemmi and self._gemmi_wrapper:
+            return self._gemmi_wrapper.parse(filename, categories)
+        
+        # Use regular SLOTH parser
         self._parser = MMCIFParser(self.validator_factory, categories)
         return self._parser.parse_file(filename)
 
     def write(self, mmcif: MMCIFDataContainer) -> None:
         """
         Writes a data container to a file.
+        If use_gemmi=True, uses gemmi's backend for writing.
 
         :param mmcif: The data container to write.
         :type mmcif: MMCIFDataContainer
         :return: None
         """
         if hasattr(self, "_file_obj") and self._file_obj:
-            self._writer = MMCIFWriter()
-            self._writer.write(self._file_obj, mmcif)
+            # Use gemmi wrapper if enabled
+            if self.use_gemmi and self._gemmi_wrapper:
+                self._gemmi_wrapper.file_obj = self._file_obj
+                self._gemmi_wrapper.write(mmcif)
+            else:
+                # Use regular SLOTH writer
+                self._writer = MMCIFWriter()
+                self._writer.write(self._file_obj, mmcif)
         else:
             raise IOError("File is not open for writing")
 

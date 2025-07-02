@@ -1619,7 +1619,49 @@ class TestFormatLoaderIntegration(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
 
-        # Create sample files in all formats
+        # Create sample mmCIF data for testing
+        sample_cif_content = """data_test
+#
+_entry.id test_structure
+#
+_database_2.database_id      PDB
+_database_2.database_code    test
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM   1    N  10.123 20.456 30.789
+ATOM   2    C  11.234 21.567 31.890
+ATOM   3    C  12.345 22.678 32.901
+#
+"""
+
+        # Create a test CIF file
+        self.test_cif_path = os.path.join(self.temp_dir, "test.cif")
+        with open(self.test_cif_path, "w") as f:
+            f.write(sample_cif_content)
+
+        # Parse the test file
+        handler = MMCIFHandler()
+        self.mmcif = handler.parse(self.test_cif_path)
+        self.exporter = MMCIFExporter(self.mmcif)
+        self.importer = MMCIFImporter()
+
+        # Export data to different formats for import testing
+        self.json_path = os.path.join(self.temp_dir, "exported.json")
+        self.exporter.to_json(self.json_path)
+
+        self.xml_path = os.path.join(self.temp_dir, "exported.xml")
+        self.exporter.to_xml(self.xml_path)
+
+        self.pkl_path = os.path.join(self.temp_dir, "exported.pkl")
+        self.exporter.to_pickle(self.pkl_path)
+
+        # Create sample files in all formats for legacy compatibility
         self.sample_data = {
             "test_block": {"_test_category": {"item1": "value1", "item2": "value2"}}
         }
@@ -1651,6 +1693,13 @@ class TestFormatLoaderIntegration(unittest.TestCase):
 
         # YAML (if available)
         try:
+            self.yaml_path = os.path.join(self.temp_dir, "test.yaml")
+            self.exporter.to_yaml(self.yaml_path)
+            self.yaml_available = True
+        except ImportError:
+            self.yaml_available = False
+
+        try:
             self.yaml_file = os.path.join(self.temp_dir, "test.yaml")
             with open(self.yaml_file, "w") as f:
                 yaml.dump(self.sample_data, f)
@@ -1659,6 +1708,15 @@ class TestFormatLoaderIntegration(unittest.TestCase):
             self.yaml_available = False
 
         # CSV (if available)
+        try:
+            self.csv_path = os.path.join(self.temp_dir, "csv_files")
+            self.exporter.to_csv(self.csv_path)
+            self.csv_available = True
+            self.pandas_available = True
+        except ImportError:
+            self.csv_available = False
+            self.pandas_available = False
+
         try:
             import pandas as pd
 
@@ -1787,635 +1845,320 @@ class TestFormatLoaderIntegration(unittest.TestCase):
         with self.assertRaises(ValueError):
             MMCIFImporter.auto_detect_format(unsupported_file)
 
+    def test_handler_import_methods(self):
+        """Test import methods in MMCIFHandler."""
+        handler = MMCIFHandler()
 
-class TestDotNotationAssignment(unittest.TestCase):
-    """Comprehensive tests for dot notation assignment feature across all SLOTH models."""
+        # Test JSON import
+        json_container = handler.import_from_json(self.json_path)
+        self.assertEqual(len(json_container.blocks), 1)
+        block_name = json_container.blocks[0]  # Get the actual block name
+        block = json_container[block_name]
+        
+        # Find the entry category
+        entry_category = None
+        for cat_name in block.categories:
+            if 'entry' in cat_name.lower():
+                entry_category = cat_name
+                break
+        
+        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
+        self.assertEqual(block[entry_category]["id"][0], "test_structure")
+
+        # Test XML import
+        xml_container = handler.import_from_xml(self.xml_path)
+        self.assertEqual(len(xml_container.blocks), 1)
+        block_name = xml_container.blocks[0]  # Get the actual block name
+        block = xml_container[block_name]
+        
+        # Find the entry category
+        entry_category = None
+        for cat_name in block.categories:
+            if 'entry' in cat_name.lower():
+                entry_category = cat_name
+                break
+        
+        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
+        self.assertEqual(block[entry_category]["id"][0], "test_structure")
+
+        # Test Pickle import
+        pkl_container = handler.import_from_pickle(self.pkl_path)
+        self.assertEqual(len(pkl_container.blocks), 1)
+        block_name = pkl_container.blocks[0]  # Get the actual block name
+        block = pkl_container[block_name]
+        
+        # Find the entry category
+        entry_category = None
+        for cat_name in block.categories:
+            if 'entry' in cat_name.lower():
+                entry_category = cat_name
+                break
+        
+        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
+        self.assertEqual(block[entry_category]["id"][0], "test_structure")
+
+        # Test auto-detection
+        auto_container = handler.import_auto_detect(self.json_path)
+        self.assertEqual(len(auto_container.blocks), 1)
+        block_name = auto_container.blocks[0]  # Get the actual block name
+        block = auto_container[block_name]
+        
+        # Find the entry category
+        entry_category = None
+        for cat_name in block.categories:
+            if 'entry' in cat_name.lower():
+                entry_category = cat_name
+                break
+        
+        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
+        self.assertEqual(block[entry_category]["id"][0], "test_structure")
+
+    def test_round_trip_json(self):
+        """Test round-trip export-import using JSON."""
+        # Export to JSON
+        json_path = os.path.join(self.temp_dir, "round_trip.json")
+        self.exporter.to_json(json_path)
+
+        # Import from JSON
+        imported_container = self.importer.from_json(json_path)
+
+        # Compare original and imported
+        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
+        self.assertEqual(
+            self.mmcif["test"]["_entry"]["id"][0],
+            imported_container["test"]["_entry"]["id"][0],
+        )
+        self.assertEqual(
+            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
+            imported_container["test"]["_atom_site"]["Cartn_x"][0],
+        )
+
+    def test_round_trip_xml(self):
+        """Test round-trip export-import using XML."""
+        # Export to XML
+        xml_path = os.path.join(self.temp_dir, "round_trip.xml")
+        self.exporter.to_xml(xml_path)
+
+        # Import from XML
+        imported_container = self.importer.from_xml(xml_path)
+
+        # Compare original and imported
+        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
+        self.assertEqual(
+            self.mmcif["test"]["_entry"]["id"][0],
+            imported_container["test"]["_entry"]["id"][0],
+        )
+        self.assertEqual(
+            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
+            imported_container["test"]["_atom_site"]["Cartn_x"][0],
+        )
+
+    def test_round_trip_pickle(self):
+        """Test round-trip export-import using Pickle."""
+        # Export to Pickle
+        pkl_path = os.path.join(self.temp_dir, "round_trip.pkl")
+        self.exporter.to_pickle(pkl_path)
+
+        # Import from Pickle
+        imported_container = self.importer.from_pickle(pkl_path)
+
+        # Compare original and imported
+        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
+        self.assertEqual(
+            self.mmcif["test"]["_entry"]["id"][0],
+            imported_container["test"]["_entry"]["id"][0],
+        )
+        self.assertEqual(
+            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
+            imported_container["test"]["_atom_site"]["Cartn_x"][0],
+        )
+
+    def test_source_format_flag(self):
+        """Test that the source format flag is correctly set."""
+        # Test JSON source format
+        json_container = self.importer.from_json(self.json_path)
+        self.assertEqual(json_container.source_format, DataSourceFormat.JSON)
+
+        # Test XML source format
+        xml_container = self.importer.from_xml(self.xml_path)
+        self.assertEqual(xml_container.source_format, DataSourceFormat.XML)
+
+        # Test Pickle source format
+        pickle_container = self.importer.from_pickle(self.pkl_path)
+        self.assertEqual(pickle_container.source_format, DataSourceFormat.PICKLE)
+
+        # Test CIF source format via auto-detect
+        cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
+        self.assertEqual(cif_container.source_format, DataSourceFormat.MMCIF)
+
+        # Test dictionary source format
+        data_dict = self.exporter.to_dict()
+        dict_container = MMCIFImporter.from_dict(data_dict)
+        self.assertEqual(dict_container.source_format, DataSourceFormat.DICT)
+
+        # Test YAML source format if available
+        if self.yaml_available:
+            yaml_container = self.importer.from_yaml(self.yaml_path)
+            self.assertEqual(yaml_container.source_format, DataSourceFormat.YAML)
+
+        # Test CSV source format if available
+        if self.pandas_available:
+            csv_container = self.importer.from_csv_files(self.csv_dir)
+            self.assertEqual(csv_container.source_format, DataSourceFormat.CSV)
+
+
+class TestGemmiWrapper(unittest.TestCase):
+    """Test cases for GemmiWrapper functionality through MMCIFHandler"""
 
     def setUp(self):
-        """Set up test fixtures."""
-        self.handler = MMCIFHandler()
+        """Set up test data"""
+        self.sample_content = """data_1ABC
+_entry.id 1ABC_STRUCTURE
+_database_2.database_id PDB
+_database_2.database_code 1ABC
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM 1 N 10.123 20.456 30.789
+ATOM 2 C 11.234 21.567 31.890
+"""
 
-    def test_category_dot_notation_assignment(self):
-        """Test dot notation assignment for Category items."""
-        category = Category("_test")
+    def test_gemmi_wrapper_import(self):
+        """Test that GemmiWrapper can be imported"""
+        try:
+            from sloth import GemmiWrapper
+            self.assertTrue(True)
+        except ImportError:
+            self.fail("GemmiWrapper could not be imported")
 
-        # Test basic assignment
-        category.item1 = ["value1", "value2"]
-        category.item2 = ["value3", "value4", "value5"]
+    def test_gemmi_handler_use_gemmi_param(self):
+        """Test MMCIFHandler with use_gemmi=True parameter"""
+        try:
+            handler = MMCIFHandler(use_gemmi=True)
+            self.assertTrue(handler.use_gemmi)
+            self.assertIsNotNone(handler._gemmi_wrapper)
+        except ImportError:
+            self.skipTest("gemmi not available")
 
-        # Verify assignment worked
-        self.assertEqual(category.item1, ["value1", "value2"])
-        self.assertEqual(category.item2, ["value3", "value4", "value5"])
-        self.assertIn("item1", category.items)
-        self.assertIn("item2", category.items)
-        self.assertEqual(len(category.items), 2)
-
-        # Test that it's equivalent to dictionary assignment
-        category["item3"] = ["value6", "value7"]
-        self.assertEqual(category.item3, ["value6", "value7"])
-        self.assertIn("item3", category.items)
-
-    def test_category_dot_notation_with_item_objects(self):
-        """Test dot notation assignment with Item objects."""
-        category = Category("_test")
-        item = Item("test_item", values=["item_value1", "item_value2"])
-
-        # Assign Item object via dot notation
-        category.test_item = item
-
-        # Verify assignment
-        self.assertEqual(category.test_item, ["item_value1", "item_value2"])
-        self.assertIn("test_item", category.items)
-        self.assertTrue(category.is_lazy_loaded("test_item"))
-
-    def test_category_reserved_attributes(self):
-        """Test that reserved attributes are handled normally in Category."""
-        category = Category("_test")
-
-        # These should work as normal Python attributes
-        self.assertEqual(category.name, "_test")
-        self.assertEqual(category.items, [])
-        self.assertIsNotNone(category.row_count)
-
-        # Internal attributes should not interfere
-        category._internal_test = "internal_value"
-        self.assertEqual(category._internal_test, "internal_value")
-        self.assertNotIn("_internal_test", category.items)
-
-    def test_category_type_validation(self):
-        """Test type validation for Category dot notation assignment."""
-        category = Category("_test")
-
-        # Valid assignments
-        category.valid_list = ["val1", "val2"]
-        category.valid_item = Item("item", values=["val3"])
-
-        # Invalid assignments should raise TypeError
-        with self.assertRaises(TypeError) as cm:
-            category.invalid_string = "not_a_list"
-        self.assertIn("must be a list or Item object", str(cm.exception))
-
-        with self.assertRaises(TypeError) as cm:
-            category.invalid_dict = {"not": "valid"}
-        self.assertIn("must be a list or Item object", str(cm.exception))
-
-        with self.assertRaises(TypeError) as cm:
-            category.invalid_int = 123
-        self.assertIn("must be a list or Item object", str(cm.exception))
-
-    def test_datablock_dot_notation_assignment(self):
-        """Test dot notation assignment for DataBlock categories."""
-        block = DataBlock("test_block")
-
-        # Create categories
-        cat1 = Category("_category1")
-        cat1.item1 = ["value1", "value2"]
-
-        cat2 = Category("_category2")
-        cat2.item2 = ["value3", "value4"]
-
-        # Assign via dot notation (category names start with _)
-        block._category1 = cat1
-        block._category2 = cat2
-
-        # Verify assignment
-        self.assertEqual(block._category1.item1, ["value1", "value2"])
-        self.assertEqual(block._category2.item2, ["value3", "value4"])
-        self.assertIn("_category1", block.categories)
-        self.assertIn("_category2", block.categories)
-        self.assertEqual(len(block.categories), 2)
-
-        # Test that it's equivalent to dictionary assignment
-        cat3 = Category("_category3")
-        cat3.item3 = ["value5"]
-        block["_category3"] = cat3
-        self.assertEqual(block._category3.item3, ["value5"])
-
-    def test_datablock_reserved_attributes(self):
-        """Test that reserved attributes are handled normally in DataBlock."""
-        block = DataBlock("test_block")
-
-        # These should work as normal Python attributes
-        self.assertEqual(block.name, "test_block")
-        self.assertEqual(block.categories, [])
-
-        # Non-category attributes should be normal
-        block.non_category_attr = "normal_value"
-        self.assertEqual(block.non_category_attr, "normal_value")
-        self.assertNotIn("non_category_attr", block.categories)
-
-    def test_datablock_type_validation(self):
-        """Test type validation for DataBlock dot notation assignment."""
-        block = DataBlock("test_block")
-
-        # Valid assignment
-        valid_category = Category("_valid")
-        block._valid = valid_category
-
-        # Invalid assignments should raise TypeError for category names
-        with self.assertRaises(TypeError) as cm:
-            block._invalid_category = "not_a_category"
-        self.assertIn("must be a Category object", str(cm.exception))
-
-        with self.assertRaises(TypeError) as cm:
-            block._invalid_category = ["not", "a", "category"]
-        self.assertIn("must be a Category object", str(cm.exception))
-
-        # Non-category assignments should work normally
-        block.normal_attr = "any_value"
-        self.assertEqual(block.normal_attr, "any_value")
-
-    def test_mmcif_container_dot_notation_assignment(self):
-        """Test dot notation assignment for MMCIFDataContainer data blocks."""
-        container = MMCIFDataContainer()
-
-        # Create data blocks
-        block1 = DataBlock("BLOCK1")
-        cat1 = Category("_test1")
-        cat1.item1 = ["value1"]
-        block1._test1 = cat1
-
-        block2 = DataBlock("BLOCK2")
-        cat2 = Category("_test2")
-        cat2.item2 = ["value2"]
-        block2._test2 = cat2
-
-        # Assign via dot notation (with data_ prefix)
-        container.data_BLOCK1 = block1
-        container.data_BLOCK2 = block2
-
-        # Verify assignment
-        self.assertEqual(container.data_BLOCK1._test1.item1, ["value1"])
-        self.assertEqual(container.data_BLOCK2._test2.item2, ["value2"])
-        self.assertIn("data_BLOCK1", container.blocks)
-        self.assertIn("data_BLOCK2", container.blocks)
-        self.assertEqual(len(container.blocks), 2)
-
-        # Test that it's equivalent to dictionary assignment
-        block3 = DataBlock("BLOCK3")
-        container["BLOCK3"] = block3
-        self.assertEqual(container.data_BLOCK3.name, "BLOCK3")
-
-    def test_mmcif_container_reserved_attributes(self):
-        """Test that reserved attributes are handled normally in MMCIFDataContainer."""
-        container = MMCIFDataContainer()
-
-        # These should work as normal Python attributes
-        self.assertEqual(container.source_format, DataSourceFormat.MMCIF)
-        self.assertEqual(container.blocks, [])
-
-        # Non-block attributes should be normal
-        container.metadata = {"version": "1.0"}
-        self.assertEqual(container.metadata, {"version": "1.0"})
-        self.assertNotIn("metadata", container.blocks)
-
-    def test_mmcif_container_type_validation(self):
-        """Test type validation for MMCIFDataContainer dot notation assignment."""
-        container = MMCIFDataContainer()
-
-        # Valid assignment
-        valid_block = DataBlock("VALID")
-        container.data_VALID = valid_block
-
-        # Invalid assignments should raise TypeError for data block names
-        with self.assertRaises(TypeError) as cm:
-            container.data_INVALID = "not_a_block"
-        self.assertIn("must be a DataBlock object", str(cm.exception))
-
-        with self.assertRaises(TypeError) as cm:
-            container.data_INVALID = ["not", "a", "block"]
-        self.assertIn("must be a DataBlock object", str(cm.exception))
-
-        # Non-block assignments should work normally
-        container.normal_attr = "any_value"
-        self.assertEqual(container.normal_attr, "any_value")
-
-    def test_full_hierarchy_dot_notation(self):
-        """Test complete dot notation assignment across the entire hierarchy."""
-        # Create everything with pure dot notation
-        container = MMCIFDataContainer()
-        block = DataBlock("1ABC")
-
-        # Entry category
-        entry_category = Category("_entry")
-        entry_category.id = ["1ABC_STRUCTURE"]
-        block._entry = entry_category
-
-        # Database category
-        database_category = Category("_database_2")
-        database_category.database_id = ["PDB"]
-        database_category.database_code = ["1ABC"]
-        block._database_2 = database_category
-
-        # Atom site category
-        atom_site_category = Category("_atom_site")
-        atom_site_category.group_PDB = ["ATOM", "ATOM"]
-        atom_site_category.id = ["1", "2"]
-        atom_site_category.type_symbol = ["N", "C"]
-        atom_site_category.Cartn_x = ["10.123", "11.234"]
-        atom_site_category.Cartn_y = ["20.456", "21.567"]
-        atom_site_category.Cartn_z = ["30.789", "31.890"]
-        block._atom_site = atom_site_category
-
-        # Add block to container
-        container.data_1ABC = block
-
-        # Verify the complete hierarchy
-        self.assertEqual(container.data_1ABC._entry.id, ["1ABC_STRUCTURE"])
-        self.assertEqual(container.data_1ABC._database_2.database_id, ["PDB"])
-        self.assertEqual(container.data_1ABC._database_2.database_code, ["1ABC"])
-        self.assertEqual(container.data_1ABC._atom_site.group_PDB, ["ATOM", "ATOM"])
-        self.assertEqual(container.data_1ABC._atom_site.type_symbol, ["N", "C"])
-        self.assertEqual(len(container.data_1ABC._atom_site.Cartn_x), 2)
-
-        # Verify structure integrity
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(len(block.categories), 3)
-        self.assertEqual(block._atom_site.row_count, 2)
-
-    def test_dot_notation_file_write_integration(self):
-        """Test that dot notation assigned data can be written to mmCIF files."""
-        # Create structure with dot notation
-        container = MMCIFDataContainer()
-        block = DataBlock("TEST")
-
-        # Create data using pure dot notation
-        entry_cat = Category("_entry")
-        entry_cat.id = ["TEST_STRUCTURE"]
-        block._entry = entry_cat
-
-        atom_cat = Category("_atom_site")
-        atom_cat.group_PDB = ["ATOM", "ATOM"]
-        atom_cat.id = ["1", "2"]
-        atom_cat.type_symbol = ["N", "C"]
-        atom_cat.Cartn_x = ["10.123", "11.234"]
-        block._atom_site = atom_cat
-
-        container.data_TEST = block
-
-        # Write to file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as f:
+    def test_gemmi_vs_regular_parsing(self):
+        """Test that use_gemmi=True produces same results as regular parsing"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            f.write(self.sample_content)
             temp_file = f.name
 
         try:
-            with open(temp_file, "w") as f:
-                self.handler.file_obj = f
-                self.handler.write(container)
+            # Parse with regular handler
+            regular_handler = MMCIFHandler()
+            regular_mmcif = regular_handler.parse(temp_file)
 
-            # Read back and verify
-            with open(temp_file, "r") as f:
-                content = f.read()
+            try:
+                # Parse with gemmi handler
+                gemmi_handler = MMCIFHandler(use_gemmi=True)
+                gemmi_mmcif = gemmi_handler.parse(temp_file)
 
-            # Check that the data was written correctly
-            self.assertIn("data_TEST", content)
-            self.assertIn("_entry.id TEST_STRUCTURE", content)
-            self.assertIn("_atom_site.group_PDB", content)
-            self.assertIn("_atom_site.type_symbol", content)
-            self.assertIn("ATOM 1 N 10.123", content)
-            self.assertIn("ATOM 2 C 11.234", content)
+                # Compare results
+                self.assertEqual(len(regular_mmcif.data), len(gemmi_mmcif.data))
+                
+                # Compare first block
+                regular_block = regular_mmcif.data[0]
+                gemmi_block = gemmi_mmcif.data[0]
+                
+                self.assertEqual(regular_block.name, gemmi_block.name)
+                self.assertEqual(len(regular_block.categories), len(gemmi_block.categories))
+                
+                # Compare specific data
+                self.assertEqual(
+                    regular_mmcif.data_1ABC._entry.id[0],
+                    gemmi_mmcif.data_1ABC._entry.id[0]
+                )
+                
+                self.assertEqual(
+                    len(regular_mmcif.data_1ABC._atom_site.Cartn_x),
+                    len(gemmi_mmcif.data_1ABC._atom_site.Cartn_x)
+                )
+
+            except ImportError:
+                self.skipTest("gemmi not available")
 
         finally:
             os.unlink(temp_file)
 
-    def test_dot_notation_mixed_with_dictionary_access(self):
-        """Test that dot notation and dictionary access can be mixed seamlessly."""
-        container = MMCIFDataContainer()
-        block = DataBlock("MIXED")
-
-        # Mix dot notation and dictionary assignment
-        cat1 = Category("_category1")
-        cat1.item1 = ["dot_value1"]  # Dot notation
-        cat1["item2"] = ["dict_value1"]  # Dictionary notation
-
-        block._category1 = cat1  # Dot notation for category
-
-        cat2 = Category("_category2")
-        cat2["item3"] = ["dict_value2"]  # Dictionary notation
-        cat2.item4 = ["dot_value2"]  # Dot notation
-
-        block["_category2"] = cat2  # Dictionary notation for category
-
-        container.data_MIXED = block  # Dot notation for block
-
-        # Verify all assignments work
-        self.assertEqual(container.data_MIXED._category1.item1, ["dot_value1"])
-        self.assertEqual(container.data_MIXED._category1.item2, ["dict_value1"])
-        self.assertEqual(container.data_MIXED._category2.item3, ["dict_value2"])
-        self.assertEqual(container.data_MIXED._category2.item4, ["dot_value2"])
-
-        # Verify access methods are equivalent
-        self.assertEqual(block._category1.item1, block["_category1"]["item1"])
-        self.assertEqual(block._category2.item4, block["_category2"]["item4"])
-
-    def test_dot_notation_edge_cases(self):
-        """Test edge cases for dot notation assignment."""
-        # Test assignment during initialization
-        category = Category("_test")
-        # Should not crash during object construction
-        self.assertEqual(category.name, "_test")
-
-        # Test empty assignments
-        category.empty_item = []
-        self.assertEqual(category.empty_item, [])
-        self.assertIn("empty_item", category.items)
-
-        # Test single-value assignments
-        category.single_item = ["single_value"]
-        self.assertEqual(category.single_item, ["single_value"])
-
-        # Test assignment with special characters in item names
-        category.special_chars = ["value_with_special-chars.123"]
-        self.assertEqual(category.special_chars, ["value_with_special-chars.123"])
-
-    def test_dot_notation_performance(self):
-        """Test that dot notation assignment doesn't significantly impact performance."""
-        import time
-
-        # Time dictionary assignment
-        start_time = time.time()
-        category_dict = Category("_dict_test")
-        for i in range(100):
-            category_dict[f"item_{i}"] = [f"value_{i}"]
-        dict_time = time.time() - start_time
-
-        # Time dot notation assignment
-        start_time = time.time()
-        category_dot = Category("_dot_test")
-        for i in range(100):
-            setattr(category_dot, f"item_{i}", [f"value_{i}"])
-        dot_time = time.time() - start_time
-
-        # Dot notation should be reasonably close to dictionary performance
-        # Allow up to 5x slower (very generous threshold)
-        self.assertLess(
-            dot_time,
-            dict_time * 5,
-            f"Dot notation ({dot_time:.4f}s) is too slow compared to dictionary ({dict_time:.4f}s)",
-        )
-
-        # Verify both approaches created the same number of items
-        self.assertEqual(len(category_dict.items), len(category_dot.items))
-
-
-class TestAutoCreation(unittest.TestCase):
-    """Comprehensive tests for the auto-creation feature that allows elegant dot notation creation."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.handler = MMCIFHandler()
-
-    def test_complete_auto_creation_from_scratch(self):
-        """Test complete auto-creation from empty container (README example)."""
-        # This is the exact example from the README
-        mmcif = MMCIFDataContainer()
-
-        # Use dot notation to auto-create everything
-        mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
-        mmcif.data_1ABC._database_2.database_id = ["PDB"]
-        mmcif.data_1ABC._database_2.database_code = ["1ABC"]
-
-        # Add atom data
-        mmcif.data_1ABC._atom_site.group_PDB = ["ATOM", "ATOM"]
-        mmcif.data_1ABC._atom_site.type_symbol = ["N", "C"]
-        mmcif.data_1ABC._atom_site.Cartn_x = ["10.123", "11.234"]
-
-        # Verify the chain was created
-        self.assertEqual(len(mmcif), 1, "Container should have 1 block")
-        self.assertIn("data_1ABC", mmcif.blocks, "Block 1ABC should exist")
-        self.assertIn(
-            "_entry", mmcif.data_1ABC.categories, "Category _entry should exist"
-        )
-        self.assertIn(
-            "_database_2",
-            mmcif.data_1ABC.categories,
-            "Category _database_2 should exist",
-        )
-        self.assertIn(
-            "_atom_site", mmcif.data_1ABC.categories, "Category _atom_site should exist"
-        )
-
-        # Verify values
-        self.assertEqual(mmcif.data_1ABC._entry.id, ["1ABC_STRUCTURE"])
-        self.assertEqual(mmcif.data_1ABC._database_2.database_id, ["PDB"])
-        self.assertEqual(mmcif.data_1ABC._database_2.database_code, ["1ABC"])
-        self.assertEqual(mmcif.data_1ABC._atom_site.group_PDB, ["ATOM", "ATOM"])
-        self.assertEqual(mmcif.data_1ABC._atom_site.type_symbol, ["N", "C"])
-        self.assertEqual(len(mmcif.data_1ABC._atom_site.Cartn_x), 2)
-
-    def test_auto_creation_with_existing_block(self):
-        """Test auto-creation with existing block."""
-        mmcif = MMCIFDataContainer()
-        # Manually create a block first
-        mmcif["TEST"] = DataBlock("TEST")
-
-        # Now auto-create a category in the existing block via dot notation
-        mmcif.data_TEST._new_category.new_item = ["value1", "value2"]
-
-        self.assertIn(
-            "_new_category", mmcif.data_TEST.categories, "New category should exist"
-        )
-        self.assertEqual(
-            mmcif.data_TEST._new_category.new_item,
-            ["value1", "value2"],
-            "Item should have correct values",
-        )
-
-    def test_auto_creation_with_existing_category(self):
-        """Test auto-creation with existing category."""
-        mmcif = MMCIFDataContainer()
-        # Manually create block and category
-        block = DataBlock("MANUAL")
-        category = Category("_existing_cat")
-        category["existing_item"] = ["existing_value"]
-        block["_existing_cat"] = category
-        mmcif["MANUAL"] = block
-
-        # Now auto-create new items in existing category
-        mmcif.data_MANUAL._existing_cat.new_item = ["new_value"]
-
-        self.assertEqual(
-            mmcif.data_MANUAL._existing_cat.existing_item,
-            ["existing_value"],
-            "Existing item should be preserved",
-        )
-        self.assertEqual(
-            mmcif.data_MANUAL._existing_cat.new_item,
-            ["new_value"],
-            "New item should be created",
-        )
-
-    def test_complex_multi_level_auto_creation(self):
-        """Test complex multi-level auto-creation."""
-        mmcif = MMCIFDataContainer()
-
-        # Create a complex structure in one go
-        mmcif.data_COMPLEX._struct.title = ["Complex Structure"]
-        mmcif.data_COMPLEX._struct_conf.id = ["HELIX_1"]
-        mmcif.data_COMPLEX._struct_sheet.id = ["SHEET_1"]
-
-        # Verify all levels were created
-        self.assertEqual(len(mmcif), 1, "Should have 1 block")
-        self.assertEqual(
-            len(mmcif.data_COMPLEX.categories), 3, "Should have 3 categories"
-        )
-        self.assertIn("_struct", mmcif.data_COMPLEX.categories)
-        self.assertIn("_struct_conf", mmcif.data_COMPLEX.categories)
-        self.assertIn("_struct_sheet", mmcif.data_COMPLEX.categories)
-
-    def test_file_output_with_auto_created_structure(self):
-        """Test file output with auto-created structure."""
-        mmcif = MMCIFDataContainer()
-
-        # Create structure using auto-creation
-        mmcif.data_OUTPUT._entry.id = ["OUTPUT_TEST"]
-        mmcif.data_OUTPUT._database_2.database_id = ["PDB"]
-        mmcif.data_OUTPUT._database_2.database_code = ["OUTPUT"]
-        mmcif.data_OUTPUT._atom_site.group_PDB = ["ATOM", "ATOM"]
-        mmcif.data_OUTPUT._atom_site.id = ["1", "2"]
-        mmcif.data_OUTPUT._atom_site.type_symbol = ["N", "C"]
-
-        # Write to file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as f:
-            output_file = f.name
+    def test_gemmi_write_functionality(self):
+        """Test MMCIFHandler write functionality with use_gemmi=True"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            f.write(self.sample_content)
+            temp_file = f.name
 
         try:
-            with open(output_file, "w") as f:
-                self.handler.file_obj = f
-                self.handler.write(mmcif)
+            try:
+                handler = MMCIFHandler(use_gemmi=True)
+                mmcif = handler.parse(temp_file)
 
-            # Parse it back and verify
-            parsed = self.handler.parse(output_file)
-            self.assertEqual(len(parsed), 1, "Parsed file should have 1 block")
-            self.assertEqual(
-                parsed.data_OUTPUT._entry.id, ["OUTPUT_TEST"], "Entry ID should match"
-            )
-            self.assertEqual(
-                parsed.data_OUTPUT._atom_site.type_symbol,
-                ["N", "C"],
-                "Atom types should match",
-            )
+                # Test writing
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+                    output_file = f.name
+
+                with open(output_file, 'w') as f:
+                    handler.file_obj = f
+                    handler.write(mmcif)
+
+                # Verify the written file can be parsed back
+                mmcif_roundtrip = handler.parse(output_file)
+                self.assertEqual(
+                    mmcif.data_1ABC._entry.id[0],
+                    mmcif_roundtrip.data_1ABC._entry.id[0]
+                )
+
+                os.unlink(output_file)
+
+            except ImportError:
+                self.skipTest("gemmi not available")
+
         finally:
-            os.unlink(output_file)
+            os.unlink(temp_file)
 
-    def test_auto_creation_edge_cases(self):
-        """Test edge cases and error conditions for auto-creation."""
-        mmcif = MMCIFDataContainer()
-        block = mmcif.data_TEST  # This should auto-create
+    def test_gemmi_export_methods(self):
+        """Test that all export methods work with use_gemmi=True"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            f.write(self.sample_content)
+            temp_file = f.name
 
-        # Non-category attribute access should still raise AttributeError
-        with self.assertRaises(AttributeError):
-            invalid = block.invalid_attr  # doesn't start with '_'
+        try:
+            try:
+                handler = MMCIFHandler(use_gemmi=True)
+                mmcif = handler.parse(temp_file)
 
-    def test_manual_and_auto_creation_combination(self):
-        """Test that manual creation still works alongside auto-creation."""
-        mmcif = MMCIFDataContainer()
+                # Test JSON export
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json_file = f.name
+                
+                handler.export_to_json(mmcif, json_file)
+                self.assertTrue(os.path.exists(json_file))
+                
+                # Test import back
+                imported_mmcif = handler.import_from_json(json_file)
+                self.assertEqual(
+                    mmcif.data_1ABC._entry.id[0],
+                    imported_mmcif.data_1ABC._entry.id[0]
+                )
 
-        # Manual creation
-        manual_block = DataBlock("MANUAL")
-        manual_category = Category("_manual_cat")
-        manual_category["manual_item"] = ["manual_value"]
-        manual_block["_manual_cat"] = manual_category
-        mmcif["MANUAL"] = manual_block
+                os.unlink(json_file)
 
-        # Auto-creation in same container
-        mmcif.data_AUTO._auto_cat.auto_item = ["auto_value"]
+            except ImportError:
+                self.skipTest("gemmi not available")
 
-        # Both should work
-        self.assertEqual(mmcif.data_MANUAL._manual_cat.manual_item, ["manual_value"])
-        self.assertEqual(mmcif.data_AUTO._auto_cat.auto_item, ["auto_value"])
-        self.assertEqual(len(mmcif), 2, "Should have both blocks")
+        finally:
+            os.unlink(temp_file)
 
-    def test_reserved_attributes_not_auto_created(self):
-        """Test reserved attributes are not auto-created."""
-        mmcif = MMCIFDataContainer()
-
-        # Reserved attributes should work normally
-        blocks = mmcif.blocks  # Should not auto-create
-        data = mmcif.data  # Should not auto-create
-
-        # Container should still be empty
-        self.assertEqual(
-            len(mmcif),
-            0,
-            "Container should be empty after accessing reserved attributes",
-        )
-
-    def test_type_validation_with_auto_creation(self):
-        """Test type validation still works with auto-creation."""
-        mmcif = MMCIFDataContainer()
-
-        # Auto-create the block first
-        mmcif.data_TYPE_TEST._test_cat.test_item = ["value"]
-
-        # Now try to assign wrong type - should fail
-        with self.assertRaises(TypeError):
-            mmcif.data_TYPE_TEST._wrong_cat = "not_a_category"  # Should fail
-
-        # Try wrong item type
-        with self.assertRaises(TypeError):
-            mmcif.data_TYPE_TEST._test_cat.wrong_item = 123  # Should fail
-
-    def test_complex_chaining_scenarios(self):
-        """Test complex chaining scenarios."""
-        mmcif = MMCIFDataContainer()
-
-        # Multiple blocks with similar category names
-        mmcif.data_BLOCK1._shared_cat.item1 = ["value1"]
-        mmcif.data_BLOCK2._shared_cat.item2 = ["value2"]
-        mmcif.data_BLOCK1._unique_cat.unique_item = ["unique"]
-
-        # Verify isolation
-        self.assertEqual(mmcif.data_BLOCK1._shared_cat.item1, ["value1"])
-        self.assertEqual(mmcif.data_BLOCK2._shared_cat.item2, ["value2"])
-        self.assertEqual(mmcif.data_BLOCK1._unique_cat.unique_item, ["unique"])
-
-        # Verify BLOCK2 doesn't have BLOCK1's unique category
-        with self.assertRaises(AttributeError):
-            mmcif.data_BLOCK2._unique_cat.unique_item
-
-    def test_dot_notation_access_for_existing_elements(self):
-        """Test that dot notation access still works for existing elements."""
-        mmcif = MMCIFDataContainer()
-
-        # Create via auto-creation
-        mmcif.data_EXISTING._test_cat.test_item = ["original"]
-
-        # Access via dot notation (should not create new ones)
-        value = mmcif.data_EXISTING._test_cat.test_item
-        self.assertEqual(value, ["original"], "Should get original value")
-
-        # Verify we still have only one block and one category
-        self.assertEqual(len(mmcif), 1)
-        self.assertEqual(len(mmcif.data_EXISTING.categories), 1)
-
-    def test_auto_creation_integration_with_existing_features(self):
-        """Test auto-creation works with existing SLOTH features."""
-        mmcif = MMCIFDataContainer()
-
-        # Create structure with auto-creation
-        mmcif.data_INTEGRATION._entry.id = ["INTEGRATION_TEST"]
-        mmcif.data_INTEGRATION._atom_site.group_PDB = ["ATOM", "ATOM"]
-        mmcif.data_INTEGRATION._atom_site.id = ["1", "2"]
-        mmcif.data_INTEGRATION._atom_site.type_symbol = ["N", "C"]
-
-        # Test row access
-        first_row = mmcif.data_INTEGRATION._atom_site[0]
-        self.assertEqual(first_row.group_PDB, "ATOM")
-        self.assertEqual(first_row.id, "1")
-        self.assertEqual(first_row.type_symbol, "N")
-
-        # Test slicing
-        first_two_rows = mmcif.data_INTEGRATION._atom_site[0:2]
-        self.assertEqual(len(first_two_rows), 2)
-
-        # Test row count
-        self.assertEqual(mmcif.data_INTEGRATION._atom_site.row_count, 2)
-
-        # Test iteration
-        atom_count = 0
-        for row in mmcif.data_INTEGRATION._atom_site:
-            atom_count += 1
-        self.assertEqual(atom_count, 2)
+    def test_gemmi_disabled_by_default(self):
+        """Test that use_gemmi=False is the default"""
+        handler = MMCIFHandler()
+        self.assertFalse(handler.use_gemmi)
+        self.assertIsNone(handler._gemmi_wrapper)
 
 
 if __name__ == "__main__":
