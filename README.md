@@ -90,10 +90,10 @@ print(mmcif.data_1ABC._atom_site.Cartn_x[0])
 The original pure Python implementation is still available:
 
 ```python
-from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+from sloth.legacy import MMCIFParser, MMCIFWriter
 
 # Use legacy parser for compatibility
-legacy_parser = LegacyMMCIFParser()
+legacy_parser = MMCIFParser()
 mmcif = legacy_parser.parse_file("1abc.cif")
 
 # Identical API - same dot notation, same everything!
@@ -148,8 +148,8 @@ If you were explicitly using `use_gemmi=False`:
 handler = MMCIFHandler(use_gemmi=False)  # Pure Python
 
 # After (v0.2.0+) - Use legacy implementation
-from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
-parser = LegacyMMCIFParser()
+from sloth.legacy import MMCIFParser, MMCIFWriter
+parser = MMCIFParser()
 mmcif = parser.parse_file("structure.cif")
 ```
 
@@ -158,17 +158,17 @@ mmcif = parser.parse_file("structure.cif")
 The original pure Python implementation remains available:
 
 ```python
-from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+from sloth.legacy import MMCIFParser, MMCIFWriter
 
 # Identical API to the original implementation
-parser = LegacyMMCIFParser()
+parser = MMCIFParser()
 mmcif = parser.parse_file("structure.cif")
 
 # Same elegant dot notation access
 print(mmcif.data_1ABC._atom_site.Cartn_x[0])
 
 # Same writing functionality
-writer = LegacyMMCIFWriter()
+writer = MMCIFWriter()
 writer.write_file("output.cif", mmcif)
 ```
 

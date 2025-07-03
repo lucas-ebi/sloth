@@ -8,16 +8,16 @@ legacy archive and replaced with gemmi-based implementations for better performa
 The legacy implementations are still available for compatibility and reference purposes.
 
 Usage:
-    from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+    from sloth.legacy import MMCIFParser, MMCIFWriter
     
 Note: The legacy implementations use the same API as the current implementations
 but may have different performance characteristics.
 """
 
-from .parser import MMCIFParser as LegacyMMCIFParser
-from .writer import MMCIFWriter as LegacyMMCIFWriter
+from .parser import MMCIFParser as MMCIFParser
+from .writer import MMCIFWriter as MMCIFWriter
 
 __all__ = [
-    "LegacyMMCIFParser",
-    "LegacyMMCIFWriter",
+    "MMCIFParser",
+    "MMCIFWriter",
 ]

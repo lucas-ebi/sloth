@@ -12,7 +12,7 @@ compatibility and reference purposes.
 
 MIGRATION NOTE (v0.1.x → v0.2.0+): 
 - The `use_gemmi` parameter has been removed from MMCIFHandler as gemmi is now the default
-- For legacy compatibility, use: from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+- For legacy compatibility, use: from sloth.legacy import MMCIFParser, MMCIFWriter
 - All existing code should continue to work with better performance
 - Version 0.2.0+ requires gemmi as a core dependency
 
@@ -111,5 +111,5 @@ __all__ = [
     "VERSION_INFO",
     "MIGRATION_INFO",
     # Note: For legacy implementations, use:
-    # from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+    # from sloth.legacy import MMCIFParser, MMCIFWriter
 ]

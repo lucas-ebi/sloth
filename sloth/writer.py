@@ -40,7 +40,7 @@ class MMCIFWriter(BaseWriter):
         except ImportError:
             raise ImportError(
                 "gemmi is required for MMCIFWriter. Install with: pip install gemmi\n"
-                "Or use the legacy writer: from sloth.legacy import LegacyMMCIFWriter"
+                "Or use the legacy writer: from sloth.legacy import MMCIFWriter"
             )
         
         # Convert SLOTH structure back to gemmi format

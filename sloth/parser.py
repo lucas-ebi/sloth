@@ -54,7 +54,7 @@ class MMCIFParser(BaseParser):
         except ImportError:
             raise ImportError(
                 "gemmi is required for MMCIFParser. Install with: pip install gemmi\n"
-                "Or use the legacy parser: from sloth.legacy import LegacyMMCIFParser"
+                "Or use the legacy parser: from sloth.legacy import MMCIFParser"
             )
         
         # Convert Path to string if needed

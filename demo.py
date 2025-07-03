@@ -873,8 +873,8 @@ def demo_backend_comparison(sample_file):
         # Test legacy handler
         print("\n📊 Legacy MMCIFHandler (pure Python):")
         try:
-            from sloth.legacy import LegacyMMCIFParser
-            legacy_parser = LegacyMMCIFParser(None)
+            from sloth.legacy import MMCIFParser
+            legacy_parser = MMCIFParser(None)
             legacy_mmcif = legacy_parser.parse_file(sample_file)
             legacy_atom_count = len(legacy_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in legacy_mmcif.data[0].categories else 0
             print(f"   Parsed {legacy_atom_count} atoms")

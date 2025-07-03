@@ -2074,11 +2074,11 @@ ATOM 2 C 11.234 21.567 31.890
     def test_legacy_compatibility(self):
         """Test that legacy implementations are still available"""
         try:
-            from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+            from sloth.legacy import MMCIFParser, MMCIFWriter
             
             # Just test that they can be imported and instantiated
-            parser = LegacyMMCIFParser(None)
-            writer = LegacyMMCIFWriter()
+            parser = MMCIFParser(None)
+            writer = MMCIFWriter()
             
             self.assertIsNotNone(parser)
             self.assertIsNotNone(writer)
