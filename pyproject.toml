@@ -9,10 +9,10 @@ description = "SLOTH: Structural Loader with On-demand Traversal Handling - Lazy
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "Lucas", email = "lucas@example.com" }
+    { name = "Lucas", email = "lucas@ebi.ac.uk" }
 ]
 maintainers = [
-    { name = "Lucas", email = "lucas@example.com" }
+    { name = "Lucas", email = "lucas@ebi.ac.uk" }
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

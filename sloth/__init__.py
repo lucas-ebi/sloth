@@ -21,7 +21,7 @@ Version: 0.2.0
 
 __version__ = "0.2.0"
 __author__ = "Lucas"
-__email__ = "lucas@example.com"
+__email__ = "lucas@ebi.ac.uk"
 __license__ = "MIT"
 
 # Version info tuple for programmatic access
