@@ -143,7 +143,9 @@ TEST_STRUCTURE RCSB RCSB
 """
         
         self.handler = MMCIFHandler(validator_factory=None)
-        self.converter = PDBMLConverter()
+        # Pass the dictionary path to enable key extraction
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        self.converter = PDBMLConverter(dictionary_path=dict_path)
         self.temp_dir = tempfile.mkdtemp()
         
         # Create temp file for testing

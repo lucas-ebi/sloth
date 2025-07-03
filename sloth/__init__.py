@@ -75,6 +75,7 @@ from .schemas import (
 )
 from .pdbml_converter import (
     PDBMLConverter,
+    XMLMappingGenerator,
     DictionaryParser,
     RelationshipResolver,
     MMCIFToPDBMLPipeline,
@@ -112,6 +113,7 @@ __all__ = [
     "default_mmcif_json_schema",
     # PDBML Converter components
     "PDBMLConverter",
+    "XMLMappingGenerator", 
     "DictionaryParser", 
     "RelationshipResolver",
     "MMCIFToPDBMLPipeline",

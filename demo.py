@@ -1121,7 +1121,8 @@ primary 'Johnson, K.L.' 2
         
         # Step 2: Convert to PDBML XML
         print(f"\n🔄 Step 2: Converting to PDBML XML")
-        converter = PDBMLConverter()
+        dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        converter = PDBMLConverter(dictionary_path=dict_path)
         xml_content = converter.convert_to_pdbml(container)
         
         print(f"   ✅ XML generated successfully")
