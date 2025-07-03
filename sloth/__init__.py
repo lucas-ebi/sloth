@@ -76,14 +76,6 @@ from .schemas import (
 from .pdbml_converter import (
     PDBMLConverter,
     DictionaryParser,
-    XMLValidator,
-    RelationshipResolver,
-    MMCIFToPDBMLPipeline,
-)
-from .pdbml_converter import (
-    PDBMLConverter,
-    DictionaryParser,
-    XMLValidator,
     RelationshipResolver,
     MMCIFToPDBMLPipeline,
 )
@@ -121,7 +113,6 @@ __all__ = [
     # PDBML Converter components
     "PDBMLConverter",
     "DictionaryParser", 
-    "XMLValidator",
     "RelationshipResolver",
     "MMCIFToPDBMLPipeline",
     # Version information

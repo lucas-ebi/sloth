@@ -23,7 +23,7 @@ from sloth import (
     ValidationError,
     PDBMLConverter,
     DictionaryParser,
-    XMLValidator,
+    XMLSchemaValidator,
     RelationshipResolver,
     MMCIFToPDBMLPipeline,
     MMCIFParser,
@@ -1135,8 +1135,11 @@ primary 'Johnson, K.L.' 2
         errors = []
         
         if schema_path.exists():
-            validator = XMLValidator(schema_path)
-            is_valid, errors = validator.validate(xml_content)
+            validator = XMLSchemaValidator(schema_path)
+            validation_result = validator.validate(xml_content)
+            
+            is_valid = validation_result["valid"]
+            errors = validation_result.get("errors", [])
             
             print(f"   {'✅' if is_valid else '⚠️'} Validation: {'PASSED' if is_valid else 'FAILED'}")
             print(f"   📝 Total errors: {len(errors)}")

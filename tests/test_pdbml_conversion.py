@@ -25,7 +25,7 @@ from sloth import (
     PDBMLConverter,
     RelationshipResolver, 
     MMCIFToPDBMLPipeline,
-    XMLValidator,
+    XMLSchemaValidator,
     DictionaryParser
 )
 from sloth.models import MMCIFDataContainer, DataBlock, Category
@@ -503,7 +503,7 @@ ATOM 2 C 11.234 21.567 31.890
             import shutil
             shutil.rmtree(self.temp_dir)
             
-    @patch('sloth.pdbml_converter.XMLValidator')
+    @patch('sloth.pdbml_converter.XMLSchemaValidator')
     def test_complete_pipeline_execution(self, mock_validator_class):
         """Test complete pipeline from mmCIF to nested JSON."""
         # Mock the validator to avoid XSD dependency

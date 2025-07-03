@@ -6,11 +6,12 @@ supported by SLOTH. It enables validation of imported data before conversion to 
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Type, TypeVar
+from typing import Any, Dict, Optional, Type, TypeVar, Union
 from enum import Enum, auto
 import os
 import re
 import json
+from pathlib import Path
 from .models import DataSourceFormat
 
 
@@ -194,12 +195,12 @@ class JSONSchemaValidator(SchemaValidator):
 class XMLSchemaValidator(SchemaValidator):
     """Schema validator for XML data."""
 
-    def __init__(self, xsd_schema: str):
+    def __init__(self, xsd_schema: Union[str, Path]):
         """
         Initialize with an XSD schema.
 
         Args:
-            xsd_schema: XSD schema as string or file path
+            xsd_schema: XSD schema as string, file path, or Path object
         """
         self.xsd_schema = xsd_schema
 
@@ -216,7 +217,17 @@ class XMLSchemaValidator(SchemaValidator):
 
         # Parse schema during initialization
         try:
-            if isinstance(self.xsd_schema, str) and os.path.exists(self.xsd_schema):
+            # Handle Path objects from pathlib
+            if isinstance(self.xsd_schema, Path):
+                # Convert Path to string for compatibility
+                if self.xsd_schema.exists():
+                    with open(self.xsd_schema, "rb") as f:
+                        schema_bytes = f.read()
+                    self.schema_doc = self._etree.fromstring(schema_bytes)
+                else:
+                    raise FileNotFoundError(f"XSD schema file not found: {self.xsd_schema}")
+            # Handle string paths
+            elif isinstance(self.xsd_schema, str) and os.path.exists(self.xsd_schema):
                 # It's a file path - let lxml handle encoding
                 with open(self.xsd_schema, "rb") as f:
                     schema_bytes = f.read()
@@ -236,12 +247,12 @@ class XMLSchemaValidator(SchemaValidator):
             self.schema = None
             self.schema_error = str(e)
 
-    def validate(self, data: Any) -> ValidationResult:
+    def validate(self, data: Union[str, Path, Any]) -> ValidationResult:
         """
         Validate XML data against XSD schema.
 
         Args:
-            data: XML data to validate (string, bytes, ElementTree, or Element)
+            data: XML data to validate (string, Path object, bytes, ElementTree, or Element)
 
         Returns:
             ValidationResult containing validation outcome
@@ -257,9 +268,24 @@ class XMLSchemaValidator(SchemaValidator):
                 )
 
             # Parse XML data
-            if isinstance(data, str):
-                # String input - encode to bytes first
-                xml_doc = self._etree.fromstring(data.encode("utf-8"))
+            if isinstance(data, Path):
+                # Path object - check if it exists and read it
+                if data.exists():
+                    with open(data, "rb") as f:
+                        xml_bytes = f.read()
+                    xml_doc = self._etree.fromstring(xml_bytes)
+                else:
+                    raise FileNotFoundError(f"XML file not found: {data}")
+            elif isinstance(data, str):
+                # Check if it's a file path
+                if os.path.exists(data):
+                    # It's a file path
+                    with open(data, "rb") as f:
+                        xml_bytes = f.read()
+                    xml_doc = self._etree.fromstring(xml_bytes)
+                else:
+                    # String input - encode to bytes first
+                    xml_doc = self._etree.fromstring(data.encode("utf-8"))
             elif isinstance(data, bytes):
                 # Already bytes - parse directly
                 xml_doc = self._etree.fromstring(data)
@@ -292,7 +318,15 @@ class XMLSchemaValidator(SchemaValidator):
                 return False
 
             # Parse XML data
-            if isinstance(data, str):
+            if isinstance(data, Path):
+                # Path object - check if it exists and read it
+                if data.exists():
+                    with open(data, "rb") as f:
+                        xml_bytes = f.read()
+                    xml_doc = self._etree.fromstring(xml_bytes)
+                else:
+                    return False
+            elif isinstance(data, str):
                 # String input - encode to bytes first
                 xml_doc = self._etree.fromstring(data.encode("utf-8"))
             elif isinstance(data, bytes):
