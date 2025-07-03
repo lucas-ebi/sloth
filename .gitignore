@@ -166,3 +166,5 @@ csv_output_dir/
 # handler.*
 test.cif
 *.txt
+*_backup.py
+debug_*.py

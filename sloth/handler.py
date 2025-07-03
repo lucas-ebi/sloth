@@ -5,21 +5,18 @@ from .exporter import MMCIFExporter
 from .loaders import MMCIFImporter
 from .models import MMCIFDataContainer, DataSourceFormat
 from .validator import ValidatorFactory
-from .wrappers import GemmiParser, GemmiWriter
 
 
 class MMCIFHandler:
-    """A class to handle reading and writing mmCIF files with efficient memory mapping and lazy loading."""
+    """A class to handle reading and writing mmCIF files with high-performance gemmi backend."""
 
-    def __init__(self, validator_factory: Optional[ValidatorFactory] = None, use_gemmi: bool = False):
+    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
         """
-        Initialize the handler with memory mapping and lazy loading always enabled.
+        Initialize the handler with gemmi backend for optimal performance.
 
         :param validator_factory: Optional validator factory for data validation
-        :param use_gemmi: Whether to use gemmi backend for high-performance parsing
         """
         self.validator_factory = validator_factory
-        self.use_gemmi = use_gemmi
         self._parser = None
         self._writer = None
         self._file_obj = None
@@ -28,8 +25,7 @@ class MMCIFHandler:
         self, filename: str, categories: Optional[List[str]] = None
     ) -> MMCIFDataContainer:
         """
-        Parses an mmCIF file and returns a data container using memory mapping and lazy loading.
-        If use_gemmi=True, uses gemmi's high-performance C++ parser.
+        Parses an mmCIF file and returns a data container using gemmi's high-performance backend.
 
         :param filename: The name of the file to parse.
         :type filename: str
@@ -38,32 +34,19 @@ class MMCIFHandler:
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
-        # Use gemmi wrapper if enabled
-        if self.use_gemmi:
-            self._parser = GemmiParser(self.validator_factory, categories)
-        else:
-            self._parser = MMCIFParser(self.validator_factory, categories)
-        
+        self._parser = MMCIFParser(self.validator_factory, categories)
         return self._parser.parse_file(filename)
 
     def write(self, mmcif: MMCIFDataContainer) -> None:
         """
-        Writes a data container to a file.
-        If use_gemmi=True, uses gemmi's backend for writing.
+        Writes a data container to a file using gemmi's high-performance backend.
 
         :param mmcif: The data container to write.
         :type mmcif: MMCIFDataContainer
         :return: None
         """
         if hasattr(self, "_file_obj") and self._file_obj:
-            # Use gemmi wrapper if enabled
-            if self.use_gemmi:
-                self._writer = GemmiWriter()
-            else:
-                # Use regular SLOTH writer
-                self._writer = MMCIFWriter()
-            
-            # Both writers now have the same interface
+            self._writer = MMCIFWriter()
             self._writer.write(self._file_obj, mmcif)
         else:
             raise IOError("File is not open for writing")

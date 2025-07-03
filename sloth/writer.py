@@ -1,72 +1,111 @@
+"""
+SLOTH mmCIF Writer - High-Performance Gemmi Backend
+
+This module provides the main MMCIFWriter class that uses gemmi as the backend
+for optimal performance while maintaining the same elegant SLOTH API.
+
+The original pure Python implementation has been moved to sloth.legacy.writer
+for compatibility and reference purposes.
+"""
+
 from typing import IO
-from .models import MMCIFDataContainer, Category
+from .models import MMCIFDataContainer, DataBlock
 from .common import BaseWriter
 
 
 class MMCIFWriter(BaseWriter):
-    """A class to write an mmCIF data container to a file."""
-
+    """
+    High-performance mmCIF writer using gemmi backend with SLOTH's elegant API.
+    
+    This writer uses gemmi's optimized C++ backend for fast writing while
+    maintaining the exact same API as the original SLOTH writer.
+    """
+    
+    def __init__(self):
+        """Initialize the MMCIFWriter with gemmi backend."""
+        pass
+        
     def write(self, file_obj: IO, mmcif: MMCIFDataContainer) -> None:
-        try:
-            for data_block in mmcif:
-                file_obj.write(f"data_{data_block.name}\n")
-                file_obj.write("#\n")
-                # Use categories property to get prefixed category names for mmCIF output
-                for category_name in data_block.categories:
-                    category = data_block.data[category_name]
-                    if isinstance(category, Category):
-                        self._write_category(file_obj, category_name, category)
-                        file_obj.write("#\n")
-        except IOError as e:
-            print(f"Error writing to file: {e}")
-
-    def _write_category(
-        self, file_obj: IO, category_name: str, category: Category
-    ) -> None:
         """
-        Writes a category to a file.
-
-        :param file_obj: The file object to write to.
+        Write SLOTH data structure to file using gemmi backend
+        
+        :param file_obj: The file object to write to
         :type file_obj: IO
-        :param category_name: The name of the category.
-        :type category_name: str
-        :param category: The category to write.
-        :type category: Category
+        :param mmcif: SLOTH MMCIFDataContainer
+        :type mmcif: MMCIFDataContainer
         :return: None
         """
-        # Get all data (this will force loading of lazy items)
-        items = category.data
-
-        if any(len(values) > 1 for values in items.values()):
-            file_obj.write("loop_\n")
-            for item_name in items.keys():
-                file_obj.write(f"{category_name}.{item_name}\n")
-            for row in zip(*items.values()):
-                formatted_row = [self._format_value(value) for value in row]
-                file_obj.write(f"{''.join(formatted_row)}\n".replace("\n\n", "\n"))
-        else:
-            for item_name, values in items.items():
-                for value in values:
-                    formatted_value = self._format_value(value)
-                    file_obj.write(f"{category_name}.{item_name} {formatted_value}\n")
-
-    @staticmethod
-    def _format_value(value: str) -> str:
-        """
-        Formats a value for writing to a file.
-
-        :param value: The value to format.
-        :type value: str
-        :return: The formatted value.
-        :rtype: str
-        """
-        if "\n" in value or value.startswith(" ") or value.startswith(";"):
-            return f"\n;{value.strip()}\n;\n"
-        if (
-            " " in value
-            or value.startswith("_")
-            or value.startswith("'")
-            or value.startswith('"')
-        ):
-            return f"'{value}' "
-        return f"{value} "
+        try:
+            import gemmi
+        except ImportError:
+            raise ImportError(
+                "gemmi is required for MMCIFWriter. Install with: pip install gemmi\n"
+                "Or use the legacy writer: from sloth.legacy import LegacyMMCIFWriter"
+            )
+        
+        # Convert SLOTH structure back to gemmi format
+        doc = gemmi.cif.Document()
+        
+        for sloth_block in mmcif:
+            gemmi_block = self._convert_sloth_block_to_gemmi(sloth_block)
+            gemmi_block.name = sloth_block.name
+            doc.add_copied_block(gemmi_block)
+        
+        # Write to file object
+        content = doc.as_string()
+        file_obj.write(content)
+    
+    def _convert_sloth_block_to_gemmi(self, sloth_block: DataBlock):
+        """Convert SLOTH DataBlock back to gemmi format"""
+        try:
+            import gemmi
+        except ImportError:
+            raise ImportError(
+                "gemmi is required for MMCIFWriter. Install with: pip install gemmi"
+            )
+        
+        gemmi_block = gemmi.cif.Block(sloth_block.name)
+        
+        # Iterate through categories properly
+        for category_name in sloth_block.categories:
+            sloth_category = sloth_block[category_name]
+            
+            # Skip if category has no items
+            if not hasattr(sloth_category, 'items') or not sloth_category.items:
+                continue
+                
+            # Get all values and determine max length
+            item_values = []
+            field_names = list(sloth_category.items)
+            
+            for field_name in field_names:
+                values = sloth_category[field_name]  # This uses __getitem__ which returns the list
+                item_values.append(values)
+            
+            if not item_values:
+                continue
+                
+            max_length = max(len(values) for values in item_values)
+            
+            if max_length > 1:
+                # Create a loop - need full tag names for gemmi
+                full_tag_names = [f"{category_name}.{field_name}" for field_name in field_names]
+                loop = gemmi_block.init_loop("", full_tag_names)
+                
+                # Add rows
+                for i in range(max_length):
+                    row = []
+                    for values in item_values:
+                        if i < len(values):
+                            row.append(str(values[i]))
+                        else:
+                            row.append('.')
+                    loop.add_row(row)
+            else:
+                # Add as single items
+                for field_name, values in zip(field_names, item_values):
+                    tag = f"{category_name}.{field_name}"
+                    value = str(values[0]) if values else '.'
+                    gemmi_block.set_pair(tag, value)
+        
+        return gemmi_block

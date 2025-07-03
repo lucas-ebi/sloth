@@ -3,7 +3,7 @@
 SLOTH Demo - Lazy by design. Fast by default.
 
 Demonstrates parsing, validation, modification, and writing of mmCIF files
-using SLOTH's ultra-simple API that's automatically optimized for performance.
+using SLOTH's ultra-simple API with high-performance gemmi backend.
 """
 
 import argparse
@@ -12,7 +12,6 @@ import json
 import copy
 from sloth import (
     MMCIFHandler,
-    GemmiParser, GemmiWriter,  # High-performance gemmi backend components
     ValidatorFactory,
     DataSourceFormat,
     SchemaValidator,
@@ -856,62 +855,63 @@ def demonstrate_auto_creation():
         return None
 
 
-def demo_gemmi_comparison(sample_file):
-    """Demonstrate gemmi vs regular handler comparison"""
-    print("\n🔬 Handler Comparison - Gemmi vs Regular")
+def demo_backend_comparison(sample_file):
+    """Demonstrate current gemmi backend vs legacy implementation"""
+    print("\n🔬 Handler Comparison - Gemmi Backend vs Legacy")
     print("=" * 50)
     
     try:
-        # Test regular handler
-        print("📊 Regular MMCIFHandler:")
-        regular_handler = MMCIFHandler()
-        regular_mmcif = regular_handler.parse(sample_file)
-        regular_atom_count = len(regular_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in regular_mmcif.data[0].categories else 0
-        print(f"   Parsed {regular_atom_count} atoms")
-        if regular_atom_count > 0:
-            print(f"   API: mmcif.data[0]._atom_site.Cartn_x[0] = {regular_mmcif.data[0]._atom_site.Cartn_x[0]}")
+        # Test current handler (gemmi backend)
+        print("⚡ MMCIFHandler (gemmi backend - default):")
+        current_handler = MMCIFHandler()
+        current_mmcif = current_handler.parse(sample_file)
+        current_atom_count = len(current_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in current_mmcif.data[0].categories else 0
+        print(f"   Parsed {current_atom_count} atoms")
+        if current_atom_count > 0:
+            print(f"   API: mmcif.data[0]._atom_site.Cartn_x[0] = {current_mmcif.data[0]._atom_site.Cartn_x[0]}")
         
-        # Test gemmi handler
-        print("\n⚡ MMCIFHandler with use_gemmi=True:")
+        # Test legacy handler
+        print("\n📊 Legacy MMCIFHandler (pure Python):")
         try:
-            gemmi_handler = MMCIFHandler(use_gemmi=True)
-            gemmi_mmcif = gemmi_handler.parse(sample_file)
-            gemmi_atom_count = len(gemmi_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in gemmi_mmcif.data[0].categories else 0
-            print(f"   Parsed {gemmi_atom_count} atoms")
-            if gemmi_atom_count > 0:
-                print(f"   API: mmcif.data[0]._atom_site.Cartn_x[0] = {gemmi_mmcif.data[0]._atom_site.Cartn_x[0]}")
+            from sloth.legacy import LegacyMMCIFParser
+            legacy_parser = LegacyMMCIFParser(None)
+            legacy_mmcif = legacy_parser.parse_file(sample_file)
+            legacy_atom_count = len(legacy_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in legacy_mmcif.data[0].categories else 0
+            print(f"   Parsed {legacy_atom_count} atoms")
+            if legacy_atom_count > 0:
+                print(f"   API: mmcif.data[0]._atom_site.Cartn_x[0] = {legacy_mmcif.data[0]._atom_site.Cartn_x[0]}")
             
             # Verify identical results
-            if regular_atom_count == gemmi_atom_count:
+            if current_atom_count == legacy_atom_count:
                 print("   ✅ Identical atom counts!")
             else:
                 print("   ⚠️ Different atom counts")
                 
-            if (regular_atom_count > 0 and gemmi_atom_count > 0 and 
-                regular_mmcif.data[0]._atom_site.Cartn_x[0] == gemmi_mmcif.data[0]._atom_site.Cartn_x[0]):
+            if (current_atom_count > 0 and legacy_atom_count > 0 and 
+                current_mmcif.data[0]._atom_site.Cartn_x[0] == legacy_mmcif.data[0]._atom_site.Cartn_x[0]):
                 print("   ✅ Identical first coordinate!")
-            elif regular_atom_count > 0 and gemmi_atom_count > 0:
+            elif current_atom_count > 0 and legacy_atom_count > 0:
                 print("   ⚠️ Different first coordinates")
             
             # Test write functionality
-            print("\n📝 Testing write functionality with gemmi...")
-            with open("gemmi_write_test.cif", 'w') as f:
-                gemmi_handler.file_obj = f
-                gemmi_handler.write(gemmi_mmcif)
+            print("\n📝 Testing write functionality with gemmi backend...")
+            with open("current_write_test.cif", 'w') as f:
+                current_handler.file_obj = f
+                current_handler.write(current_mmcif)
             print("   ✅ Successfully wrote file using gemmi backend")
             
             # Verify round-trip
-            mmcif_roundtrip = gemmi_handler.parse("gemmi_write_test.cif")
-            if mmcif_roundtrip.data[0]._entry.id[0] == gemmi_mmcif.data[0]._entry.id[0]:
+            mmcif_roundtrip = current_handler.parse("current_write_test.cif")
+            if mmcif_roundtrip.data[0]._entry.id[0] == current_mmcif.data[0]._entry.id[0]:
                 print(f"   ✅ Round-trip test: {mmcif_roundtrip.data[0]._entry.id[0]}")
             
             # Clean up
-            if os.path.exists("gemmi_write_test.cif"):
-                os.remove("gemmi_write_test.cif")
+            if os.path.exists("current_write_test.cif"):
+                os.remove("current_write_test.cif")
                 
         except ImportError:
-            print("   ❌ gemmi not available")
-            print("   To use gemmi backend, install with: pip install gemmi")
+            print("   ❌ Legacy parser not available")
+            print("   This should not happen as legacy is included by default")
             
     except Exception as e:
         print(f"   ❌ Error in comparison: {e}")
@@ -940,7 +940,6 @@ Examples:
     )
     # Removed --schema-validate flag as it's always included in demo mode
     parser.add_argument("--demo", action="store_true", help="Run demo with sample data")
-    parser.add_argument("--use-gemmi", action="store_true", help="Use gemmi backend for high-performance parsing")
 
     args = parser.parse_args()
 
@@ -949,9 +948,9 @@ Examples:
         print("🦥 SLOTH Demo")
         print("Lazy by design. Fast by default.")
         print("=" * 40)
-        print("💡 NEW: Gemmi backend available for high-performance parsing!")
-        print("   Use: MMCIFHandler(use_gemmi=True)")
-        print("   Same API, potentially faster with gemmi backend")
+        print("⚡ Now using gemmi backend by default for high-performance parsing!")
+        print("   Same elegant API, optimal performance")
+        print("   Legacy implementations available in sloth.legacy")
         print()
 
         sample_file = demo_with_sample_file()
@@ -976,11 +975,9 @@ Examples:
 
     # Setup handler
     validator_factory = ValidatorFactory() if args.validate else None
-    use_gemmi = hasattr(args, 'use_gemmi') and args.use_gemmi
-    handler = MMCIFHandler(validator_factory=validator_factory, use_gemmi=use_gemmi)
+    handler = MMCIFHandler(validator_factory=validator_factory)
     
-    if use_gemmi:
-        print("⚡ Using gemmi backend for high-performance parsing")
+    print("⚡ Using gemmi backend for high-performance parsing")
 
     try:
         # Parse the file
@@ -1060,7 +1057,7 @@ Examples:
         
         # Demonstrate gemmi comparison in demo mode
         if args.demo:
-            demo_gemmi_comparison(args.input)
+            demo_backend_comparison(args.input)
 
         # Demonstrate round-trip validation for each imported format
         for format_name, imported_container in imported_containers.items():

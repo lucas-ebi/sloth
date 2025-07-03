@@ -105,11 +105,9 @@ class TestMMCIFWriter(unittest.TestCase):
     def test_write_file(self, mock_file):
         with open("dummy.cif", "w") as f:
             self.writer.write(f, self.mmcif)
-        mock_file().write.assert_any_call("data_7XJP\n")
-        mock_file().write.assert_any_call("#\n")
-        mock_file().write.assert_any_call("_database_2.database_id PDB \n")
-        mock_file().write.assert_any_call("_database_2.database_code 7XJP \n")
-        mock_file().write.assert_any_call("#\n")
+        # Check that the complete content was written in one call
+        expected_content = "data_7XJP\n_database_2.database_id PDB\n_database_2.database_code 7XJP\n"
+        mock_file().write.assert_called_with(expected_content)
 
 
 class TestMMCIFHandler(unittest.TestCase):
@@ -160,11 +158,9 @@ _database_2.database_code    7XJP
         with open("dummy.cif", "w") as f:
             self.handler.file_obj = f
             self.handler.write(mmcif)
-        mock_file().write.assert_any_call("data_7XJP\n")
-        mock_file().write.assert_any_call("#\n")
-        mock_file().write.assert_any_call("_database_2.database_id PDB \n")
-        mock_file().write.assert_any_call("_database_2.database_code 7XJP \n")
-        mock_file().write.assert_any_call("#\n")
+        # Check that the complete content was written in one call
+        expected_content = "data_7XJP\n_database_2.database_id PDB\n_database_2.database_code 7XJP\n"
+        mock_file().write.assert_called_with(expected_content)
 
 
 class TestValidatorFactory(unittest.TestCase):
@@ -402,10 +398,10 @@ _atom_site.Cartn_y
 _atom_site.Cartn_z
 _atom_site.occupancy
 _atom_site.B_iso_or_equiv
-ATOM   1    N  N   20.154 6.718  22.746
-ATOM   2    C  CA  21.618 6.756  22.530
-ATOM   3    C  C   22.097 8.130  22.050
-ATOM   4    O  O   21.346 8.963  21.523
+ATOM   1    N  N   1  20.154 6.718  22.746  1.00  25.00
+ATOM   2    C  CA  2  21.618 6.756  22.530  1.00  26.00
+ATOM   3    C  C   3  22.097 8.130  22.050  1.00  27.00
+ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
 #
 """
         # Create temporary file
@@ -472,7 +468,7 @@ ATOM   4    O  O   21.346 8.963  21.523
         # Create larger test content for performance testing
         large_content = self.test_mmcif_content
         for i in range(100):  # Add more atom records
-            large_content += f"ATOM   {i+5}    C  CB  {20.0+i} {6.0+i}  {22.0+i}\n"
+            large_content += f"ATOM   {i+5}    C  CB  {i+5}  {20.0+i} {6.0+i}  {22.0+i}  1.00  {25.0+i}\n"
         large_content += "#\n"
 
         # Write to temp file
@@ -2007,8 +2003,8 @@ ATOM   3    C  12.345 22.678 32.901
             self.assertEqual(csv_container.source_format, DataSourceFormat.CSV)
 
 
-class TestGemmiWrapper(unittest.TestCase):
-    """Test cases for GemmiWrapper functionality through MMCIFHandler"""
+class TestDefaultBackend(unittest.TestCase):
+    """Test cases for default gemmi backend functionality"""
 
     def setUp(self):
         """Set up test data"""
@@ -2027,139 +2023,68 @@ ATOM 1 N 10.123 20.456 30.789
 ATOM 2 C 11.234 21.567 31.890
 """
 
-    def test_gemmi_wrapper_import(self):
-        """Test that GemmiParser and GemmiWriter can be imported"""
+    def test_default_backend_parsing(self):
+        """Test that default backend works correctly"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            f.write(self.sample_content)
+            temp_file = f.name
+
         try:
-            from sloth import GemmiParser, GemmiWriter
-            self.assertTrue(True)
+            handler = MMCIFHandler()
+            mmcif = handler.parse(temp_file)
+            
+            # Test basic functionality
+            self.assertEqual(len(mmcif.data), 1)
+            self.assertEqual(mmcif.data_1ABC._entry.id[0], "1ABC_STRUCTURE")
+            self.assertEqual(len(mmcif.data_1ABC._atom_site.Cartn_x), 2)
+            
+        finally:
+            os.unlink(temp_file)
+
+    def test_default_backend_write_functionality(self):
+        """Test write functionality with default backend"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+            f.write(self.sample_content)
+            temp_file = f.name
+
+        try:
+            handler = MMCIFHandler()
+            mmcif = handler.parse(temp_file)
+
+            # Test writing
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
+                output_file = f.name
+
+            with open(output_file, 'w') as f:
+                handler.file_obj = f
+                handler.write(mmcif)
+
+            # Verify the written file can be parsed back
+            mmcif_roundtrip = handler.parse(output_file)
+            self.assertEqual(
+                mmcif.data_1ABC._entry.id[0],
+                mmcif_roundtrip.data_1ABC._entry.id[0]
+            )
+
+            os.unlink(output_file)
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_legacy_compatibility(self):
+        """Test that legacy implementations are still available"""
+        try:
+            from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+            
+            # Just test that they can be imported and instantiated
+            parser = LegacyMMCIFParser(None)
+            writer = LegacyMMCIFWriter()
+            
+            self.assertIsNotNone(parser)
+            self.assertIsNotNone(writer)
+            
         except ImportError:
-            self.fail("GemmiParser and GemmiWriter could not be imported")
-
-    def test_gemmi_handler_use_gemmi_param(self):
-        """Test MMCIFHandler with use_gemmi=True parameter"""
-        try:
-            handler = MMCIFHandler(use_gemmi=True)
-            self.assertTrue(handler.use_gemmi)
-            # Just check that the use_gemmi flag is set correctly
-            # There's no _gemmi_wrapper anymore since we're now using parser and writer directly
-        except ImportError:
-            self.skipTest("gemmi not available")
-
-    def test_gemmi_vs_regular_parsing(self):
-        """Test that use_gemmi=True produces same results as regular parsing"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-            f.write(self.sample_content)
-            temp_file = f.name
-
-        try:
-            # Parse with regular handler
-            regular_handler = MMCIFHandler()
-            regular_mmcif = regular_handler.parse(temp_file)
-
-            try:
-                # Parse with gemmi handler
-                gemmi_handler = MMCIFHandler(use_gemmi=True)
-                gemmi_mmcif = gemmi_handler.parse(temp_file)
-
-                # Compare results
-                self.assertEqual(len(regular_mmcif.data), len(gemmi_mmcif.data))
-                
-                # Compare first block
-                regular_block = regular_mmcif.data[0]
-                gemmi_block = gemmi_mmcif.data[0]
-                
-                self.assertEqual(regular_block.name, gemmi_block.name)
-                self.assertEqual(len(regular_block.categories), len(gemmi_block.categories))
-                
-                # Compare specific data
-                self.assertEqual(
-                    regular_mmcif.data_1ABC._entry.id[0],
-                    gemmi_mmcif.data_1ABC._entry.id[0]
-                )
-                
-                self.assertEqual(
-                    len(regular_mmcif.data_1ABC._atom_site.Cartn_x),
-                    len(gemmi_mmcif.data_1ABC._atom_site.Cartn_x)
-                )
-
-            except ImportError:
-                self.skipTest("gemmi not available")
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_gemmi_write_functionality(self):
-        """Test MMCIFHandler write functionality with use_gemmi=True"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-            f.write(self.sample_content)
-            temp_file = f.name
-
-        try:
-            try:
-                handler = MMCIFHandler(use_gemmi=True)
-                mmcif = handler.parse(temp_file)
-
-                # Test writing
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-                    output_file = f.name
-
-                with open(output_file, 'w') as f:
-                    handler.file_obj = f
-                    handler.write(mmcif)
-
-                # Verify the written file can be parsed back
-                mmcif_roundtrip = handler.parse(output_file)
-                self.assertEqual(
-                    mmcif.data_1ABC._entry.id[0],
-                    mmcif_roundtrip.data_1ABC._entry.id[0]
-                )
-
-                os.unlink(output_file)
-
-            except ImportError:
-                self.skipTest("gemmi not available")
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_gemmi_export_methods(self):
-        """Test that all export methods work with use_gemmi=True"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-            f.write(self.sample_content)
-            temp_file = f.name
-
-        try:
-            try:
-                handler = MMCIFHandler(use_gemmi=True)
-                mmcif = handler.parse(temp_file)
-
-                # Test JSON export
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                    json_file = f.name
-                
-                handler.export_to_json(mmcif, json_file)
-                self.assertTrue(os.path.exists(json_file))
-                
-                # Test import back
-                imported_mmcif = handler.import_from_json(json_file)
-                self.assertEqual(
-                    mmcif.data_1ABC._entry.id[0],
-                    imported_mmcif.data_1ABC._entry.id[0]
-                )
-
-                os.unlink(json_file)
-
-            except ImportError:
-                self.skipTest("gemmi not available")
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_gemmi_disabled_by_default(self):
-        """Test that use_gemmi=False is the default"""
-        handler = MMCIFHandler()
-        self.assertFalse(handler.use_gemmi)
-        # Just check that the use_gemmi flag is set correctly by default
+            self.fail("Legacy implementations should be available")
 
 
 if __name__ == "__main__":
