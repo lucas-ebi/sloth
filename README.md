@@ -1,4 +1,4 @@
-# SLOTH – Structural Loader with On-demand Traversal Handling
+# SLOTH – *S*tructural *L*oader with *O*n-demand *T*raversal *H*andling
 
 > *Lazy by design. Fast by default.*
 
@@ -25,7 +25,7 @@
 7. [Data Creation](#data-creation)
 8. [Import and Export](#import-and-export)
 9. [Validation](#validation)
-10. [CLI Usage](#cli-usage)
+10. [CLI Usage](#example-cli-usage)
 11. [Migration to Gemmi Backend](#migration-to-gemmi-backend)
 12. [Legacy Support](#legacy-support)
 13. [Performance and Architecture](#performance-and-architecture)
@@ -38,7 +38,7 @@
 
 ## Overview
 
-**SLOTH** (*Structural Loader with On-demand Traversal Handling*) is a fast, flexible mmCIF parser designed for structural biology workflows. Built on the C++ [gemmi](https://gemmi.readthedocs.io/) backend, SLOTH performs eager parsing and lazy object construction, making it efficient for both large-scale pipelines and interactive exploration.
+**SLOTH** (***S**tructural **L**oader with **O**n-demand **T**raversal **H**andling*) is a fast, flexible mmCIF parser designed for structural biology workflows. Built on the C++ [gemmi](https://gemmi.readthedocs.io/) backend, SLOTH performs eager parsing and lazy object construction, making it efficient for both large-scale pipelines and interactive exploration.
 
 ---
 
@@ -54,8 +54,8 @@
 
 ## Philosophy
 
-> *"Why rush when you can be lazy?"*
-> *Parse eagerly. Construct lazily. Access quickly.*
+> *"Why rush when you can be lazy?"*  
+> *"Parse eagerly. Construct lazily. Access quickly."*
 
 SLOTH is unapologetically Pythonic:
 
@@ -330,5 +330,5 @@ MIT License — use freely, modify responsibly.
 
 ## Closing Notes
 
-> SLOTH is not just a parser — it’s a mindset.
+> SLOTH is not just a parser — it’s a mindset.  
 > Pythonic. Lazy. Elegant. Fast.
