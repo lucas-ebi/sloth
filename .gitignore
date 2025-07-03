@@ -168,3 +168,14 @@ test.cif
 *.txt
 *_backup.py
 debug_*.py
+*_output/*
+*_analysis.py
+*_analysis.json
+sample_*
+# comprehensive_xml_mapping_rules.json
+fix_*.py
+
+# Documentation files
+PDBML_IMPLEMENTATION_ANALYSIS.md
+COMPREHENSIVE_DICTIONARY_ANALYSIS.md
+MAPPING_RULES_INTEGRATION_PLAN.md

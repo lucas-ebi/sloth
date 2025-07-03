@@ -73,6 +73,20 @@ from .schemas import (
     SchemaValidatorFactory,
     default_mmcif_json_schema,
 )
+from .pdbml_converter import (
+    PDBMLConverter,
+    DictionaryParser,
+    XMLValidator,
+    RelationshipResolver,
+    MMCIFToPDBMLPipeline,
+)
+from .pdbml_converter import (
+    PDBMLConverter,
+    DictionaryParser,
+    XMLValidator,
+    RelationshipResolver,
+    MMCIFToPDBMLPipeline,
+)
 
 __all__ = [
     "MMCIFHandler",
@@ -104,6 +118,12 @@ __all__ = [
     "ValidationSeverity",
     "SchemaValidatorFactory",
     "default_mmcif_json_schema",
+    # PDBML Converter components
+    "PDBMLConverter",
+    "DictionaryParser", 
+    "XMLValidator",
+    "RelationshipResolver",
+    "MMCIFToPDBMLPipeline",
     # Version information
     "__version__",
     "__author__",
