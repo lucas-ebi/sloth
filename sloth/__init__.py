@@ -3,13 +3,41 @@ SLOTH: Structural Loader with On-demand Traversal Handling
 
 Lazy by design. Fast by default.
 
-A memory-mapped, lazily-loaded mmCIF parser written in pure Python.  
-It loads what you need, when you need it — no more, no less.
+A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
+Now using gemmi as the default backend for optimal performance while maintaining
+the exact same API.
 
-Built in Python. No templates. No regrets.
+The original pure Python implementation has been moved to sloth.legacy for
+compatibility and reference purposes.
+
+MIGRATION NOTE (v0.1.x → v0.2.0+): 
+- The `use_gemmi` parameter has been removed from MMCIFHandler as gemmi is now the default
+- For legacy compatibility, use: from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
+- All existing code should continue to work with better performance
+- Version 0.2.0+ requires gemmi as a core dependency
+
+Version: 0.2.0
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+__author__ = "Lucas"
+__email__ = "lucas@example.com"
+__license__ = "MIT"
+
+# Version info tuple for programmatic access
+VERSION_INFO = tuple(map(int, __version__.split('.')))
+
+# Migration information
+MIGRATION_INFO = {
+    "from_version": "0.1.x",
+    "to_version": "0.2.0+",
+    "breaking_changes": [
+        "use_gemmi parameter removed (gemmi is now default)",
+        "gemmi is now a required dependency",
+    ],
+    "compatibility": "Full backward compatibility maintained",
+    "legacy_access": "sloth.legacy module for original implementation"
+}
 
 from .models import (
     MMCIFDataContainer,
@@ -33,7 +61,6 @@ from .loaders import (
     DictToMMCIFConverter,
 )
 from .handler import MMCIFHandler
-from .wrappers import GemmiParser, GemmiWriter
 from .validator import ValidatorFactory
 from .schemas import (
     SchemaValidator,
@@ -49,8 +76,7 @@ from .schemas import (
 
 __all__ = [
     "MMCIFHandler",
-    "GemmiParser",
-    "GemmiWriter",
+    # Main components now use gemmi backend by default
     "MMCIFParser",
     "MMCIFWriter",
     "MMCIFExporter",
@@ -78,5 +104,12 @@ __all__ = [
     "ValidationSeverity",
     "SchemaValidatorFactory",
     "default_mmcif_json_schema",
+    # Version information
     "__version__",
+    "__author__",
+    "__license__",
+    "VERSION_INFO",
+    "MIGRATION_INFO",
+    # Note: For legacy implementations, use:
+    # from sloth.legacy import LegacyMMCIFParser, LegacyMMCIFWriter
 ]

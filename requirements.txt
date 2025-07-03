@@ -2,10 +2,10 @@
 msgpack
 jsonschema>=4.20.0
 
+# High-performance mmCIF parsing backend
+gemmi>=0.6.0
+
 # Optional dependencies for MMCIFExporter
 pyyaml>=6.0
 pandas>=1.0.0
 lxml>=5.0.0  # Required for XML schema validation
-
-# Optional dependencies for GemmiHandler (high-performance parsing)
-# gemmi>=0.6.0  # Uncomment to enable GemmiHandler
