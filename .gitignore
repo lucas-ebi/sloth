@@ -4,6 +4,7 @@
 
 # Demo files
 *.cif
+enum_demo.py
 
 # Project specific
 demo*.cif
@@ -44,6 +45,7 @@ sample_*
 PDBML_IMPLEMENTATION_ANALYSIS.md
 COMPREHENSIVE_DICTIONARY_ANALYSIS.md
 MAPPING_RULES_INTEGRATION_PLAN.md
+ENUM_REFACTORING_SUMMARY.md
 xml_mapping_generator.py
 
 # =============================================================================

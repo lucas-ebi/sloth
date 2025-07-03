@@ -25,6 +25,12 @@ from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
 from .validator import ValidatorFactory
 from .schemas import XMLSchemaValidator
+from .pdbml_enums import (
+    XMLLocation, ElementOnlyItem, AtomSiteDefault, AnisotropicParam,
+    ProblematicField, NullValue, SpecialAttribute, ValidationRule,
+    get_element_only_items, get_atom_site_defaults, get_anisotropic_defaults,
+    get_problematic_field_replacement, is_null_value
+)
 
 
 # Global cache for dictionary parsing results - shared across instances
@@ -804,7 +810,7 @@ class XMLMappingGenerator:
         """Implementation of XML location determination"""
         # Extract category and item parts
         if '.' not in item_name:
-            return "element_content"
+            return XMLLocation.ELEMENT_CONTENT.value
             
         category_part, item_part = item_name.split('.', 1)
         category_name = category_part.lstrip('_')
@@ -813,25 +819,16 @@ class XMLMappingGenerator:
         if category_name in self.categories:
             keys = self.categories[category_name].get('keys', [])
             if item_part in keys:
-                return "attribute"
+                return XMLLocation.ATTRIBUTE.value
                 
         # Special rules for known categories
-        element_only_categories = {
-            'atom_site': [
-                'type_symbol', 'label_atom_id', 'label_comp_id', 'comp_id',
-                'B_equiv_geom_mean', 'B_iso_or_equiv', 'Cartn_x', 'Cartn_y', 'Cartn_z',
-                'calc_flag', 'footnote_id', 'adp_type', 'label_asym_id', 'label_entity_id',
-                'label_seq_id', 'occupancy', 'U_iso_or_equiv'
-            ],
-            'pdbx_database_status': ['entry_id', 'deposit_site', 'process_site']
-        }
+        element_only_items = get_element_only_items(category_name)
         
-        if category_name in element_only_categories:
-            if item_part in element_only_categories[category_name]:
-                return "element_content"
+        if element_only_items and item_part in element_only_items:
+            return XMLLocation.ELEMENT_CONTENT.value
                 
         # Default to element for most cases
-        return "element_content"
+        return XMLLocation.ELEMENT_CONTENT.value
         
     def _generate_element_requirements(self) -> Dict[str, List[str]]:
         """Generate element requirements mapping"""
@@ -885,59 +882,13 @@ class XMLMappingGenerator:
         """Generate default values mapping"""
         default_values = {}
         
-        # Special comprehensive defaults for atom_site category
-        atom_site_defaults = {
-            "adp_type": "Biso",
-            "B_iso_or_equiv": "0.0",
-            "B_iso_or_equiv_esd": "0.0",
-            "Cartn_x_esd": "0.0",
-            "Cartn_y_esd": "0.0", 
-            "Cartn_z_esd": "0.0",
-            "U_iso_or_equiv": "0.0",
-            "U_iso_or_equiv_esd": "0.0",
-            "B_equiv_geom_mean": "0.0",
-            "B_equiv_geom_mean_esd": "0.0",
-            "U_equiv_geom_mean": "0.0",
-            "U_equiv_geom_mean_esd": "0.0",
-            "Wyckoff_symbol": "a",
-            "label_entity_id": "1",
-            "label_seq_id": "1",
-            "occupancy": "1.0",
-            "occupancy_esd": "0.0",
-            "pdbx_PDB_atom_name": "N",
-            "pdbx_PDB_ins_code": ".",
-            "pdbx_PDB_model_num": "1",
-            "pdbx_PDB_residue_name": "MET",
-            "pdbx_PDB_residue_no": "1",
-            "pdbx_PDB_strand_id": "A",
-            "calc_flag": "calc",
-            "footnote_id": "1",
-            # Required anisotropic thermal parameters to satisfy XML schema (both B and U factors)
-            "aniso_B11": "0.0",
-            "aniso_B11_esd": "0.0",
-            "aniso_B12": "0.0",
-            "aniso_B12_esd": "0.0",
-            "aniso_B13": "0.0",
-            "aniso_B13_esd": "0.0",
-            "aniso_B22": "0.0",
-            "aniso_B22_esd": "0.0",
-            "aniso_B23": "0.0",
-            "aniso_B23_esd": "0.0",
-            "aniso_B33": "0.0",
-            "aniso_B33_esd": "0.0",
-            "aniso_U11": "0.0",
-            "aniso_U11_esd": "0.0",
-            "aniso_U12": "0.0",
-            "aniso_U12_esd": "0.0",
-            "aniso_U13": "0.0",
-            "aniso_U13_esd": "0.0",
-            "aniso_U22": "0.0",
-            "aniso_U22_esd": "0.0",
-            "aniso_U23": "0.0",
-            "aniso_U23_esd": "0.0",
-            "aniso_U33": "0.0",
-            "aniso_U33_esd": "0.0",
-            # Required PDB author-provided fields to satisfy XML schema
+        # Get comprehensive defaults for atom_site category using Enum classes
+        atom_site_defaults = {}
+        atom_site_defaults.update(get_atom_site_defaults())
+        atom_site_defaults.update(get_anisotropic_defaults())
+        
+        # Add additional required fields not covered in the base defaults
+        additional_defaults = {
             "aniso_ratio": "1.0",
             "attached_hydrogens": "0",
             "auth_asym_id": "A",
@@ -948,7 +899,6 @@ class XMLMappingGenerator:
             "chemical_conn_number": "0",
             "constraints": ".",
             "details": ".",
-            # Required fractional coordinates and disorder fields
             "disorder_assembly": ".",
             "disorder_group": ".",
             "fract_x": "0.0",
@@ -960,6 +910,7 @@ class XMLMappingGenerator:
             "label_alt_id": ".",
             "label_asym_id": "A"
         }
+        atom_site_defaults.update(additional_defaults)
         
         default_values["atom_site"] = atom_site_defaults
         
@@ -1059,42 +1010,17 @@ class XMLMappingGenerator:
                 "struct": {"xml_type": "simple_element", "key_attributes": ["_struct.entry_id"]}
             },
             "element_requirements": {
-                "atom_site": ["type_symbol", "label_comp_id", "calc_flag", "footnote_id"],
-                "pdbx_database_status": ["entry_id", "deposit_site", "process_site"]
+                "atom_site": get_element_only_items("atom_site"),
+                "pdbx_database_status": get_element_only_items("pdbx_database_status")
             },
             "attribute_requirements": {
                 "exptl": ["method", "entry_id"]
             },
             "default_values": {
                 "atom_site": {
-                    "adp_type": "Biso",
-                    "B_iso_or_equiv": "0.0",
-                    "label_entity_id": "1",
-                    "label_seq_id": "1",
-                    "occupancy": "1.0",
-                    "occupancy_esd": "0.0",
-                    "pdbx_PDB_atom_name": "N",
-                    "pdbx_PDB_ins_code": ".",
-                    "pdbx_PDB_model_num": "1",
-                    "pdbx_PDB_residue_name": "MET",
-                    "pdbx_PDB_residue_no": "1",
-                    "pdbx_PDB_strand_id": "A",
-                    "calc_flag": "calc",
-                    "footnote_id": "1",
-                    # Required anisotropic thermal parameters to satisfy XML schema
-                    "aniso_B11": "0.0",
-                    "aniso_B11_esd": "0.0",
-                    "aniso_B12": "0.0",
-                    "aniso_B12_esd": "0.0",
-                    "aniso_B13": "0.0",
-                    "aniso_B13_esd": "0.0",
-                    "aniso_B22": "0.0",
-                    "aniso_B22_esd": "0.0",
-                    "aniso_B23": "0.0",
-                    "aniso_B23_esd": "0.0",
-                    "aniso_B33": "0.0",
-                    "aniso_B33_esd": "0.0",
-                    # Required PDB author-provided fields to satisfy XML schema
+                    **get_atom_site_defaults(),
+                    **get_anisotropic_defaults(),
+                    # Additional required fields not covered in base defaults
                     "aniso_ratio": "1.0",
                     "attached_hydrogens": "0",
                     "auth_asym_id": "A",
@@ -1105,7 +1031,6 @@ class XMLMappingGenerator:
                     "chemical_conn_number": "0",
                     "constraints": ".",
                     "details": ".",
-                    # Required fractional coordinates and disorder fields  
                     "disorder_assembly": ".",
                     "disorder_group": ".",
                     "fract_x": "0.0",
@@ -1620,18 +1545,9 @@ class PDBMLConverter:
                 if key_items:
                     print(f"🔄 Using mapping rules keys for {category_name}: {key_items}")
                 else:
-                    # Final fallback for essential categories
-                    essential_keys = {
-                        "_entry": ["id"],
-                        "_citation": ["id"],
-                        "_atom_site": ["id"],
-                        "_entity": ["id"],
-                        "_atom_type": ["symbol"],
-                        "_chem_comp": ["id"],
-                        "_struct": ["entry_id"],
-                        "_struct_asym": ["id"]
-                    }
-                    key_items = essential_keys.get(category_name, [])
+                    # Final fallback for essential categories using Enum
+                    from .pdbml_enums import EssentialKey
+                    key_items = EssentialKey.get_keys(category_name)
                     if key_items:
                         print(f"🔄 Using essential fallback keys for {category_name}: {key_items}")
                         
@@ -1661,15 +1577,12 @@ class PDBMLConverter:
                     row_elem.set("database_id", "PDB")
                 
                 # Add special required attributes that must not be elements
-                required_attributes = {
-                    "exptl": ["method", "entry_id"],
-                    "pdbx_database_status": ["entry_id"]
-                    # atom_site fields like type_symbol and comp_id must be elements, not attributes
-                }
+                from .pdbml_enums import RequiredAttribute
+                required_attrs_for_category = RequiredAttribute.get_required_attrs(pdbml_category_name)
                 
                 # Handle special attribute requirements for this category
-                if pdbml_category_name in required_attributes:
-                    for attr_name in required_attributes[pdbml_category_name]:
+                if required_attrs_for_category:
+                    for attr_name in required_attrs_for_category:
                         if attr_name in data and row_idx < len(data[attr_name]) and attr_name not in added_attrs:
                             cleaned_value = self._clean_field_value(str(data[attr_name][row_idx]), attr_name)
                             if cleaned_value:  # Only add non-empty values
@@ -1749,23 +1662,10 @@ class PDBMLConverter:
                     # Get required elements from mapping rules with fallback to hardcoded values
                     required_elements = self._get_default_values_from_mapping("_atom_site")
                     
-                    # If no mapping rules available, use minimal fallback
+                    # If no mapping rules available, use minimal fallback from Enum
                     if not required_elements:
-                        required_elements = {
-                            "adp_type": "Biso",
-                            "B_iso_or_equiv": "0.0",
-   # Final essential elements for schema compliance
-                        "label_entity_id": "1",
-                        "label_seq_id": "1", 
-                        "occupancy": "1.0",
-                        "occupancy_esd": "0.0",
-                        "pdbx_PDB_atom_name": "N",
-                        "pdbx_PDB_ins_code": ".",
-                        "pdbx_PDB_model_num": "1",
-                        "pdbx_PDB_residue_name": "MET",
-                        "pdbx_PDB_residue_no": "1",
-                        "pdbx_PDB_strand_id": "A"
-                    }
+                        from .pdbml_enums import ValidationRule
+                        required_elements = ValidationRule.get_atom_site_required_elements()
                     
                     for elem_name, default_value in required_elements.items():
                         if not any(child.tag.endswith(elem_name) for child in row_elem):
@@ -1774,28 +1674,17 @@ class PDBMLConverter:
                     
                     # Make sure required anisotropic thermal parameters are present
                     # The XML schema requires at least one of these anisotropic B-factor elements
-                    aniso_params = ["aniso_B11", "aniso_B12", "aniso_B13", "aniso_B22", "aniso_B23", "aniso_B33"]
-                    has_any_aniso = any(any(child.tag.endswith(param) for child in row_elem) for param in aniso_params)
+                    # Check B-factor parameters using Enum
+                    from .pdbml_enums import AnisotropicParam
+                    b_factor_params = AnisotropicParam.get_b_factor_params()
+                    has_any_aniso = any(any(child.tag.endswith(param) for child in row_elem) for param in b_factor_params)
                     
                     if not has_any_aniso:
                         # Add minimal required anisotropic thermal parameters to satisfy schema
                         print(f"🔧 Adding required anisotropic B-factor parameters to satisfy XML schema")
-                        aniso_elements = {
-                            "aniso_B11": "0.0",
-                            "aniso_B11_esd": "0.0", 
-                            "aniso_B12": "0.0",
-                            "aniso_B12_esd": "0.0",
-                            "aniso_B13": "0.0", 
-                            "aniso_B13_esd": "0.0",
-                            "aniso_B22": "0.0",
-                            "aniso_B22_esd": "0.0",
-                            "aniso_B23": "0.0",
-                            "aniso_B23_esd": "0.0",
-                            "aniso_B33": "0.0",
-                            "aniso_B33_esd": "0.0"
-                        }
+                        aniso_defaults = get_anisotropic_defaults()
                         
-                        for elem_name, default_value in aniso_elements.items():
+                        for elem_name, default_value in aniso_defaults.items():
                             if not any(child.tag.endswith(elem_name) for child in row_elem):
                                 elem = ET.SubElement(row_elem, elem_name)
                                 elem.text = default_value
@@ -1859,7 +1748,8 @@ class PDBMLConverter:
         
         try:
             # Remove surrounding quotes for certain fields that should be raw values
-            numeric_fields = {'year', 'journal_volume', 'page_first', 'page_last', 'ordinal'}
+            from .pdbml_enums import NumericField, get_numeric_fields
+            numeric_fields = get_numeric_fields()
             if field_name in numeric_fields and value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
             
@@ -1868,34 +1758,13 @@ class PDBMLConverter:
                 value = value[1:-1]
             
             # Special case for null values represented in mmCIF
-            if value == '?' or value == '.':
+            if is_null_value(value):
                 return ""
             
-            # Special handling for known problematic fields
-            # pdbx_formal_charge needs special handling because it must be an integer, not '?' or '.'
-            if field_name == 'pdbx_formal_charge':
-                if value in ['?', '.', '', "''", '""']:
-                    return "0"  # PDBML schema requires integer, not ?
-            
-            # Special handling for calc_flag (needed for tests)
-            if field_name == 'calc_flag':
-                if value in ['?', '.', '', "''", '""']:
-                    return "calc"  # Default value to avoid empty element
-            
-            # Other problematic fields with specific replacements
-            problematic_fields = {
-                'status_code_sf': ('?', None),  # Skip entirely if value is ?
-                'status_code_mr': ('?', None),  # Skip entirely if value is ?
-                'label_seq_id': ('?', '1'),     # Use 1 as default
-                'footnote_id': ('.', '1')       # Use 1 as default
-            }
-            
-            if field_name in problematic_fields:
-                bad_val, replacement = problematic_fields[field_name]
-                if value == bad_val and replacement is None:
-                    return ""  # Skip this field
-                elif value == bad_val:
-                    value = replacement
+            # Handle problematic fields using Enum classes
+            replacement = get_problematic_field_replacement(field_name, value)
+            if replacement != value:
+                return replacement
                 
             # Remove/replace invalid XML characters
             # Replace control chars except for whitespace (\n, \t, etc.)
