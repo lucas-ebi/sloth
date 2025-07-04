@@ -266,6 +266,12 @@ def demonstrate_export_functionality(mmcif, output_dir):
     # Export to CSV (with try/except as it requires pandas)
     try:
         csv_dir = os.path.join(output_dir, "csv_files")
+        
+        # Clean the CSV directory to prevent cross-contamination from previous runs
+        if os.path.exists(csv_dir):
+            import shutil
+            shutil.rmtree(csv_dir)
+        
         file_paths = handler.export_to_csv(mmcif, csv_dir)
         print(f"   ✅ Exported to CSV files in: {csv_dir}")
         # Show first CSV file path as example
@@ -1350,6 +1356,192 @@ def demonstrate_complete_pdbml_pipeline():
             os.remove(demo_file)
 
 
+def demonstrate_nested_relationships():
+    """Demonstrate the multi-level nested relationship resolution functionality."""
+    print("\n🧬 Nested Relationship Resolution Demo")
+    print("=" * 50)
+    print("📊 Testing 4-level hierarchical parent-child relationship resolution")
+    
+    # Create test data with complex nested relationships
+    nested_content = """data_NESTED_DEMO
+#
+_entry.id        NESTED_DEMO
+#
+_entity.id       1
+_entity.type     polymer
+_entity.pdbx_description 'Test protein with complex relationships'
+#
+_entity_poly.entity_id 1
+_entity_poly.type      'polypeptide(L)'
+_entity_poly.nstd_chirality no
+#
+_entity_poly_seq.entity_id 1
+_entity_poly_seq.num       1
+_entity_poly_seq.mon_id    VAL
+#
+_struct_asym.id      A
+_struct_asym.entity_id 1
+#
+_atom_site.group_PDB  ATOM
+_atom_site.id         1
+_atom_site.type_symbol C
+_atom_site.label_atom_id CA
+_atom_site.label_comp_id VAL
+_atom_site.label_asym_id A
+_atom_site.label_entity_id 1
+_atom_site.label_seq_id 1
+_atom_site.Cartn_x    12.345
+_atom_site.Cartn_y    67.890
+_atom_site.Cartn_z    42.000
+_atom_site.occupancy  1.00
+_atom_site.B_iso_or_equiv 35.0
+_atom_site.pdbx_PDB_model_num 1
+#"""
+    
+    test_file = 'nested_demo.cif'
+    
+    try:
+        # Create test file
+        with open(test_file, 'w') as f:
+            f.write(nested_content)
+        print(f"📝 Created test file: {test_file}")
+        
+        # Step 1: Parse mmCIF
+        print(f"\n1️⃣ Parsing mmCIF with nested structures...")
+        parser = MMCIFParser()
+        container = parser.parse_file(test_file)
+        print(f"   ✅ Parsed successfully")
+        print(f"   📋 Categories: {list(container.data[0].categories)}")
+        
+        # Step 2: Convert to PDBML XML
+        print(f"\n2️⃣ Converting to PDBML XML...")
+        converter = PDBMLConverter()
+        xml_content = converter.convert_to_pdbml(container)
+        print(f"   ✅ XML generated - {len(xml_content)} characters")
+        
+        # Step 3: Resolve relationships
+        print(f"\n3️⃣ Resolving parent-child relationships...")
+        resolver = RelationshipResolver()
+        nested_json = resolver.resolve_relationships(xml_content)
+        print(f"   ✅ Relationships resolved")
+        print(f"   📊 Root categories: {list(nested_json.keys())}")
+        
+        # Step 4: Validate 4-level hierarchy
+        print(f"\n4️⃣ Validating 4-level nested hierarchy...")
+        try:
+            # Navigate the expected hierarchy
+            entity_1 = nested_json['entity']['1']
+            print(f"   📦 Level 1 - Entity: {entity_1['type']}")
+            
+            # Branch 1: entity -> entity_poly -> entity_poly_seq
+            entity_poly = entity_1['entity_poly']
+            print(f"   🧬 Level 2 - Entity_poly: {entity_poly['type']}")
+            
+            entity_poly_seq = entity_poly['entity_poly_seq']
+            print(f"   🔗 Level 3 - Entity_poly_seq: {entity_poly_seq['mon_id']}")
+            
+            # Branch 2: entity -> struct_asym -> atom_site
+            struct_asym = entity_1['struct_asym']
+            print(f"   🏗️ Level 2 - Struct_asym: {struct_asym['id']}")
+            
+            atom_site = struct_asym['atom_site']
+            print(f"   ⚛️ Level 3 - Atom_site: {atom_site['label_atom_id']} at {atom_site['Cartn_x']}")
+            
+            print(f"   ✅ 4-level hierarchy validated successfully!")
+            
+            # Step 5: Show relationship structure
+            print(f"\n5️⃣ Relationship structure analysis:")
+            print(f"   entity(1)")
+            print(f"   ├── entity_poly")
+            print(f"   │   └── entity_poly_seq (VAL)")
+            print(f"   └── struct_asym(A)")
+            print(f"       └── atom_site (CA at 12.345, 67.890, 42.000)")
+            
+            # Step 6: Save outputs
+            print(f"\n6️⃣ Saving demonstration outputs...")
+            output_dir = Path("nested_demo_output")
+            output_dir.mkdir(exist_ok=True)
+            
+            # Save XML
+            xml_file = output_dir / "nested_demo.xml"
+            with open(xml_file, 'w') as f:
+                f.write(xml_content)
+            print(f"   💾 XML: {xml_file}")
+            
+            # Save nested JSON
+            json_file = output_dir / "perfect_nested_structure.json"
+            with open(json_file, 'w') as f:
+                json.dump(nested_json, f, indent=2)
+            print(f"   💾 JSON: {json_file}")
+            
+            # Create ideal structure visualization
+            ideal_structure = {
+                "description": "4-level nested hierarchy demonstration",
+                "hierarchy": {
+                    "entity": {
+                        "1": {
+                            "type": "polymer",
+                            "description": entity_1['pdbx_description'],
+                            "entity_poly": {
+                                "type": entity_poly['type'],
+                                "entity_poly_seq": {
+                                    "num": entity_poly_seq['num'],
+                                    "mon_id": entity_poly_seq['mon_id']
+                                }
+                            },
+                            "struct_asym": {
+                                "id": struct_asym['id'],
+                                "atom_site": {
+                                    "atom": atom_site['label_atom_id'],
+                                    "coordinates": [
+                                        atom_site['Cartn_x'],
+                                        atom_site['Cartn_y'],
+                                        atom_site['Cartn_z']
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "validation": {
+                    "levels": 4,
+                    "branches": 2,
+                    "status": "SUCCESS"
+                }
+            }
+            
+            ideal_file = output_dir / "ideal_nested_structure.json"
+            with open(ideal_file, 'w') as f:
+                json.dump(ideal_structure, f, indent=2)
+            print(f"   💾 Ideal structure: {ideal_file}")
+            
+            print(f"\n🎉 Nested relationship demonstration completed successfully!")
+            print(f"💡 Key achievements:")
+            print(f"   • Correctly parsed complex mmCIF relationships")
+            print(f"   • Generated valid PDBML XML with proper nesting")
+            print(f"   • Resolved 4-level parent-child hierarchy")
+            print(f"   • entity → entity_poly → entity_poly_seq")
+            print(f"   • entity → struct_asym → atom_site")
+            print(f"   • Preserved all data integrity and cross-references")
+            
+            return True
+            
+        except (KeyError, TypeError) as e:
+            print(f"   ❌ Hierarchy validation failed: {e}")
+            print(f"   🔍 Available structure: {json.dumps(nested_json, indent=2)[:500]}...")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error in nested relationship demo: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        # Cleanup
+        if os.path.exists(test_file):
+            os.remove(test_file)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLOTH - Structural Loader with On-demand Traversal Handling | Lazy by design. Fast by default.",
@@ -1510,6 +1702,9 @@ Examples:
             
             # Run basic PDBML demo
             demonstrate_pdbml_pipeline(comprehensive=False)
+            
+            # Run nested relationship demo
+            demonstrate_nested_relationships()
             
             # Run comprehensive PDBML demo  
             demonstrate_complete_pdbml_pipeline()

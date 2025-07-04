@@ -2204,12 +2204,23 @@ class RelationshipResolver:
         # First, identify parent-child relationships
         relationships = self._identify_relationships(categories)
         
-        # Build the nested structure
-        for category_name, items in categories.items():
-            if category_name not in relationships.get('children', {}):
-                # This is a root category
-                nested[category_name] = self._nest_category_items(
-                    category_name, items, categories, relationships
+        print(f"🏗️ Building complete nested structure...")
+        print(f"📋 Categories to process: {list(categories.keys())}")
+        
+        # Start with root categories (those that are not children of any other category)
+        root_categories = []
+        for category_name in categories.keys():
+            if category_name not in relationships.get('parents', {}):
+                root_categories.append(category_name)
+        
+        print(f"🌱 Root categories: {root_categories}")
+        
+        # Build the nested structure starting from root categories
+        for root_category in root_categories:
+            if root_category in categories:
+                print(f"🌳 Building tree from root: {root_category}")
+                nested[root_category] = self._nest_category_items(
+                    root_category, categories[root_category], categories, relationships
                 )
         
         return nested
@@ -2222,38 +2233,89 @@ class RelationshipResolver:
             'links': {}     # child_category -> parent_key_field
         }
         
-        # Common relationship patterns
-        common_relationships = {
-            'citationAuthor': ('citation', 'citation_id'),
-            'citationEditor': ('citation', 'citation_id'),
-            'atomSite': ('entity', 'entity_id'),
-            'entityPoly': ('entity', 'entity_id'),
-            'entityPolySeq': ('entity', 'entity_id'),
-            'structAsym': ('entity', 'entity_id'),
+        # Enhanced mmCIF relationship patterns based on standard _item_linked definitions
+        mmcif_relationships = {
+            # Core structural relationships
+            'entity_poly': ('entity', 'entity_id'),
+            'entity_poly_seq': ('entity_poly', 'entity_id'),  # Note: this links to entity via entity_id
+            'struct_asym': ('entity', 'entity_id'),
+            'atom_site': ('struct_asym', 'label_asym_id'),  # Primary link to struct_asym
+            
+            # Additional relationships for atom_site (multi-parent)
+            'atom_site_entity': ('entity', 'label_entity_id'),
+            'atom_site_seq': ('entity_poly_seq', 'label_seq_id'),
+            
+            # Citation relationships
+            'citation_author': ('citation', 'citation_id'),
+            'citation_editor': ('citation', 'citation_id'),
+            
+            # Chemical component relationships
+            'chem_comp_atom': ('chem_comp', 'comp_id'),
+            'chem_comp_bond': ('chem_comp', 'comp_id'),
+            'chem_comp_angle': ('chem_comp', 'comp_id'),
+            
+            # Database relationships
+            'database_2': ('entry', 'entry_id'),
+            'pdbx_database_status': ('entry', 'entry_id'),
         }
+        
+        print(f"🔍 Analyzing relationships for categories: {list(categories.keys())}")
         
         # Use dictionary relationships if available
         if self.dictionary:
+            print("📚 Using dictionary-based relationship detection")
             for child_category, items in categories.items():
                 parents = self.dictionary.get_parent_relationships(child_category)
                 for parent_info in parents:
                     parent_cat = parent_info['parent_name'].split('.')[0].lstrip('_')
                     parent_key = parent_info['parent_name'].split('.')[-1]
                     
-                    relationships['parents'][child_category] = parent_cat
-                    if parent_cat not in relationships['children']:
-                        relationships['children'][parent_cat] = []
-                    relationships['children'][parent_cat].append(child_category)
-                    relationships['links'][child_category] = parent_key
-        else:
-            # Fallback to common patterns
-            for child_category, (parent_category, link_field) in common_relationships.items():
-                if child_category in categories and parent_category in categories:
+                    if parent_cat in categories:  # Only if parent category exists in data
+                        relationships['parents'][child_category] = parent_cat
+                        if parent_cat not in relationships['children']:
+                            relationships['children'][parent_cat] = []
+                        relationships['children'][parent_cat].append(child_category)
+                        relationships['links'][child_category] = parent_key
+                        print(f"✅ Dictionary relationship: {child_category} → {parent_cat} via {parent_key}")
+        
+        # Fallback to mmCIF pattern analysis
+        print("🔍 Analyzing mmCIF patterns for additional relationships")
+        for child_category, (parent_category, link_field) in mmcif_relationships.items():
+            # Check if both categories exist in our data
+            if child_category in categories and parent_category in categories:
+                # Verify the link field exists in child data
+                child_items = categories[child_category]
+                if child_items and any(link_field in item for item in child_items):
                     relationships['parents'][child_category] = parent_category
                     if parent_category not in relationships['children']:
                         relationships['children'][parent_category] = []
-                    relationships['children'][parent_category].append(child_category)
+                    if child_category not in relationships['children'][parent_category]:
+                        relationships['children'][parent_category].append(child_category)
                     relationships['links'][child_category] = link_field
+                    print(f"✅ Pattern relationship: {child_category} → {parent_category} via {link_field}")
+        
+        # Special handling for multi-level nesting (entity_poly_seq should nest under entity_poly)
+        if 'entity_poly_seq' in categories and 'entity_poly' in categories:
+            # entity_poly_seq should be nested under entity_poly, not directly under entity
+            if 'entity_poly_seq' in relationships['parents']:
+                # Change the parent from entity to entity_poly for proper nesting
+                relationships['parents']['entity_poly_seq'] = 'entity_poly'
+                relationships['links']['entity_poly_seq'] = 'entity_id'
+                
+                # Update children mapping
+                if 'entity' in relationships['children']:
+                    if 'entity_poly_seq' in relationships['children']['entity']:
+                        relationships['children']['entity'].remove('entity_poly_seq')
+                        
+                if 'entity_poly' not in relationships['children']:
+                    relationships['children']['entity_poly'] = []
+                if 'entity_poly_seq' not in relationships['children']['entity_poly']:
+                    relationships['children']['entity_poly'].append('entity_poly_seq')
+                    
+                print(f"🔄 Adjusted nesting: entity_poly_seq → entity_poly (for proper hierarchy)")
+        
+        print(f"📊 Final relationships - Parents: {relationships['parents']}")
+        print(f"📊 Final relationships - Children: {relationships['children']}")
         
         return relationships
     
@@ -2267,22 +2329,99 @@ class RelationshipResolver:
         """Create nested structure for a category's items."""
         nested_items = {}
         
+        print(f"🏗️ Building nested structure for {category_name} with {len(items)} items")
+        
         for item in items:
             # Use primary key as the key for this item
             item_key = self._get_item_key(item, category_name)
             nested_item = dict(item)
             
+            print(f"  📦 Processing {category_name} item with key: {item_key}")
+            
             # Add child categories
             if category_name in relationships.get('children', {}):
-                for child_category in relationships['children'][category_name]:
+                child_categories = relationships['children'][category_name]
+                print(f"    🔗 Found {len(child_categories)} child categories: {child_categories}")
+                
+                for child_category in child_categories:
                     if child_category in all_categories:
-                        link_field = relationships['links'].get(child_category, 'id')
-                        child_items = [
-                            child_item for child_item in all_categories[child_category]
-                            if child_item.get(link_field) == item_key
-                        ]
+                        link_field = relationships['links'].get(child_category)
+                        print(f"    🔍 Looking for {child_category} items linked via {link_field}")
+                        
+                        # Find child items that link to this parent item
+                        child_items = []
+                        for child_item in all_categories[child_category]:
+                            # Check if this child item links to current parent item
+                            if link_field in child_item:
+                                child_link_value = str(child_item[link_field])
+                                parent_key_str = str(item_key)
+                                
+                                # Handle different linking scenarios
+                                link_match = False
+                                
+                                # Direct key match
+                                if child_link_value == parent_key_str:
+                                    link_match = True
+                                
+                                # For entity relationships, also check if link value matches entity id
+                                elif link_field == 'entity_id' and child_link_value == item.get('id', ''):
+                                    link_match = True
+                                
+                                # For struct_asym relationships via label_asym_id
+                                elif link_field == 'label_asym_id' and child_link_value == item.get('id', ''):
+                                    link_match = True
+                                
+                                if link_match:
+                                    # Create a deep copy of the child item
+                                    nested_child_item = dict(child_item)
+                                    
+                                    # Recursively add grandchildren to this child
+                                    if child_category in relationships.get('children', {}):
+                                        grandchild_categories = relationships['children'][child_category]
+                                        for grandchild_category in grandchild_categories:
+                                            if grandchild_category in all_categories:
+                                                grandchild_link_field = relationships['links'].get(grandchild_category)
+                                                child_key = self._get_item_key(child_item, child_category)
+                                                
+                                                # Find grandchildren that link to this child
+                                                grandchild_items = []
+                                                for grandchild_item in all_categories[grandchild_category]:
+                                                    if grandchild_link_field in grandchild_item:
+                                                        grandchild_link_value = str(grandchild_item[grandchild_link_field])
+                                                        child_key_str = str(child_key)
+                                                        
+                                                        # Check for link match
+                                                        gc_link_match = False
+                                                        if grandchild_link_value == child_key_str:
+                                                            gc_link_match = True
+                                                        elif grandchild_link_field == 'entity_id' and grandchild_link_value == child_item.get('id', ''):
+                                                            gc_link_match = True
+                                                        elif grandchild_link_field == 'entity_id' and grandchild_link_value == child_item.get('entity_id', ''):
+                                                            gc_link_match = True
+                                                        
+                                                        if gc_link_match:
+                                                            grandchild_items.append(grandchild_item)
+                                                            print(f"        ✅ Linked {grandchild_category} to {child_category} via {grandchild_link_field}={grandchild_link_value}")
+                                                
+                                                if grandchild_items:
+                                                    if len(grandchild_items) == 1:
+                                                        nested_child_item[grandchild_category] = grandchild_items[0]
+                                                    else:
+                                                        nested_child_item[grandchild_category] = grandchild_items
+                                                    print(f"        📁 Nested {len(grandchild_items)} {grandchild_category} under {child_category}")
+                                    
+                                    child_items.append(nested_child_item)
+                                    print(f"      ✅ Linked {child_category} item via {link_field}={child_link_value}")
+                        
                         if child_items:
-                            nested_item[child_category] = child_items
+                            # If only one child item, nest it directly; if multiple, keep as list
+                            if len(child_items) == 1:
+                                # For single child, nest the object directly
+                                nested_item[child_category] = child_items[0]
+                            else:
+                                # For multiple children, keep as array
+                                nested_item[child_category] = child_items
+                            print(f"      📁 Nested {len(child_items)} {child_category} items")
             
             nested_items[item_key] = nested_item
         
