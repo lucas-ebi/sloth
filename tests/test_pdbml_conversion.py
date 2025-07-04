@@ -29,6 +29,7 @@ from sloth import (
     DictionaryParser
 )
 from sloth.models import MMCIFDataContainer, DataBlock, Category
+from sloth.schemas import ValidationError
 
 
 class TestPDBMLConversion(unittest.TestCase):
@@ -766,7 +767,8 @@ _atom_site.pdbx_PDB_model_num 1
         container = parser.parse_file(self.test_file)
         
         # Convert to PDBML XML
-        converter = PDBMLConverter()
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        converter = PDBMLConverter(dictionary_path=dict_path)
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify XML is valid
@@ -806,33 +808,56 @@ _atom_site.pdbx_PDB_model_num 1
         # Parse and convert
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
-        converter = PDBMLConverter()
+        
+        # Create converter with dictionary path for proper key detection
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        converter = PDBMLConverter(dictionary_path=dict_path)
         xml_content = converter.convert_to_pdbml(container)
         
         # Validate against schema (if available)
-        # This test will pass if no validator is available, but will validate if one is present
         try:
-            validator = XMLSchemaValidator()
-            is_valid, errors = validator.validate_xml_string(xml_content)
+            # Get the path to the PDBML XSD schema
+            schema_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
             
-            if errors:
-                # Print errors for debugging but don't fail the test if it's just missing schema
-                print(f"Validation errors: {errors}")
+            if not schema_path.exists():
+                self.skipTest(f"Schema file not found: {schema_path}")
             
-            # If validator is working, XML should be valid
-            if validator.schema is not None:
+            validator = XMLSchemaValidator(schema_path)
+            
+            # Check if validator was initialized successfully
+            if validator.schema is None:
+                self.skipTest(f"Schema validation skipped: Schema failed to parse")
+            
+            # Validate the XML content - this will raise ValidationError if invalid
+            try:
+                validation_result = validator.validate(xml_content)
+                
+                # If we get here, validation succeeded
+                is_valid = validation_result.get("valid", False)
+                errors = validation_result.get("errors", [])
+                
+                # Store validation results for potential debugging
+                self._validation_result = validation_result
+                
                 self.assertTrue(is_valid, f"XML validation failed: {errors}")
+                
+            except ValidationError as ve:
+                # Validation failed - this is a real test failure
+                self.fail(f"XML validation failed: {ve}")
+                
+        except ImportError as ie:
+            # Missing lxml or other dependencies
+            self.skipTest(f"Schema validation skipped: {ie}")
         except Exception as e:
-            # If no schema is available, just pass
-            print(f"Schema validation skipped: {e}")
-    
+            # Other issues (file not found, schema parsing errors, etc.)
+            self.skipTest(f"Schema validation skipped: {e}")
     def test_relationship_resolution_four_level_nesting(self):
         """Test that 4-level nested relationships are correctly resolved."""
         # Full pipeline test
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
         
-        converter = PDBMLConverter()
+        converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
         xml_content = converter.convert_to_pdbml(container)
         
         resolver = RelationshipResolver()
@@ -959,7 +984,7 @@ _atom_site.pdbx_PDB_model_num 1
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
         
-        converter = PDBMLConverter()
+        converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
         xml_content = converter.convert_to_pdbml(container)
         
         resolver = RelationshipResolver()
@@ -1021,7 +1046,7 @@ _atom_site.Cartn_x
         parser = MMCIFParser()
         container = parser.parse_file(multi_test_file)
         
-        converter = PDBMLConverter()
+        converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
         xml_content = converter.convert_to_pdbml(container)
         
         resolver = RelationshipResolver()

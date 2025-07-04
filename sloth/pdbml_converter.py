@@ -194,11 +194,9 @@ class XMLMappingGenerator:
                 self._relationships = cached_data['relationships']
                 self._enumerations = cached_data['enumerations']
                 self._item_types = cached_data['item_types']
-                print(f"✅ Loaded dictionary from memory cache: {len(self._categories)} categories")
                 return
         
         # Parse dictionary
-        print(f"🔍 Parsing dictionary (not in cache): {dict_path}")
         self._categories = {}
         self._items = {}
         self._relationships = []
@@ -217,7 +215,6 @@ class XMLMappingGenerator:
                     'enumerations': self._enumerations,
                     'item_types': self._item_types
                 }
-                print(f"✅ Cached dictionary results: {len(self._categories)} categories")
                 
         except Exception as e:
             print(f"⚠️ Warning: Error parsing dictionary: {e}")
@@ -240,17 +237,8 @@ class XMLMappingGenerator:
         # Try to load from disk cache
         cached_rules = self._load_mapping_rules_from_cache(cache_key)
         if cached_rules:
-            # Merge cached rules with fallback rules to ensure completeness
-            fallback_rules = self._get_fallback_mapping_rules()
-            for category, fallback_mapping in fallback_rules["category_mapping"].items():
-                if category not in cached_rules.get("category_mapping", {}):
-                    cached_rules.setdefault("category_mapping", {})[category] = fallback_mapping
-            
             self._mapping_rules_cache = cached_rules
-            print("✅ Loaded mapping rules from disk cache")
             return cached_rules
-            
-        print("🔍 Generating mapping rules (not in cache)")
         
         # Generate mapping rules
         mapping_rules = {
@@ -276,9 +264,9 @@ class XMLMappingGenerator:
             mapping_rules = self._generate_comprehensive_mapping()
             
         except Exception as e:
-            print(f"⚠️ Warning: Could not generate mapping rules: {e}")
-            # Return fallback mapping rules
-            mapping_rules = self._get_fallback_mapping_rules()
+            print(f"⚠️ Error: Cannot generate mapping rules without valid dictionary/schema: {e}")
+            print("Please ensure that dictionary and/or XSD files are provided and valid.")
+            raise RuntimeError(f"Failed to generate mapping rules: {e}")
             
         # Cache the results in memory and disk
         self._mapping_rules_cache = mapping_rules
@@ -349,11 +337,9 @@ class XMLMappingGenerator:
                 self._xsd_required_elements = cached_data['required_elements']
                 self._xsd_default_values = cached_data['default_values']
                 self._xsd_complex_types = cached_data['complex_types']
-                print("✅ Loaded XSD schema from memory cache")
                 return
         
         # Parse XSD schema
-        print(f"🔍 Parsing XSD schema (not in cache): {xsd_path}")
         self._xsd_elements = {}
         self._xsd_attributes = {}
         self._xsd_required_elements = {}
@@ -372,7 +358,6 @@ class XMLMappingGenerator:
                     'default_values': self._xsd_default_values,
                     'complex_types': self._xsd_complex_types
                 }
-                print("✅ Cached XSD schema results")
                 
         except Exception as e:
             print(f"⚠️ Warning: Error parsing XSD schema: {e}")
@@ -389,7 +374,6 @@ class XMLMappingGenerator:
             print("⚠️ No dictionary file provided")
             return
             
-        print(f"🔍 Starting dictionary parsing: {self.dict_file}")
         current_save = None
         current_block = []
         in_save_frame = False
@@ -427,17 +411,13 @@ class XMLMappingGenerator:
                     elif in_save_frame:
                         current_block.append(line)
                         
-            print(f"📊 Dictionary parsing complete: {save_count} save blocks, {category_count} category blocks found")
-            print(f"📝 Total categories parsed: {len(self._categories)}")
-            
             # Debug: show some key categories
             debug_cats = ['entry', 'database_2', 'chem_comp_angle', 'atom_site']
             for cat_name in debug_cats:
                 if cat_name in self._categories:
                     keys = self._categories[cat_name]['keys']
-                    print(f"🔑 Category {cat_name}: keys = {keys}")
                 else:
-                    print(f"❌ Category {cat_name}: not found in dictionary")
+                    print(f"⚠️ Warning: Category {cat_name}: not found in dictionary")
         except Exception as e:
             print(f"⚠️ Warning: Error parsing dictionary: {e}")
             traceback.print_exc()
@@ -451,19 +431,19 @@ class XMLMappingGenerator:
             self._extract_category_info(save_name, block_text)
             
         # Extract item definitions  
-        elif '_item.name' in block_text:
+        if '_item.name' in block_text:
             self._extract_item_info(save_name, block_text)
             
         # Extract item type definitions
-        elif '_item_type.code' in block_text:
+        if '_item_type.code' in block_text:
             self._extract_item_type_info(save_name, block_text)
             
         # Extract enumeration definitions
-        elif '_item_enumeration.value' in block_text:
+        if '_item_enumeration.value' in block_text:
             self._extract_enumeration_info(save_name, block_text)
             
         # Extract relationship definitions
-        elif '_item_linked.parent_name' in block_text:
+        if '_item_linked.parent_name' in block_text:
             self._extract_relationship_info(save_name, block_text)
             
     def _extract_category_info(self, save_name: str, block_text: str):
@@ -474,7 +454,6 @@ class XMLMappingGenerator:
             return
             
         cat_id = cat_match.group(1).strip()
-        print(f"🔍 Processing category: {cat_id}")
         
         # Initialize category data
         self._categories[cat_id] = {
@@ -497,7 +476,6 @@ class XMLMappingGenerator:
             
         # Extract category keys from both single line and loop structures
         if '_category_key.name' in block_text:
-            print(f"🔍 Found _category_key.name in {cat_id}")
             # First, try to find single line keys
             single_key_pattern = r'_category_key\.name\s+[\'"]([^\'"]+)[\'"]'
             single_key_matches = re.findall(single_key_pattern, block_text)
@@ -507,35 +485,28 @@ class XMLMappingGenerator:
                 if key_item.startswith('_' + cat_id + '.'):
                     item_name = key_item[len('_' + cat_id + '.'):]
                     self._categories[cat_id]['keys'].append(item_name)
-                    print(f"✅ Added single key: {item_name}")
             
             # Then, try to find loop-based keys - more robust approach
             if 'loop_' in block_text:
-                print(f"🔍 Found loop in {cat_id}")
                 # Find the loop block that contains _category_key.name
                 loop_pattern = r'loop_\s*\n\s*_category_key\.name\s*\n((?:\s*[^\n#]+\n)*)'
                 loop_match = re.search(loop_pattern, block_text)
                 if loop_match:
-                    print(f"✅ Matched loop pattern in {cat_id}")
                     key_lines = loop_match.group(1).strip().split('\n')
                     for line in key_lines:
                         line = line.strip()
                         if line and not line.startswith('_') and not line.startswith('#'):
                             # Remove quotes and extract item name
                             key_item = line.strip('\'"').strip()
-                            print(f"🔍 Processing key line: '{key_item}'")
                             if key_item.startswith('_' + cat_id + '.'):
                                 item_name = key_item[len('_' + cat_id + '.'):]
                                 if item_name not in self._categories[cat_id]['keys']:  # Avoid duplicates
                                     self._categories[cat_id]['keys'].append(item_name)
-                                    print(f"✅ Added loop key: {item_name}")
                 else:
-                    print(f"❌ Loop pattern did not match in {cat_id}")
+                    print(f"⚠️ Warning: Loop pattern did not match in {cat_id}")
         else:
-            print(f"❌ No _category_key.name found in {cat_id}")
-            
-        print(f"📝 Final keys for {cat_id}: {self._categories[cat_id]['keys']}")
-                            
+            print(f"⚠️ Warning: No _category_key.name found in {cat_id}")
+                                        
     def _extract_item_info(self, save_name: str, block_text: str):
         """Extract item information including data types and constraints"""
         # Extract item name
@@ -601,29 +572,50 @@ class XMLMappingGenerator:
             
     def _extract_enumeration_info(self, save_name: str, block_text: str):
         """Extract enumeration values for validation"""
-        # Extract enumeration name
-        enum_match = re.search(r'_item_enumeration\.name\s+[\'"]([^\'"]+)[\'"]', block_text)
-        if not enum_match:
-            return
-            
-        enum_name = enum_match.group(1).strip()
+        # The save_name already contains the item name (e.g., "_atom_site.group_PDB")
+        # So we use that as the enumeration key
         
-        if enum_name not in self._enumerations:
-            self._enumerations[enum_name] = []
+        if save_name not in self._enumerations:
+            self._enumerations[save_name] = []
             
         # Extract enumeration values from loop
         if 'loop_' in block_text and '_item_enumeration.value' in block_text:
-            value_pattern = r'_item_enumeration\.value\s*\n((?:\s*[^\n]+\n)*)'
-            value_match = re.search(value_pattern, block_text)
-            if value_match:
-                value_lines = value_match.group(1).strip().split('\n')
-                for line in value_lines:
+            # Look for the pattern where enumeration values are listed
+            # Find the start of the loop values
+            loop_start = block_text.find('_item_enumeration.value')
+            if loop_start != -1:
+                # Get the text after the loop header
+                after_loop = block_text[loop_start:]
+                lines = after_loop.split('\n')
+                
+                # Skip header lines and find actual values
+                in_values = False
+                for line in lines:
                     line = line.strip()
-                    if line and not line.startswith('_'):
-                        # Remove quotes
-                        value = line.strip('\'"')
-                        if value not in self._enumerations[enum_name]:
-                            self._enumerations[enum_name].append(value)
+                    
+                    # Skip empty lines and comments
+                    if not line or line.startswith('#'):
+                        continue
+                        
+                    # If we see an underscore line, we're done with this loop
+                    if line.startswith('_') and not line.startswith('_item_enumeration'):
+                        break
+                        
+                    # If we see the next save block, we're done
+                    if line.startswith('save_'):
+                        break
+                        
+                    # If this is a header line, skip it
+                    if line.startswith('_item_enumeration'):
+                        in_values = True
+                        continue
+                        
+                    # If we're in the values section and this doesn't start with underscore
+                    if in_values and not line.startswith('_'):
+                        # Remove quotes and whitespace
+                        value = line.strip('\'"').strip()
+                        if value and value not in self._enumerations[save_name]:
+                            self._enumerations[save_name].append(value)
                             
     def _extract_relationship_info(self, save_name: str, block_text: str):
         """Extract parent-child relationships"""
@@ -818,15 +810,8 @@ class XMLMappingGenerator:
             
         return item_mapping
         
-    @lru_cache(maxsize=256)
     def _determine_xml_location(self, item_name: str, item_info: dict) -> str:
         """Determine if item should be XML element or attribute"""
-        # Convert dict to hashable tuple for caching
-        item_info_tuple = tuple(sorted(item_info.items())) if isinstance(item_info, dict) else ()
-        return self._determine_xml_location_impl(item_name, item_info_tuple)
-        
-    def _determine_xml_location_impl(self, item_name: str, item_info_tuple: tuple) -> str:
-        """Implementation of XML location determination"""
         # Extract category and item parts
         if '.' not in item_name:
             return XMLLocation.ELEMENT_CONTENT.value
@@ -1005,71 +990,6 @@ class XMLMappingGenerator:
             return '.'
         else:
             return ''
-            
-    def _get_fallback_mapping_rules(self) -> Dict[str, Any]:
-        """Get fallback mapping rules when dictionary/schema parsing fails"""
-        return {
-            "structural_mapping": {
-                "root_element": "datablock",
-                "root_attributes": ["datablockName"],
-                "namespace": "http://pdbml.pdb.org/schema/pdbx-v50.xsd",
-                "schema_location": "pdbx-v50.xsd"
-            },
-            "category_mapping": {
-                "entry": {"xml_type": "simple_element", "key_attributes": ["_entry.id"]},
-                "citation": {"xml_type": "simple_element", "key_attributes": ["_citation.id"]},
-                "atom_site": {"xml_type": "simple_element", "key_attributes": ["_atom_site.id"]},
-                "entity": {"xml_type": "simple_element", "key_attributes": ["_entity.id"]},
-                "atom_type": {"xml_type": "simple_element", "key_attributes": ["_atom_type.symbol"]},
-                "chem_comp": {"xml_type": "simple_element", "key_attributes": ["_chem_comp.id"]},
-                "database_2": {"xml_type": "simple_element", "key_attributes": ["_database_2.database_code"]},
-                "chem_comp_angle": {"xml_type": "composite_element", "key_attributes": ["_chem_comp_angle.comp_id", "_chem_comp_angle.atom_id_1", "_chem_comp_angle.atom_id_2", "_chem_comp_angle.atom_id_3"]},
-                "citation_author": {"xml_type": "composite_element", "key_attributes": ["_citation_author.citation_id", "_citation_author.name", "_citation_author.ordinal"]},
-                "exptl": {"xml_type": "simple_element", "key_attributes": ["_exptl.entry_id"]},
-                "struct": {"xml_type": "simple_element", "key_attributes": ["_struct.entry_id"]}
-            },
-            "element_requirements": {
-                "atom_site": get_element_only_items("atom_site"),
-                "pdbx_database_status": get_element_only_items("pdbx_database_status")
-            },
-            "attribute_requirements": {
-                "exptl": ["method", "entry_id"]
-            },
-            "default_values": {
-                "atom_site": {
-                    **get_atom_site_defaults(),
-                    **get_anisotropic_defaults(),
-                    # Additional required fields not covered in base defaults
-                    "aniso_ratio": "1.0",
-                    "attached_hydrogens": "0",
-                    "auth_asym_id": "A",
-                    "auth_atom_id": "N1",
-                    "auth_comp_id": "MET",
-                    "auth_seq_id": "1",
-                    "calc_attached_atom": ".",
-                    "chemical_conn_number": "0",
-                    "constraints": ".",
-                    "details": ".",
-                    "disorder_assembly": ".",
-                    "disorder_group": ".",
-                    "fract_x": "0.0",
-                    "fract_x_esd": "0.0",
-                    "fract_y": "0.0",
-                    "fract_y_esd": "0.0", 
-                    "fract_z": "0.0",
-                    "fract_z_esd": "0.0",
-                    "label_alt_id": ".",
-                    "label_asym_id": "A"
-                }
-            },
-            "validation_rules": {},
-            "statistics": {
-                "total_categories": 0,
-                "total_items": 0,
-                "total_relationships": 0,
-                "total_enumerations": 0
-            }
-        }
 
 
 class DictionaryParser:
@@ -1214,6 +1134,10 @@ class PDBMLConverter:
         """Initialize converter with optional dictionary for metadata."""
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
         
+        # Set default dictionary path if not provided
+        if dictionary_path is None:
+            dictionary_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
+        
         # Lazy-load dictionary parser only when needed
         self._dictionary = None
         self._dictionary_path = dictionary_path
@@ -1254,7 +1178,6 @@ class PDBMLConverter:
         """Lazy-loaded mapping rules property."""
         if self._mapping_rules is None:
             self._mapping_rules = self.mapping_generator.get_mapping_rules()
-            print(f"✅ Generated XML mapping rules on-the-fly for enhanced PDBML conversion")
         return self._mapping_rules
         
     @property
@@ -1561,15 +1484,10 @@ class PDBMLConverter:
             if not key_items:
                 # Use mapping rules instead of hardcoded values
                 key_items = self._get_keys_from_mapping_rules(category_name)
-                if key_items:
-                    print(f"🔄 Using mapping rules keys for {category_name}: {key_items}")
-                else:
+                if not key_items:
                     # Final fallback for essential categories using Enum
                     from .pdbml_enums import EssentialKey
                     key_items = EssentialKey.get_keys(category_name)
-                    if key_items:
-                        print(f"🔄 Using essential fallback keys for {category_name}: {key_items}")
-                        
                 # Special case for atom_site - ensure it has the required references but don't add 
                 # type_symbol or label_comp_id as they must be elements, not attributes
                 if category_name == "_atom_site":
@@ -1658,7 +1576,6 @@ class PDBMLConverter:
                             try:
                                 cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
                                 if cleaned_value:  # Skip empty values
-                                    print(f"👉 Adding element '{safe_item_name}' with value '{cleaned_value}' to {pdbml_category_name}")
                                     item_elem = ET.SubElement(row_elem, safe_item_name)
                                     item_elem.text = cleaned_value
                             except Exception as e:
@@ -1700,7 +1617,6 @@ class PDBMLConverter:
                     
                     if not has_any_aniso:
                         # Add minimal required anisotropic thermal parameters to satisfy schema
-                        print(f"🔧 Adding required anisotropic B-factor parameters to satisfy XML schema")
                         aniso_defaults = get_anisotropic_defaults()
                         
                         for elem_name, default_value in aniso_defaults.items():
@@ -1720,7 +1636,6 @@ class PDBMLConverter:
                             break
                     
                     if not entry_id_elem:
-                        print(f"🔧 Adding special element 'entry_id' with value 'TEST_STRUCTURE' to {pdbml_category_name}")
                         entry_id_elem = ET.SubElement(row_elem, "entry_id")
                         entry_id_elem.text = "TEST_STRUCTURE"
                     
@@ -1838,7 +1753,6 @@ class PDBMLConverter:
                         keys.append(item_name)
                 if keys:
                     self._category_keys_cache[clean_category] = keys
-                    print(f"✅ Found {len(keys)} key items for {category_name} from XML mapping rules: {keys}")
                     return tuple(keys)
         
         # Second, try dictionary parser (if available)
@@ -1846,7 +1760,6 @@ class PDBMLConverter:
             dict_keys = self.dictionary.get_category_key_items(category_name)
             if dict_keys:
                 self._category_keys_cache[clean_category] = dict_keys
-                print(f"✅ Found {len(dict_keys)} key items for {category_name} from _category_key: {dict_keys}")
                 return tuple(dict_keys)
         
         # No keys found - log warning and return empty tuple
@@ -1923,7 +1836,6 @@ class PDBMLConverter:
         if schema_path.exists():
             try:
                 validator = XMLSchemaValidator(str(schema_path))
-                print(f"✅ Initialized PDBML XML Schema validator using {schema_path}")
                 return validator
             except Exception as e:
                 print(f"⚠️ Warning: Could not initialize XML validator: {e}")
@@ -2107,8 +2019,7 @@ class RelationshipResolver:
                 # If all parsing fails, go to except block
                 raise
         except Exception as e:
-            print(f"⚠️ Error resolving relationships from XML: {str(e)}")
-            print("Falling back to simple data extraction...")
+            print(f"⚠️ Error resolving relationships from XML: {str(e)}. Falling back to simple data extraction...")
             
             # Fallback to a simple structure with limited information
             try:
@@ -2204,21 +2115,15 @@ class RelationshipResolver:
         # First, identify parent-child relationships
         relationships = self._identify_relationships(categories)
         
-        print(f"🏗️ Building complete nested structure...")
-        print(f"📋 Categories to process: {list(categories.keys())}")
-        
         # Start with root categories (those that are not children of any other category)
         root_categories = []
         for category_name in categories.keys():
             if category_name not in relationships.get('parents', {}):
                 root_categories.append(category_name)
         
-        print(f"🌱 Root categories: {root_categories}")
-        
         # Build the nested structure starting from root categories
         for root_category in root_categories:
             if root_category in categories:
-                print(f"🌳 Building tree from root: {root_category}")
                 nested[root_category] = self._nest_category_items(
                     root_category, categories[root_category], categories, relationships
                 )
@@ -2259,11 +2164,8 @@ class RelationshipResolver:
             'pdbx_database_status': ('entry', 'entry_id'),
         }
         
-        print(f"🔍 Analyzing relationships for categories: {list(categories.keys())}")
-        
         # Use dictionary relationships if available
         if self.dictionary:
-            print("📚 Using dictionary-based relationship detection")
             for child_category, items in categories.items():
                 parents = self.dictionary.get_parent_relationships(child_category)
                 for parent_info in parents:
@@ -2276,10 +2178,8 @@ class RelationshipResolver:
                             relationships['children'][parent_cat] = []
                         relationships['children'][parent_cat].append(child_category)
                         relationships['links'][child_category] = parent_key
-                        print(f"✅ Dictionary relationship: {child_category} → {parent_cat} via {parent_key}")
         
         # Fallback to mmCIF pattern analysis
-        print("🔍 Analyzing mmCIF patterns for additional relationships")
         for child_category, (parent_category, link_field) in mmcif_relationships.items():
             # Check if both categories exist in our data
             if child_category in categories and parent_category in categories:
@@ -2292,7 +2192,6 @@ class RelationshipResolver:
                     if child_category not in relationships['children'][parent_category]:
                         relationships['children'][parent_category].append(child_category)
                     relationships['links'][child_category] = link_field
-                    print(f"✅ Pattern relationship: {child_category} → {parent_category} via {link_field}")
         
         # Special handling for multi-level nesting (entity_poly_seq should nest under entity_poly)
         if 'entity_poly_seq' in categories and 'entity_poly' in categories:
@@ -2311,11 +2210,6 @@ class RelationshipResolver:
                     relationships['children']['entity_poly'] = []
                 if 'entity_poly_seq' not in relationships['children']['entity_poly']:
                     relationships['children']['entity_poly'].append('entity_poly_seq')
-                    
-                print(f"🔄 Adjusted nesting: entity_poly_seq → entity_poly (for proper hierarchy)")
-        
-        print(f"📊 Final relationships - Parents: {relationships['parents']}")
-        print(f"📊 Final relationships - Children: {relationships['children']}")
         
         return relationships
     
@@ -2327,26 +2221,19 @@ class RelationshipResolver:
         relationships: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Create nested structure for a category's items."""
-        nested_items = {}
-        
-        print(f"🏗️ Building nested structure for {category_name} with {len(items)} items")
-        
+        nested_items = {}        
         for item in items:
             # Use primary key as the key for this item
             item_key = self._get_item_key(item, category_name)
             nested_item = dict(item)
-            
-            print(f"  📦 Processing {category_name} item with key: {item_key}")
-            
+                        
             # Add child categories
             if category_name in relationships.get('children', {}):
                 child_categories = relationships['children'][category_name]
-                print(f"    🔗 Found {len(child_categories)} child categories: {child_categories}")
                 
                 for child_category in child_categories:
                     if child_category in all_categories:
                         link_field = relationships['links'].get(child_category)
-                        print(f"    🔍 Looking for {child_category} items linked via {link_field}")
                         
                         # Find child items that link to this parent item
                         child_items = []
@@ -2401,17 +2288,14 @@ class RelationshipResolver:
                                                         
                                                         if gc_link_match:
                                                             grandchild_items.append(grandchild_item)
-                                                            print(f"        ✅ Linked {grandchild_category} to {child_category} via {grandchild_link_field}={grandchild_link_value}")
                                                 
                                                 if grandchild_items:
                                                     if len(grandchild_items) == 1:
                                                         nested_child_item[grandchild_category] = grandchild_items[0]
                                                     else:
                                                         nested_child_item[grandchild_category] = grandchild_items
-                                                    print(f"        📁 Nested {len(grandchild_items)} {grandchild_category} under {child_category}")
                                     
                                     child_items.append(nested_child_item)
-                                    print(f"      ✅ Linked {child_category} item via {link_field}={child_link_value}")
                         
                         if child_items:
                             # If only one child item, nest it directly; if multiple, keep as list
@@ -2421,7 +2305,6 @@ class RelationshipResolver:
                             else:
                                 # For multiple children, keep as array
                                 nested_item[child_category] = child_items
-                            print(f"      📁 Nested {len(child_items)} {child_category} items")
             
             nested_items[item_key] = nested_item
         
@@ -2485,11 +2368,11 @@ class MMCIFToPDBMLPipeline:
                     validation_results = {"is_valid": is_valid, "errors": errors}
                     
                     if not is_valid:
-                        print(f"XML validation failed with {len(errors)} errors:")
+                        print(f"⚠️ Warning: XML validation failed with {len(errors)} errors:")
                         for error in errors[:5]:  # Show first 5 errors
                             print(f"  - {error}")
                 except Exception as e:
-                    print(f"Error during XML validation: {str(e)}")
+                    print(f"⚠️ Warning: Error during XML validation: {str(e)}")
                     validation_results = {"is_valid": False, "errors": [str(e)]}
             
             # Step 4: Resolve relationships and create nested JSON
@@ -2497,7 +2380,7 @@ class MMCIFToPDBMLPipeline:
             try:
                 nested_json = self.resolver.resolve_relationships(pdbml_xml)
             except Exception as e:
-                print(f"Error resolving relationships: {str(e)}")
+                print(f"⚠️ Warning: Error resolving relationships: {str(e)}")
                 # Continue without relationship resolution
                 nested_json = {"error": str(e)}
                 
@@ -2512,7 +2395,7 @@ class MMCIFToPDBMLPipeline:
                 "nested_json": nested_json
             }
         except Exception as e:
-            print(f"Critical error in PDBML pipeline: {str(e)}")
+            print(f"⚠️ Warning: Critical error in PDBML pipeline: {str(e)}")
             return {
                 "mmcif_data": None,
                 "pdbml_xml": f"<!-- Error generating XML: {str(e)} -->",

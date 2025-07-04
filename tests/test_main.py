@@ -482,8 +482,9 @@ ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
             handler = MMCIFHandler()
             data = handler.parse(large_file)
             parse_time = time.time() - start_time
-
-            print(f"Parsing time: {parse_time:.4f}s")
+            
+            # Assert parsing completed in reasonable time (under 10 seconds for large files)
+            self.assertLess(parse_time, 10.0, f"Parsing took too long: {parse_time:.4f}s")
 
             # Verify data was parsed correctly
             block = data.data[0]

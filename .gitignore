@@ -28,6 +28,7 @@ csv_output_dir/
 *_backup.py
 debug_*.py
 fix_*.py
+verify_*.py
 
 # Analysis and sample files
 *_analysis.py
