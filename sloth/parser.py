@@ -25,7 +25,7 @@ class MMCIFParser(BaseParser):
     
     def __init__(
         self,
-        validator_factory: Optional[ValidatorFactory],
+        validator_factory: Optional[ValidatorFactory] = None,
         categories: Optional[List[str]] = None,
     ):
         """
