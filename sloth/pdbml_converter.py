@@ -28,8 +28,9 @@ from .schemas import XMLSchemaValidator
 from .pdbml_enums import (
     XMLLocation, ElementOnlyItem, AtomSiteDefault, AnisotropicParam,
     ProblematicField, NullValue, SpecialAttribute, ValidationRule,
+    EssentialKey, RequiredAttribute, NumericField,
     get_element_only_items, get_atom_site_defaults, get_anisotropic_defaults,
-    get_problematic_field_replacement, is_null_value
+    get_problematic_field_replacement, is_null_value, get_numeric_fields
 )
 
 
@@ -153,6 +154,24 @@ class XMLMappingGenerator:
                 if self._item_types is None:
                     self._ensure_dictionary_parsed()
         return self._item_types or {}
+        
+    @property
+    def xsd_elements(self) -> Dict[str, Any]:
+        """Lazy-loaded XSD elements property."""
+        if self._xsd_elements is None:
+            with self._xsd_lock:
+                if self._xsd_elements is None:
+                    self._ensure_xsd_parsed()
+        return self._xsd_elements or {}
+        
+    @property
+    def xsd_complex_types(self) -> Dict[str, Any]:
+        """Lazy-loaded XSD complex types property."""
+        if self._xsd_complex_types is None:
+            with self._xsd_lock:
+                if self._xsd_complex_types is None:
+                    self._ensure_xsd_parsed()
+        return self._xsd_complex_types or {}
         
     def _ensure_dictionary_parsed(self):
         """Ensure dictionary is parsed, using global cache if possible."""
@@ -1712,17 +1731,7 @@ class PDBMLConverter:
                         # Use that value for the element if needed
                         if not entry_id_elem.text:
                             entry_id_elem.text = value
-                        
-                        # Make sure the element name is valid XML
-                        safe_item_name = self._sanitize_xml_name(item_name)
-                        if safe_item_name:  # Skip invalid element names
-                            try:
-                                cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
-                                if cleaned_value:  # Skip empty values
-                                    item_elem = ET.SubElement(row_elem, safe_item_name)
-                                    item_elem.text = cleaned_value
-                            except Exception as e:
-                                print(f"⚠️ Error adding element '{safe_item_name}': {str(e)}")
+                
         except Exception as e:
             print(f"⚠️ Error processing category {category_name}: {str(e)}")
     
@@ -1730,7 +1739,6 @@ class PDBMLConverter:
         """Sanitize a name to be a valid XML element or attribute name."""
         # XML names must start with a letter, underscore, or colon
         # and can contain letters, digits, underscores, hyphens, periods, and colons
-        import re
         
         # First, remove any characters that aren't valid in XML names
         name = re.sub(r'[^\w\-\.]', '_', name)
