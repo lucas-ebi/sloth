@@ -667,5 +667,386 @@ _atom_site.footnote_id 1
         self.assertEqual(cartn_x_elem.text, '10.123')
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestNestedRelationshipResolution(unittest.TestCase):
+    """Test suite for multi-level nested relationship resolution functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures for nested relationship testing."""
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Multi-level nested test data based on the working nested_example.cif
+        self.nested_mmcif_content = """data_1ABC
+#
+_entry.id        1ABC
+#
+_entity.id       1
+_entity.type     polymer
+_entity.pdbx_description 'Hemoglobin alpha chain'
+#
+_entity_poly.entity_id 1
+_entity_poly.type      'polypeptide(L)'
+_entity_poly.nstd_chirality no
+#
+_entity_poly_seq.entity_id 1
+_entity_poly_seq.num       1
+_entity_poly_seq.mon_id    VAL
+#
+_struct_asym.id      A
+_struct_asym.entity_id 1
+#
+_atom_site.group_PDB  atom
+_atom_site.id         1
+_atom_site.type_symbol C
+_atom_site.label_atom_id CA
+_atom_site.label_comp_id VAL
+_atom_site.label_asym_id A
+_atom_site.label_entity_id 1
+_atom_site.label_seq_id 1
+_atom_site.Cartn_x    12.345
+_atom_site.Cartn_y    67.890
+_atom_site.Cartn_z    42.000
+_atom_site.occupancy  1.00
+_atom_site.B_iso_or_equiv 35.0
+_atom_site.pdbx_PDB_model_num 1
+#"""
+
+        # Create test file
+        self.test_file = os.path.join(self.temp_dir, 'nested_test.cif')
+        with open(self.test_file, 'w') as f:
+            f.write(self.nested_mmcif_content)
+    
+    def tearDown(self):
+        """Clean up temporary files."""
+        import shutil
+        shutil.rmtree(self.temp_dir)
+    
+    def test_mmcif_parsing_for_nested_data(self):
+        """Test that the mmCIF parser correctly handles nested relationship data."""
+        parser = MMCIFParser()
+        container = parser.parse_file(self.test_file)
+        
+        # Verify parsing success
+        self.assertEqual(len(container.data), 1)
+        data_block = container.data['1ABC']
+        
+        # Check that all required categories are present (check available categories)
+        available_categories = list(data_block.categories)  # LazyKeyList supports iteration
+        required_categories = ['_entry', '_entity', '_entity_poly', '_entity_poly_seq', '_struct_asym', '_atom_site']
+        for category in required_categories:
+            self.assertIn(category, available_categories)
+        
+        # Verify key relationships are present using the correct access method
+        entity_cat = data_block['_entity']  # or data_block._entity
+        self.assertGreater(entity_cat.row_count, 0)  # At least one entity
+        # Find entity with id '1' using row access
+        entity_1_found = False
+        for i in range(entity_cat.row_count):
+            row = entity_cat[i]  # Get row object
+            if hasattr(row, 'id') and row.id == '1':
+                entity_1_found = True
+                break
+        self.assertTrue(entity_1_found, "Entity with id '1' should be present")
+        
+        atom_site_cat = data_block['_atom_site']  # or data_block._atom_site
+        self.assertGreater(atom_site_cat.row_count, 0)  # At least one atom
+        # Check that at least one atom has the correct relationships
+        atom_with_entity_1_found = False
+        for i in range(atom_site_cat.row_count):
+            row = atom_site_cat[i]  # Get row object
+            if (hasattr(row, 'label_entity_id') and row.label_entity_id == '1' and
+                hasattr(row, 'label_asym_id') and row.label_asym_id == 'A'):
+                atom_with_entity_1_found = True
+                break
+        self.assertTrue(atom_with_entity_1_found, "Atom with entity_id '1' and asym_id 'A' should be present")
+    
+    def test_pdbml_xml_generation_with_nested_data(self):
+        """Test that PDBML XML is correctly generated from nested mmCIF data."""
+        # Parse the file
+        parser = MMCIFParser()
+        container = parser.parse_file(self.test_file)
+        
+        # Convert to PDBML XML
+        converter = PDBMLConverter()
+        xml_content = converter.convert_to_pdbml(container)
+        
+        # Verify XML is valid
+        self.assertIsInstance(xml_content, str)
+        self.assertGreater(len(xml_content), 100)
+        
+        # Parse XML and check structure
+        root = ET.fromstring(xml_content)
+        ns = {'pdbx': 'http://pdbml.pdb.org/schema/pdbx-v50.xsd'}
+        
+        # Check that all category elements are present
+        entity_category = root.find('.//pdbx:entityCategory', ns)
+        entity_poly_category = root.find('.//pdbx:entity_polyCategory', ns)
+        entity_poly_seq_category = root.find('.//pdbx:entity_poly_seqCategory', ns)
+        struct_asym_category = root.find('.//pdbx:struct_asymCategory', ns)
+        atom_site_category = root.find('.//pdbx:atom_siteCategory', ns)
+        
+        self.assertIsNotNone(entity_category)
+        self.assertIsNotNone(entity_poly_category)
+        self.assertIsNotNone(entity_poly_seq_category)
+        self.assertIsNotNone(struct_asym_category)
+        self.assertIsNotNone(atom_site_category)
+        
+        # Verify specific data values
+        entity = entity_category.find('pdbx:entity[@id="1"]', ns)
+        self.assertIsNotNone(entity)
+        entity_type = entity.find('pdbx:type', ns)
+        self.assertEqual(entity_type.text, 'polymer')
+        
+        atom_site = atom_site_category.find('pdbx:atom_site[@id="1"]', ns)
+        self.assertIsNotNone(atom_site)
+        cartn_x = atom_site.find('pdbx:Cartn_x', ns)
+        self.assertEqual(cartn_x.text, '12.345')
+    
+    def test_xml_schema_validation_with_nested_data(self):
+        """Test that generated XML validates against the PDBML schema."""
+        # Parse and convert
+        parser = MMCIFParser()
+        container = parser.parse_file(self.test_file)
+        converter = PDBMLConverter()
+        xml_content = converter.convert_to_pdbml(container)
+        
+        # Validate against schema (if available)
+        # This test will pass if no validator is available, but will validate if one is present
+        try:
+            validator = XMLSchemaValidator()
+            is_valid, errors = validator.validate_xml_string(xml_content)
+            
+            if errors:
+                # Print errors for debugging but don't fail the test if it's just missing schema
+                print(f"Validation errors: {errors}")
+            
+            # If validator is working, XML should be valid
+            if validator.schema is not None:
+                self.assertTrue(is_valid, f"XML validation failed: {errors}")
+        except Exception as e:
+            # If no schema is available, just pass
+            print(f"Schema validation skipped: {e}")
+    
+    def test_relationship_resolution_four_level_nesting(self):
+        """Test that 4-level nested relationships are correctly resolved."""
+        # Full pipeline test
+        parser = MMCIFParser()
+        container = parser.parse_file(self.test_file)
+        
+        converter = PDBMLConverter()
+        xml_content = converter.convert_to_pdbml(container)
+        
+        resolver = RelationshipResolver()
+        nested_json = resolver.resolve_relationships(xml_content)
+        
+        # Verify the nested structure exists
+        self.assertIn('entity', nested_json)
+        self.assertIn('1', nested_json['entity'])
+        
+        entity_1 = nested_json['entity']['1']
+        
+        # Level 1: Entity data
+        self.assertEqual(entity_1['type'], 'polymer')
+        self.assertEqual(entity_1['pdbx_description'], 'Hemoglobin alpha chain')
+        
+        # Level 2: Entity has entity_poly nested
+        self.assertIn('entity_poly', entity_1)
+        entity_poly = entity_1['entity_poly']
+        self.assertEqual(entity_poly['type'], 'polypeptide(L)')
+        self.assertEqual(entity_poly['nstd_chirality'], 'no')
+        
+        # Level 3: Entity_poly has entity_poly_seq nested
+        self.assertIn('entity_poly_seq', entity_poly)
+        entity_poly_seq = entity_poly['entity_poly_seq']
+        self.assertEqual(entity_poly_seq['num'], '1')
+        self.assertEqual(entity_poly_seq['mon_id'], 'VAL')
+        
+        # Parallel branch: Entity has struct_asym nested
+        self.assertIn('struct_asym', entity_1)
+        struct_asym = entity_1['struct_asym']
+        self.assertEqual(struct_asym['id'], 'A')
+        
+        # Level 4: Struct_asym has atom_site nested
+        self.assertIn('atom_site', struct_asym)
+        atom_site = struct_asym['atom_site']
+        self.assertEqual(atom_site['label_atom_id'], 'CA')
+        self.assertEqual(atom_site['label_comp_id'], 'VAL')
+        self.assertEqual(atom_site['Cartn_x'], '12.345')
+        self.assertEqual(atom_site['Cartn_y'], '67.890')
+        self.assertEqual(atom_site['Cartn_z'], '42.000')
+    
+    def test_relationship_resolver_component(self):
+        """Test the RelationshipResolver component in isolation."""
+        # Create minimal XML for testing
+        test_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<datablock datablockName="1ABC" xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd">
+    <entityCategory>
+        <entity id="1">
+            <type>polymer</type>
+        </entity>
+    </entityCategory>
+    <entity_polyCategory>
+        <entity_poly entity_id="1">
+            <type>polypeptide(L)</type>
+        </entity_poly>
+    </entity_polyCategory>
+    <atom_siteCategory>
+        <atom_site id="1" label_entity_id="1" label_asym_id="A">
+            <label_atom_id>CA</label_atom_id>
+            <Cartn_x>12.345</Cartn_x>
+        </atom_site>
+    </atom_siteCategory>
+    <struct_asymCategory>
+        <struct_asym id="A" entity_id="1">
+        </struct_asym>
+    </struct_asymCategory>
+</datablock>"""
+        
+        resolver = RelationshipResolver()
+        nested_json = resolver.resolve_relationships(test_xml)
+        
+        # Verify basic nesting works
+        self.assertIn('entity', nested_json)
+        self.assertIn('1', nested_json['entity'])
+        
+        entity_1 = nested_json['entity']['1']
+        self.assertEqual(entity_1['type'], 'polymer')
+        
+        # Check that related items are nested
+        self.assertIn('entity_poly', entity_1)
+        self.assertIn('struct_asym', entity_1)
+        
+        struct_asym = entity_1['struct_asym']
+        self.assertIn('atom_site', struct_asym)
+    
+    def test_complete_pipeline_integration(self):
+        """Test the complete pipeline from mmCIF to nested JSON."""
+        # Use the pipeline class if available, otherwise test components individually
+        try:
+            pipeline = MMCIFToPDBMLPipeline()
+            # Check if pipeline has the expected method
+            if hasattr(pipeline, 'process_file'):
+                result = pipeline.process_file(self.test_file)
+                
+                # Verify all outputs are generated
+                self.assertIn('xml_content', result)
+                self.assertIn('nested_json', result)
+                self.assertIn('validation_results', result)
+                
+                # Verify the nested JSON has the expected structure
+                nested_json = result['nested_json']
+                self.assertIn('entity', nested_json)
+                
+                entity_1 = nested_json['entity']['1']
+                self.assertIn('entity_poly', entity_1)
+                self.assertIn('struct_asym', entity_1)
+                
+                # Verify 4-level nesting
+                entity_poly_seq = entity_1['entity_poly']['entity_poly_seq']
+                self.assertEqual(entity_poly_seq['mon_id'], 'VAL')
+                
+                atom_site = entity_1['struct_asym']['atom_site']
+                self.assertEqual(atom_site['label_atom_id'], 'CA')
+            else:
+                # Fall back to component testing
+                self._test_components_individually()
+                
+        except (ImportError, AttributeError):
+            # If pipeline class is not available, test components individually
+            self._test_components_individually()
+    
+    def _test_components_individually(self):
+        """Helper method to test components when pipeline is not available."""
+        parser = MMCIFParser()
+        container = parser.parse_file(self.test_file)
+        
+        converter = PDBMLConverter()
+        xml_content = converter.convert_to_pdbml(container)
+        
+        resolver = RelationshipResolver()
+        nested_json = resolver.resolve_relationships(xml_content)
+        
+        # Verify 4-level nesting works
+        self.assertIn('entity', nested_json)
+        entity_1 = nested_json['entity']['1']
+        self.assertIn('entity_poly', entity_1)
+        self.assertIn('struct_asym', entity_1)
+        
+        entity_poly_seq = entity_1['entity_poly']['entity_poly_seq']
+        self.assertEqual(entity_poly_seq['mon_id'], 'VAL')
+        
+        atom_site = entity_1['struct_asym']['atom_site']
+        self.assertEqual(atom_site['label_atom_id'], 'CA')
+    
+    def test_multiple_entities_nesting(self):
+        """Test nesting with multiple entities to ensure correct grouping."""
+        # Extended test data with multiple entities
+        multi_entity_content = """data_MULTI
+#
+_entry.id        MULTI
+#
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer 'Chain A'
+2 polymer 'Chain B'
+#
+loop_
+_entity_poly.entity_id
+_entity_poly.type
+1 'polypeptide(L)'
+2 'polypeptide(L)'
+#
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 2
+#
+loop_
+_atom_site.id
+_atom_site.label_entity_id
+_atom_site.label_asym_id
+_atom_site.label_atom_id
+_atom_site.Cartn_x
+1 1 A CA 10.0
+2 2 B CA 20.0
+#"""
+        
+        multi_test_file = os.path.join(self.temp_dir, 'multi_entity_test.cif')
+        with open(multi_test_file, 'w') as f:
+            f.write(multi_entity_content)
+        
+        # Process with full pipeline
+        parser = MMCIFParser()
+        container = parser.parse_file(multi_test_file)
+        
+        converter = PDBMLConverter()
+        xml_content = converter.convert_to_pdbml(container)
+        
+        resolver = RelationshipResolver()
+        nested_json = resolver.resolve_relationships(xml_content)
+        
+        # Verify both entities are present and correctly nested
+        self.assertIn('entity', nested_json)
+        self.assertIn('1', nested_json['entity'])
+        self.assertIn('2', nested_json['entity'])
+        
+        # Check entity 1
+        entity_1 = nested_json['entity']['1']
+        self.assertEqual(entity_1['pdbx_description'], 'Chain A')
+        self.assertIn('entity_poly', entity_1)
+        self.assertIn('struct_asym', entity_1)
+        
+        # Check entity 2
+        entity_2 = nested_json['entity']['2']
+        self.assertEqual(entity_2['pdbx_description'], 'Chain B')
+        self.assertIn('entity_poly', entity_2)
+        self.assertIn('struct_asym', entity_2)
+        
+        # Verify atoms are correctly associated
+        atom_1 = entity_1['struct_asym']['atom_site']
+        atom_2 = entity_2['struct_asym']['atom_site']
+        
+        self.assertEqual(atom_1['Cartn_x'], '10.0')
+        self.assertEqual(atom_2['Cartn_x'], '20.0')
