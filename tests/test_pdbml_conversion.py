@@ -695,7 +695,7 @@ _entity_poly_seq.mon_id    VAL
 _struct_asym.id      A
 _struct_asym.entity_id 1
 #
-_atom_site.group_PDB  atom
+_atom_site.group_PDB  ATOM
 _atom_site.id         1
 _atom_site.type_symbol C
 _atom_site.label_atom_id CA
