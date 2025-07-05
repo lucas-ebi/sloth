@@ -652,15 +652,16 @@ class XMLMappingGenerator:
             tree = ET.parse(self.xsd_file)
             root = tree.getroot()
             
-            # Find namespace
-            namespace = root.tag.split('}')[0][1:] if '}' in root.tag else ''
-            ns = {'xs': namespace} if namespace else {}
+            # Find namespace - the XSD schema uses the xs namespace
+            ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
             
-            # Parse complex types
+            # Parse complex types to understand structure
             self._parse_complex_types(root, ns)
             
-            # Parse elements
+            # Parse global elements
             self._parse_elements(root, ns)
+            
+            print(f"✓ XSD schema parsed: {len(self._xsd_complex_types)} complex types, {len(self._xsd_elements)} elements")
             
         except Exception as e:
             print(f"⚠️ Warning: Could not parse XSD schema: {e}")
@@ -674,37 +675,54 @@ class XMLMappingGenerator:
             if not type_name:
                 continue
                 
-            self.xsd_complex_types[type_name] = {
+            self._xsd_complex_types[type_name] = {
                 'name': type_name,
                 'elements': [],
                 'attributes': [],
-                'required_elements': [],
-                'required_attributes': []
+                'required_elements': []
             }
             
-            # Parse elements within complex type
-            elements = ct.findall('.//xs:element', ns)
-            for elem in elements:
-                elem_name = elem.get('name')
-                if elem_name:
-                    self.xsd_complex_types[type_name]['elements'].append(elem_name)
-                    
-                    # Check if required
-                    min_occurs = elem.get('minOccurs', '1')
-                    if min_occurs != '0':
-                        self.xsd_complex_types[type_name]['required_elements'].append(elem_name)
+            # Parse sequence elements within the complex type
+            sequences = ct.findall('.//xs:sequence', ns)
+            for sequence in sequences:
+                elements = sequence.findall('.//xs:element', ns)
+                for elem in elements:
+                    elem_name = elem.get('name')
+                    if elem_name:
+                        min_occurs = elem.get('minOccurs', '1')
+                        max_occurs = elem.get('maxOccurs', '1')
+                        elem_type = elem.get('type', '')
+                        
+                        elem_info = {
+                            'name': elem_name,
+                            'type': elem_type,
+                            'min_occurs': min_occurs,
+                            'max_occurs': max_occurs,
+                            'required': min_occurs != '0'
+                        }
+                        
+                        self._xsd_complex_types[type_name]['elements'].append(elem_info)
+                        
+                        # Track required elements separately
+                        if min_occurs != '0':
+                            self._xsd_complex_types[type_name]['required_elements'].append(elem_name)
                         
             # Parse attributes within complex type
             attributes = ct.findall('.//xs:attribute', ns)
             for attr in attributes:
                 attr_name = attr.get('name')
                 if attr_name:
-                    self.xsd_complex_types[type_name]['attributes'].append(attr_name)
-                    
-                    # Check if required
                     use = attr.get('use', 'optional')
-                    if use == 'required':
-                        self.xsd_complex_types[type_name]['required_attributes'].append(attr_name)
+                    attr_type = attr.get('type', '')
+                    
+                    attr_info = {
+                        'name': attr_name,
+                        'type': attr_type,
+                        'use': use,
+                        'required': use == 'required'
+                    }
+                    
+                    self._xsd_complex_types[type_name]['attributes'].append(attr_info)
                         
     def _parse_elements(self, root: ET.Element, ns: dict):
         """Parse element definitions from XSD schema"""
@@ -715,7 +733,7 @@ class XMLMappingGenerator:
             if not elem_name:
                 continue
                 
-            self.xsd_elements[elem_name] = {
+            self._xsd_elements[elem_name] = {
                 'name': elem_name,
                 'type': elem.get('type', ''),
                 'min_occurs': elem.get('minOccurs', '1'),
@@ -1003,37 +1021,63 @@ class DictionaryParser:
         
     def parse_dictionary(self, dict_path: Union[str, Path]) -> None:
         """Parse mmCIF dictionary file to extract metadata."""
-        parser = MMCIFParser(validator_factory=None)
-        container = parser.parse_file(dict_path)
-        
-        if not container.data:
-            raise ValueError("No data blocks found in dictionary")
+        try:
+            parser = MMCIFParser(validator_factory=None)
+            container = parser.parse_file(dict_path)
             
-        dict_block = container.data[0]
-        
-        # Parse category definitions
-        if "_category" in dict_block.categories:
-            self._parse_categories(dict_block["_category"])
+            if not container.data:
+                raise ValueError("No data blocks found in dictionary")
+                
+            dict_block = container.data[0]
+            print(f"✓ Parsing dictionary with {len(dict_block.categories)} categories")
             
-        # Parse category key definitions (most important for key extraction)
-        if "_category_key" in dict_block.categories:
-            self._parse_category_keys(dict_block["_category_key"])
+            # Parse category definitions first to initialize structure
+            if "_category" in dict_block.categories:
+                print("✓ Parsing category definitions...")
+                self._parse_categories(dict_block["_category"])
+                
+            # Parse category key definitions (most important for key extraction)
+            if "_category_key" in dict_block.categories:
+                print("✓ Parsing category key definitions...")
+                self._parse_category_keys(dict_block["_category_key"])
+                
+            # Parse item definitions  
+            if "_item" in dict_block.categories:
+                print("✓ Parsing item definitions...")
+                self._parse_items(dict_block["_item"])
+                
+            # Parse item type definitions
+            if "_item_type" in dict_block.categories:
+                print("✓ Parsing item type definitions...")
+                self._parse_item_types(dict_block["_item_type"])
+                
+            # Parse enumeration definitions
+            if "_item_enumeration" in dict_block.categories:
+                print("✓ Parsing enumeration definitions...")
+                self._parse_enumerations(dict_block["_item_enumeration"])
+                
+            # Parse relationships/links
+            if "_item_linked" in dict_block.categories:
+                print("✓ Parsing relationship definitions...")
+                self._parse_relationships(dict_block["_item_linked"])
+                
+            # Print summary
+            categories_with_keys = sum(1 for cat in self.categories.values() if cat.get("keys"))
+            print(f"✓ Dictionary parsing complete:")
+            print(f"  - Categories: {len(self.categories)}")
+            print(f"  - Categories with keys: {categories_with_keys}")
+            print(f"  - Items: {len(self.items)}")
+            print(f"  - Enumerations: {len(self.enumerations)}")
+            print(f"  - Relationships: {len(self.relationships)}")
             
-        # Parse item definitions  
-        if "_item" in dict_block.categories:
-            self._parse_items(dict_block["_item"])
-            
-        # Parse item type definitions
-        if "_item_type" in dict_block.categories:
-            self._parse_item_types(dict_block["_item_type"])
-            
-        # Parse enumeration definitions
-        if "_item_enumeration" in dict_block.categories:
-            self._parse_enumerations(dict_block["_item_enumeration"])
-            
-        # Parse relationships/links
-        if "_item_linked" in dict_block.categories:
-            self._parse_relationships(dict_block["_item_linked"])
+        except Exception as e:
+            print(f"⚠️ Error parsing dictionary: {e}")
+            # Initialize empty structures on error
+            self.categories = {}
+            self.items = {}
+            self.relationships = {}
+            self.enumerations = {}
+            raise
     
     def _parse_categories(self, category: Category) -> None:
         """Parse category definitions."""
@@ -1043,7 +1087,8 @@ class DictionaryParser:
                 self.categories[cat_id] = {
                     "id": cat_id,
                     "description": data.get("description", [None] * len(data["id"]))[i] or "",
-                    "mandatory_code": data.get("mandatory_code", [None] * len(data["id"]))[i] or "no"
+                    "mandatory_code": data.get("mandatory_code", [None] * len(data["id"]))[i] or "no",
+                    "keys": []  # Initialize empty keys list
                 }
     
     def _parse_items(self, category: Category) -> None:
@@ -1055,7 +1100,8 @@ class DictionaryParser:
                     "name": item_name,
                     "category_id": data.get("category_id", [None] * len(data["name"]))[i] or "",
                     "mandatory_code": data.get("mandatory_code", [None] * len(data["name"]))[i] or "no",
-                    "description": data.get("description", [None] * len(data["name"]))[i] or ""
+                    "description": data.get("description", [None] * len(data["name"]))[i] or "",
+                    "type_code": data.get("type_code", [None] * len(data["name"]))[i] or ""
                 }
     
     def _parse_item_types(self, category: Category) -> None:
@@ -1063,13 +1109,18 @@ class DictionaryParser:
         data = category.data
         if "code" in data:
             for i, type_code in enumerate(data["code"]):
-                if type_code in self.items:
-                    self.items[type_code].update({
-                        "type_code": data.get("code", [None] * len(data["code"]))[i] or "",
-                        "primitive_code": data.get("primitive_code", [None] * len(data["code"]))[i] or "",
-                        "construct": data.get("construct", [None] * len(data["code"]))[i] or "",
-                        "detail": data.get("detail", [None] * len(data["code"]))[i] or ""
-                    })
+                # Create type information structure
+                type_info = {
+                    "type_code": type_code,
+                    "primitive_code": data.get("primitive_code", [None] * len(data["code"]))[i] or "",
+                    "construct": data.get("construct", [None] * len(data["code"]))[i] or "",
+                    "detail": data.get("detail", [None] * len(data["code"]))[i] or ""
+                }
+                
+                # Find items that use this type code and update them
+                for item_name, item_info in self.items.items():
+                    if item_info.get("type_code") == type_code:
+                        item_info.update(type_info)
     
     def _parse_enumerations(self, category: Category) -> None:
         """Parse enumeration definitions."""
@@ -1093,18 +1144,36 @@ class DictionaryParser:
                 })
     
     def _parse_category_keys(self, category: Category) -> None:
-        """Extract key items from _category_key."""
+        """Extract key items from _category_key - this is the most critical part for proper key detection."""
         data = category.data
         if "name" in data:
             for full_item_name in data["name"]:
-                # Parse category.item format (e.g., "_citation.id")
+                # Parse category.item format (e.g., "_citation.id" -> category="citation", item="id")
                 if "." in full_item_name:
-                    cat_name, item_name = full_item_name.lstrip("_").split(".", 1)
-                    if cat_name not in self.categories:
-                        self.categories[cat_name] = {}
-                    if "keys" not in self.categories[cat_name]:
-                        self.categories[cat_name]["keys"] = []
-                    self.categories[cat_name]["keys"].append(item_name)
+                    # Remove leading underscore and split
+                    clean_name = full_item_name.lstrip("_")
+                    if "." in clean_name:
+                        cat_name, item_name = clean_name.split(".", 1)
+                        
+                        # Ensure category exists in our categories dict
+                        if cat_name not in self.categories:
+                            self.categories[cat_name] = {
+                                "id": cat_name,
+                                "description": "",
+                                "mandatory_code": "no",
+                                "keys": []
+                            }
+                        
+                        # Ensure keys list exists
+                        if "keys" not in self.categories[cat_name]:
+                            self.categories[cat_name]["keys"] = []
+                        
+                        # Add the key item if not already present
+                        if item_name not in self.categories[cat_name]["keys"]:
+                            self.categories[cat_name]["keys"].append(item_name)
+                            print(f"✓ Found key for category '{cat_name}': '{item_name}'")
+                else:
+                    print(f"⚠️ Warning: Invalid key format in _category_key: '{full_item_name}'")
     
     def get_category_key_items(self, category_name: str) -> List[str]:
         """Get the key items for a category from _category_key definitions."""
@@ -1113,7 +1182,15 @@ class DictionaryParser:
         
         # First, try to get keys from _category_key definitions
         if clean_category in self.categories and "keys" in self.categories[clean_category]:
-            return self.categories[clean_category]["keys"]
+            keys = self.categories[clean_category]["keys"]
+            if keys:
+                print(f"✓ Found {len(keys)} key(s) for category '{clean_category}': {keys}")
+                return keys
+        
+        # Debug: Show what categories we do have
+        available_cats = list(self.categories.keys())
+        print(f"⚠️ No keys found for category '{clean_category}'")
+        print(f"   Available categories: {available_cats[:10]}{'...' if len(available_cats) > 10 else ''}")
         
         # Fallback: No keys found in dictionary
         return []
@@ -1130,9 +1207,20 @@ class DictionaryParser:
 class PDBMLConverter:
     """Convert mmCIF data to PDBML XML format with optimized performance."""
     
-    def __init__(self, dictionary_path: Optional[Union[str, Path]] = None, cache_dir: Optional[str] = None):
-        """Initialize converter with optional dictionary for metadata."""
+    def __init__(self, dictionary_path: Optional[Union[str, Path]] = None, cache_dir: Optional[str] = None, 
+                 permissive: bool = False):
+        """Initialize converter with optional dictionary for metadata.
+        
+        Args:
+            dictionary_path: Path to mmCIF dictionary file
+            cache_dir: Directory for caching mapping rules
+            permissive: If True, attempt to add missing required schema elements 
+                       based on XSD schema analysis (when available). 
+                       Default False - let validation fail transparently to show true data issues.
+                       Note: Only adds elements if XSD schema parsing is available and functional.
+        """
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
+        self.permissive = permissive
         
         # Set default dictionary path if not provided
         if dictionary_path is None:
@@ -1220,245 +1308,87 @@ class PDBMLConverter:
             with open("debug_raw_xml.xml", "wb") as f:
                 f.write(rough_string)
                 
-            # First, use a simpler method to get valid XML
+            # Generate XML output without fallback defaults
             return self._generate_simple_xml_output(root)
             
         except Exception as e:
             print(f"⚠️ Error generating XML: {str(e)}")
-            # Fallback to very simple XML generation
-            return self._generate_fallback_xml(data_block)
+            # Instead of generating fallback with defaults, let it fail transparently
+            raise ValueError(f"XML generation failed: {str(e)}. Check source data quality.")
             
     def _generate_simple_xml_output(self, root: ET.Element) -> str:
-        """Generate XML output with simpler formatting to avoid parsing issues."""
-        # Check if we need to add any required categories that are missing
-        self._ensure_required_categories(root)
+        """Generate XML output without adding default values - let validation show real issues."""
+        # Only check for critical categories that are absolutely required for valid XML structure
+        self._validate_critical_references(root)
             
         # Use ElementTree's built-in serialization without pretty-printing
         xml_string = ET.tostring(root, encoding='utf-8').decode('utf-8')
         return '<?xml version="1.0" encoding="utf-8"?>\n' + xml_string
         
-    def _ensure_required_categories(self, root: ET.Element) -> None:
-        """Make sure required categories are present to avoid reference errors."""
-        # Check for necessary categories
-        datablock_name = root.get("datablockName", "unknown")
+    def _validate_critical_references(self, root: ET.Element) -> None:
+        """Validate critical references without auto-adding defaults - report issues instead."""
+        issues = []
         
         # Check for atom_type category
         atom_type_cat = None
-        for cat in root:
-            if cat.tag.endswith("atom_typeCategory"):
-                atom_type_cat = cat
-                break
-        
-        # Extract atom symbols from atom_site category
         atom_site_cat = None
         atom_symbols = set()
         
         for cat in root:
-            if cat.tag.endswith("atom_siteCategory"):
+            if cat.tag.endswith("atom_typeCategory"):
+                atom_type_cat = cat
+            elif cat.tag.endswith("atom_siteCategory"):
                 atom_site_cat = cat
                 # Extract the type_symbol values
                 for atom_elem in cat:
-                    # Look for type_symbol as a child element first
                     symbol = None
                     for child in atom_elem:
                         if child.tag.endswith("type_symbol"):
                             symbol = child.text
                             break
-                    # If not found as element, try attribute
                     if not symbol:
                         symbol = atom_elem.get("type_symbol")
-                    
                     if symbol:
                         atom_symbols.add(symbol)
-                break
         
-        # If we have atom_site but no atom_type, create the atom_type entries
-        if atom_site_cat and atom_symbols:
-            # Check if we need to create atom_type category
-            if not atom_type_cat:
-                print("⚠️ Adding missing atom_type category to fulfill reference requirements")
-                atom_type_cat = ET.SubElement(root, "atom_typeCategory")
-            
-            # Check which atom symbols already exist in atom_type
-            existing_symbols = set()
-            if atom_type_cat is not None:
-                for atom_type in atom_type_cat:
-                    symbol = atom_type.get("symbol")
-                    if symbol:
-                        existing_symbols.add(symbol)
-            
-            # Add entries for each atom symbol that doesn't exist yet
-            for symbol in atom_symbols:
-                if symbol not in existing_symbols:
-                    print(f"⚠️ Adding missing atom_type entry for symbol: {symbol}")
-                    atom_type = ET.SubElement(atom_type_cat, "atom_type")
-                    atom_type.set("symbol", symbol)
-                    # Add required child elements for atom_type
-                    description = ET.SubElement(atom_type, "description")
-                    description.text = f"Element {symbol}"
-                    scat_dispersion_real = ET.SubElement(atom_type, "scat_dispersion_real")
-                    scat_dispersion_real.text = "0.0"
-                    scat_dispersion_imag = ET.SubElement(atom_type, "scat_dispersion_imag") 
-                    scat_dispersion_imag.text = "0.0"
-                    scat_Cromer_Mann_a1 = ET.SubElement(atom_type, "scat_Cromer_Mann_a1")
-                    scat_Cromer_Mann_a1.text = "0.0"
+        # Report missing atom_type references
+        if atom_site_cat and atom_symbols and not atom_type_cat:
+            issues.append(f"Missing atom_type category for symbols: {', '.join(sorted(atom_symbols))}")
         
-        # Similar check for chem_comp category
-        chem_comp_cat = None
-        comp_ids = set()
-        
-        for cat in root:
-            if cat.tag.endswith("chem_compCategory"):
-                chem_comp_cat = cat
-                break
-                
-        # Extract comp_ids from atom_site if it exists
-        if atom_site_cat:
-            for atom_elem in atom_site_cat:
-                # Try to get comp_id or label_comp_id from child elements first
-                comp_id = None
-                for child in atom_elem:
-                    if child.tag.endswith("comp_id") or child.tag.endswith("label_comp_id"):
-                        comp_id = child.text
-                        break
-                
-                # If not found as element, try attributes
-                if not comp_id:
-                    comp_id = atom_elem.get("comp_id") or atom_elem.get("label_comp_id")
-                
-                if comp_id:
-                    comp_ids.add(comp_id)
-        
-        # If we have comp_ids but no chem_comp, create the category
-        if comp_ids:
-            # Create category if it doesn't exist
-            if not chem_comp_cat:
-                print("⚠️ Adding missing chem_comp category to fulfill reference requirements")
-                chem_comp_cat = ET.SubElement(root, "chem_compCategory")
-            
-            # Check which comp_ids already exist in chem_comp
-            existing_comp_ids = set()
-            if chem_comp_cat is not None:
-                for chem_comp in chem_comp_cat:
-                    comp_id = chem_comp.get("id")
-                    if comp_id:
-                        existing_comp_ids.add(comp_id)
-            
-            # Add entries for each comp_id that doesn't exist yet
-            for comp_id in comp_ids:
-                if comp_id not in existing_comp_ids:
-                    print(f"⚠️ Adding missing chem_comp entry for ID: {comp_id}")
-                    chem_comp = ET.SubElement(chem_comp_cat, "chem_comp")
-                    chem_comp.set("id", comp_id)
-                    # Add required child elements
-                    type_elem = ET.SubElement(chem_comp, "type")
-                    type_elem.text = "L-peptide linking"  # Use valid enumeration value
-                    name_elem = ET.SubElement(chem_comp, "name")
-                    name_elem.text = comp_id
-        
-        # Check for entity and struct_asym requirements (for keyref validation)
+        # Check for entity/struct_asym requirements
         entity_ids = set()
         asym_ids = set()
         
-        # Extract entity_id and asym_id from atom_site if it exists
         if atom_site_cat:
             for atom_elem in atom_site_cat:
-                # Try to get entity_id and asym_id from child elements
-                entity_id = None
-                asym_id = None
+                entity_id = asym_id = None
                 for child in atom_elem:
                     if child.tag.endswith("label_entity_id"):
                         entity_id = child.text
                     elif child.tag.endswith("label_asym_id"):
                         asym_id = child.text
                 
-                # Default values if not found
-                if not entity_id:
-                    entity_id = "1"
-                if not asym_id:
-                    asym_id = "A"
-                    
                 if entity_id:
                     entity_ids.add(entity_id)
                 if asym_id:
-                    asym_ids.add((entity_id, asym_id))
+                    asym_ids.add(asym_id)
         
-        # Create entity category if needed
-        if entity_ids:
-            entity_cat = None
-            for cat in root:
-                if cat.tag.endswith("entityCategory"):
-                    entity_cat = cat
-                    break
-            
-            if not entity_cat:
-                print("⚠️ Adding missing entity category to fulfill keyref requirements")
-                entity_cat = ET.SubElement(root, "entityCategory")
-            
-            # Check existing entities
-            existing_entities = set()
-            for entity in entity_cat:
-                entity_id = entity.get("id")
-                if entity_id:
-                    existing_entities.add(entity_id)
-            
-            # Add missing entities
-            for entity_id in entity_ids:
-                if entity_id not in existing_entities:
-                    print(f"⚠️ Adding missing entity entry for ID: {entity_id}")
-                    entity = ET.SubElement(entity_cat, "entity")
-                    entity.set("id", entity_id)
-                    # Add required child elements
-                    type_elem = ET.SubElement(entity, "type")
-                    type_elem.text = "polymer"
+        # Check for missing entity category
+        entity_cat = any(cat.tag.endswith("entityCategory") for cat in root)
+        if entity_ids and not entity_cat:
+            issues.append(f"Missing entity category for entity_ids: {', '.join(sorted(entity_ids))}")
         
-        # Create struct_asym category if needed  
-        if asym_ids:
-            struct_asym_cat = None
-            for cat in root:
-                if cat.tag.endswith("struct_asymCategory"):
-                    struct_asym_cat = cat
-                    break
-            
-            if not struct_asym_cat:
-                print("⚠️ Adding missing struct_asym category to fulfill keyref requirements")
-                struct_asym_cat = ET.SubElement(root, "struct_asymCategory")
-            
-            # Check existing struct_asyms  
-            existing_asyms = set()
-            for asym in struct_asym_cat:
-                asym_id = asym.get("id")
-                entity_id = None
-                # Look for entity_id as child element
-                for child in asym:
-                    if child.tag.endswith("entity_id"):
-                        entity_id = child.text
-                        break
-                if entity_id and asym_id:
-                    existing_asyms.add((entity_id, asym_id))
-            
-            # Add missing struct_asyms
-            for entity_id, asym_id in asym_ids:
-                if (entity_id, asym_id) not in existing_asyms:
-                    print(f"⚠️ Adding missing struct_asym entry for entity_id={entity_id}, id={asym_id}")
-                    asym = ET.SubElement(struct_asym_cat, "struct_asym")
-                    asym.set("id", asym_id)
-                    # Add entity_id as child element, not attribute
-                    entity_id_elem = ET.SubElement(asym, "entity_id")
-                    entity_id_elem.text = entity_id
+        # Check for missing struct_asym category
+        struct_asym_cat = any(cat.tag.endswith("struct_asymCategory") for cat in root)
+        if asym_ids and not struct_asym_cat:
+            issues.append(f"Missing struct_asym category for asym_ids: {', '.join(sorted(asym_ids))}")
         
-    def _generate_fallback_xml(self, data_block: DataBlock) -> str:
-        """Generate a minimal valid XML as fallback."""
-        lines = ['<?xml version="1.0" encoding="utf-8"?>']
-        lines.append(f'<datablock xmlns="{self.namespace}" datablockName="{data_block.name}">')
-        
-        # Add minimal content - just the entry category
-        lines.append('  <entryCategory>')
-        lines.append(f'    <entry id="{data_block.name}"/>')
-        lines.append('  </entryCategory>')
-        
-        lines.append('</datablock>')
-        return '\n'.join(lines)
+        # Report all issues without fixing them
+        if issues:
+            print("⚠️ Validation issues detected (not auto-fixed):")
+            for issue in issues:
+                print(f"  - {issue}")
+            print("  Note: Run with proper validation to see detailed schema compliance report.")
     
     def _add_category_to_pdbml(self, parent: ET.Element, category_name: str, category: Category) -> None:
         """Add a category to the PDBML XML structure."""
@@ -1575,9 +1505,9 @@ class PDBMLConverter:
                             safe_item_name = self._sanitize_xml_name(item_name)
                             try:
                                 cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
-                                if cleaned_value:  # Skip empty values
-                                    item_elem = ET.SubElement(row_elem, safe_item_name)
-                                    item_elem.text = cleaned_value
+                                # Always add the element, even if value is empty (preserves structure)
+                                item_elem = ET.SubElement(row_elem, safe_item_name)
+                                item_elem.text = cleaned_value if cleaned_value else ""
                             except Exception as e:
                                 print(f"⚠️ Error adding element '{safe_item_name}': {str(e)}")
                             continue
@@ -1587,64 +1517,54 @@ class PDBMLConverter:
                         if safe_item_name:  # Skip invalid element names
                             try:
                                 cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
-                                if cleaned_value:  # Skip empty values
-                                    item_elem = ET.SubElement(row_elem, safe_item_name)
-                                    item_elem.text = cleaned_value
+                                # Always add the element, even if value is empty (preserves structure)
+                                item_elem = ET.SubElement(row_elem, safe_item_name)
+                                item_elem.text = cleaned_value if cleaned_value else ""
                             except Exception as e:
                                 print(f"⚠️ Error adding element '{safe_item_name}': {str(e)}")
                 
-                # Special handling for atom_site category to ensure schema compliance
+                # Special handling for atom_site category - report missing data or add mmCIF null indicators in permissive mode
                 if pdbml_category_name == "atom_site":
-                    # Get required elements from mapping rules with fallback to hardcoded values
-                    required_elements = self._get_default_values_from_mapping("_atom_site")
+                    # Check for missing critical data and report it
+                    missing_elements = []
+                    critical_elements = ["type_symbol", "label_comp_id", "Cartn_x", "Cartn_y", "Cartn_z"]
                     
-                    # If no mapping rules available, use minimal fallback from Enum
-                    if not required_elements:
-                        from .pdbml_enums import ValidationRule
-                        required_elements = ValidationRule.get_atom_site_required_elements()
+                    for critical_elem in critical_elements:
+                        if not any(child.tag.endswith(critical_elem) for child in row_elem):
+                            # Check if it exists in the data but wasn't added
+                            if critical_elem in data:
+                                continue  # It should have been added
+                            missing_elements.append(critical_elem)
                     
-                    for elem_name, default_value in required_elements.items():
-                        if not any(child.tag.endswith(elem_name) for child in row_elem):
-                            elem = ET.SubElement(row_elem, elem_name)
-                            elem.text = default_value
+                    if missing_elements:
+                        print(f"⚠️ Atom site row missing critical elements: {', '.join(missing_elements)}")
+                        print("   Consider validating source data quality")
                     
-                    # Make sure required anisotropic thermal parameters are present
-                    # The XML schema requires at least one of these anisotropic B-factor elements
-                    # Check B-factor parameters using Enum
-                    from .pdbml_enums import AnisotropicParam
-                    b_factor_params = AnisotropicParam.get_b_factor_params()
-                    has_any_aniso = any(any(child.tag.endswith(param) for child in row_elem) for param in b_factor_params)
-                    
-                    if not has_any_aniso:
-                        # Add minimal required anisotropic thermal parameters to satisfy schema
-                        aniso_defaults = get_anisotropic_defaults()
-                        
-                        for elem_name, default_value in aniso_defaults.items():
-                            if not any(child.tag.endswith(elem_name) for child in row_elem):
-                                elem = ET.SubElement(row_elem, elem_name)
-                                elem.text = default_value
+                    # Handle required schema elements in permissive mode
+                    if self.permissive:
+                        self._add_schema_required_elements(row_elem, "atom_site")
+                
+                elif pdbml_category_name == "citation":
+                    # Handle required schema elements in permissive mode for citations
+                    if self.permissive:
+                        self._add_schema_required_elements(row_elem, "citation")
+                
+                elif pdbml_category_name == "entity":
+                    # Handle required schema elements in permissive mode for entities
+                    if self.permissive:
+                        self._add_schema_required_elements(row_elem, "entity")
                 
                 elif pdbml_category_name == "pdbx_database_status":
-                    # Always force the entry_id, deposit_site, process_site as elements, not attributes
-                    # These are needed for test_domain_clustering_preservation
+                    # Ensure entry_id, deposit_site, process_site are elements, not attributes
+                    # but don't add default values if they don't exist in source data
                     
-                    # First check if entry_id exists
-                    entry_id_elem = None
-                    for child in row_elem:
-                        if child.tag == "entry_id":
-                            entry_id_elem = child
-                            break
-                    
-                    if not entry_id_elem:
-                        entry_id_elem = ET.SubElement(row_elem, "entry_id")
-                        entry_id_elem.text = "TEST_STRUCTURE"
-                    
-                    # Remove any entry_id attribute that might interfere with the test
+                    # Check if entry_id exists as attribute and move to element
                     if row_elem.attrib.get("entry_id"):
                         value = row_elem.attrib.get("entry_id")
                         del row_elem.attrib["entry_id"]
-                        # Use that value for the element if needed
-                        if not entry_id_elem.text:
+                        # Only add element if one doesn't already exist
+                        if not any(child.tag == "entry_id" for child in row_elem):
+                            entry_id_elem = ET.SubElement(row_elem, "entry_id")
                             entry_id_elem.text = value
                 
         except Exception as e:
@@ -1964,6 +1884,138 @@ class PDBMLConverter:
             entry_cat = ET.SubElement(root, "entryCategory")
             entry_elem = ET.SubElement(entry_cat, "entry")
             entry_elem.set("id", root.get("datablockName", "UNKNOWN"))
+    
+    def _add_schema_required_elements(self, row_elem: ET.Element, category_name: str) -> None:
+        """Add elements for missing required schema fields in permissive mode.
+        
+        This method queries the XSD schema to determine what elements are actually required
+        for this category, then adds only those missing elements using appropriate null indicators.
+        No hardcoded lists - everything comes from the schema definition.
+        
+        Args:
+            row_elem: The XML element representing a row in the category
+            category_name: The name of the category (e.g., "atom_site", "citation", etc.)
+        """
+        if not self.permissive:
+            return
+            
+        # Ensure XSD is parsed in the mapping generator
+        self.mapping_generator._ensure_xsd_parsed()
+        
+        # Get required elements from XSD schema parsing (if available)
+        if hasattr(self.mapping_generator, '_xsd_complex_types') and self.mapping_generator._xsd_complex_types:
+            # Query XSD for required elements for this category type
+            category_required_elements = self._get_required_elements_from_xsd(category_name)
+            
+            for elem_name in category_required_elements:
+                # Check if this element already exists
+                existing_elem = row_elem.find(elem_name)
+                if existing_elem is None:
+                    # Add element with appropriate null indicator based on XSD type
+                    safe_elem_name = self._sanitize_xml_name(elem_name)
+                    if safe_elem_name:
+                        null_elem = ET.SubElement(row_elem, safe_elem_name)
+                        # Determine appropriate null value from XSD type information
+                        null_value = self._get_appropriate_null_value_from_xsd(elem_name, category_name)
+                        null_elem.text = null_value
+        else:
+            # If XSD parsing is not available, don't add anything
+            # Let validation fail transparently to show the real data quality issues
+            print(f"⚠️ No XSD schema information available for {category_name} - skipping permissive additions")
+            
+    def _get_required_elements_from_xsd(self, category_name: str) -> List[str]:
+        """Get list of required elements for a category from XSD schema analysis.
+        
+        Args:
+            category_name: The category name (e.g., "atom_site")
+            
+        Returns:
+            List of element names that are required by the XSD schema
+        """
+        required_elements = []
+        
+        # Ensure XSD is parsed
+        if not hasattr(self.mapping_generator, '_xsd_complex_types'):
+            self.mapping_generator._ensure_xsd_parsed()
+            
+        # Check if we have XSD complex types available
+        if not hasattr(self.mapping_generator, '_xsd_complex_types') or not self.mapping_generator._xsd_complex_types:
+            return required_elements
+            
+        # Look for the complex type that defines this category
+        category_type_name = f"{category_name}Type"
+        
+        # Check various naming patterns used in PDBML XSD
+        type_patterns = [
+            category_type_name,
+            f"pdbx:{category_name}Type", 
+            f"{category_name}_type",
+            f"pdbx_{category_name}_type"
+        ]
+        
+        for type_name in type_patterns:
+            if type_name in self.mapping_generator._xsd_complex_types:
+                complex_type_info = self.mapping_generator._xsd_complex_types[type_name]
+                required_elements = complex_type_info.get('required_elements', [])
+                if required_elements:
+                    break
+        
+        return required_elements
+        
+    def _get_appropriate_null_value_from_xsd(self, elem_name: str, category_name: str) -> str:
+        """Determine appropriate null value based on XSD element type.
+        
+        Args:
+            elem_name: Name of the element
+            category_name: Category containing the element
+            
+        Returns:
+            Appropriate null value based on XSD type ("0" for numeric, empty for text)
+        """
+        # Ensure XSD is parsed
+        if not hasattr(self.mapping_generator, '_xsd_complex_types'):
+            self.mapping_generator._ensure_xsd_parsed()
+            
+        # Check if we have XSD complex types available
+        if not hasattr(self.mapping_generator, '_xsd_complex_types') or not self.mapping_generator._xsd_complex_types:
+            return ""  # Omit content if no XSD available
+            
+        # Look for the complex type that defines this category
+        category_type_name = f"{category_name}Type"
+        
+        # Check various naming patterns used in PDBML XSD
+        type_patterns = [
+            category_type_name,
+            f"pdbx:{category_name}Type", 
+            f"{category_name}_type",
+            f"pdbx_{category_name}_type"
+        ]
+        
+        for type_name in type_patterns:
+            if type_name in self.mapping_generator._xsd_complex_types:
+                complex_type_info = self.mapping_generator._xsd_complex_types[type_name]
+                
+                # Look for the specific element within this complex type
+                for elem_info in complex_type_info.get('elements', []):
+                    if elem_info['name'] == elem_name:
+                        element_type = elem_info.get('type', '')
+                        
+                        # Determine appropriate null value based on type
+                        if any(numeric_type in element_type.lower() for numeric_type in 
+                              ['decimal', 'float', 'double', 'int', 'integer']):
+                            # For numeric types, use "0" as it's a valid numeric value
+                            return "0"
+                        elif any(string_type in element_type.lower() for string_type in 
+                                ['string', 'text', 'token', 'normalizedstring']):
+                            # For string types, use empty string
+                            return ""
+                        else:
+                            # For unknown types, default to empty string
+                            return ""
+                break
+        
+        # Fallback: return empty string to omit element content
+        return ""
 
 
 class RelationshipResolver:
@@ -2326,8 +2378,15 @@ class RelationshipResolver:
 class MMCIFToPDBMLPipeline:
     """Complete pipeline for mmCIF to PDBML conversion and relationship resolution."""
     
-    def __init__(self, dictionary_path: Optional[Union[str, Path]] = None, schema_path: Optional[Union[str, Path]] = None):
-        """Initialize pipeline with optional dictionary and schema paths."""
+    def __init__(self, dictionary_path: Optional[Union[str, Path]] = None, schema_path: Optional[Union[str, Path]] = None, 
+                 permissive: bool = False):
+        """Initialize pipeline with optional dictionary and schema paths.
+        
+        Args:
+            dictionary_path: Path to mmCIF dictionary file
+            schema_path: Path to XSD schema file  
+            permissive: If True, add mmCIF null indicators for missing required schema elements
+        """
         # Set default paths if not provided
         current_dir = Path(__file__).parent
         
@@ -2338,13 +2397,17 @@ class MMCIFToPDBMLPipeline:
         
         self.dictionary_path = Path(dictionary_path)
         self.schema_path = Path(schema_path)
+        self.permissive = permissive
         
         # Initialize components
         self.dictionary = DictionaryParser()
         if self.dictionary_path.exists():
             self.dictionary.parse_dictionary(self.dictionary_path)
         
-        self.converter = PDBMLConverter(self.dictionary_path if self.dictionary_path.exists() else None)
+        self.converter = PDBMLConverter(
+            self.dictionary_path if self.dictionary_path.exists() else None, 
+            permissive=self.permissive
+        )
         self.validator = XMLSchemaValidator(str(self.schema_path)) if self.schema_path.exists() else None
         self.resolver = RelationshipResolver(self.dictionary if self.dictionary_path.exists() else None)
     
