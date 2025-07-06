@@ -277,7 +277,7 @@ def demonstrate_export_functionality(mmcif, output_dir):
         # Show first CSV file path as example
         for block_name, categories in file_paths.items():
             if categories:
-                first_category = next(iter(categories.keys()))
+                first_category = next(iter(categories))
                 first_path = categories[first_category]
                 print(f"      Example: {os.path.basename(first_path)}")
                 break
@@ -1424,7 +1424,7 @@ _atom_site.pdbx_PDB_model_num 1
         resolver = RelationshipResolver()
         nested_json = resolver.resolve_relationships(xml_content)
         print(f"   ✅ Relationships resolved")
-        print(f"   📊 Root categories: {list(nested_json.keys())}")
+        print(f"   📊 Root categories: {list(nested_json)}")
         
         # Step 4: Validate 4-level hierarchy
         print(f"\n4️⃣ Validating 4-level nested hierarchy...")

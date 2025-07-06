@@ -1530,7 +1530,7 @@ class TestCsvLoader(TestFormatLoaders):
             self.assertIn("data_block1", container.blocks)
 
             # Get the category name with underscore prefix (core functionality doesn't add prefixes)
-            category_names = list(container["block1"]._categories.keys())
+            category_names = list(container["block1"]._categories)
             self.assertTrue(any("category1" in name for name in category_names))
             self.assertTrue(any("category2" in name for name in category_names))
 

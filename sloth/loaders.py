@@ -44,7 +44,7 @@ class DictToMMCIFConverter:
         )
 
     def _populate_multiline_category(self, category: Category, rows: list):
-        all_item_names = {k for row in rows for k in row.keys()}
+        all_item_names = {k for row in rows for k in row}
         for item_name in all_item_names:
             category[item_name] = []
         for row in rows:

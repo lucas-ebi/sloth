@@ -39,7 +39,7 @@ class MMCIFWriter(BaseWriter):
 
         if any(len(values) > 1 for values in items.values()):
             file_obj.write("loop_\n")
-            for item_name in items.keys():
+            for item_name in items:
                 file_obj.write(f"{category_name}.{item_name}\n")
             for row in zip(*items.values()):
                 formatted_row = [self._format_value(value) for value in row]

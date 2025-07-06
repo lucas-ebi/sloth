@@ -238,10 +238,10 @@ class LazyItemDict:
         return self._items.keys()
 
     def values(self):
-        return [self[k] for k in self.keys()]
+        return [self[k] for k in self]
 
     def items(self):
-        return [(k, self[k]) for k in self.keys()]
+        return [(k, self[k]) for k in self]
 
     def get(self, key: str, default=None):
         try:
@@ -254,7 +254,7 @@ class LazyItemDict:
             # Compare all items (forces loading)
             if len(self) != len(other):
                 return False
-            for key in self.keys():
+            for key in self:
                 if key not in other or self[key] != other[key]:
                     return False
             return True
@@ -620,8 +620,8 @@ class CategoryCollection(dict):
         return super().__contains__(key)
 
     def __iter__(self):
-        # Iterate over values (Category objects) for consistency with list behavior
-        return iter(self.values())
+        # Iterate over keys (category names) not values
+        return iter(self.keys())
 
     def keys(self):
         # Return stripped keys for internal use

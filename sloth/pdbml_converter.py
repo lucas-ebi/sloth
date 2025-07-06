@@ -13,22 +13,16 @@ import hashlib
 import threading
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple, Union
-from xml.etree import ElementTree as ET
-from xml.dom import minidom
-from lxml import etree
-from pathlib import Path
-from collections import defaultdict, Counter
+from typing import Dict, List, Optional, Any, Union
 from functools import lru_cache, wraps
+from xml.etree import ElementTree as ET
+from lxml import etree
 
-from .models import MMCIFDataContainer, DataBlock, Category
+from .models import MMCIFDataContainer, Category
 from .parser import MMCIFParser
-from .validator import ValidatorFactory
 from .schemas import XMLSchemaValidator
 from .pdbml_enums import (
-    XMLLocation, ElementOnlyItem, AtomSiteDefault, AnisotropicParam,
-    ProblematicField, NullValue, SpecialAttribute, ValidationRule,
-    EssentialKey, RequiredAttribute, NumericField,
+    XMLLocation, EssentialKey, RequiredAttribute,
     get_element_only_items, get_atom_site_defaults, get_anisotropic_defaults,
     get_problematic_field_replacement, is_null_value, get_numeric_fields
 )
@@ -382,7 +376,7 @@ class XMLMappingGenerator:
         
         try:
             with open(self.dict_file, 'r', encoding='utf-8') as f:
-                for line_num, line in enumerate(f, 1):
+                for line in f:
                     line = line.strip()
                     
                     if not line or line.startswith('#'):
@@ -414,9 +408,7 @@ class XMLMappingGenerator:
             # Debug: show some key categories
             debug_cats = ['entry', 'database_2', 'chem_comp_angle', 'atom_site']
             for cat_name in debug_cats:
-                if cat_name in self._categories:
-                    keys = self._categories[cat_name]['keys']
-                else:
+                if cat_name not in self._categories:
                     print(f"⚠️ Warning: Category {cat_name}: not found in dictionary")
         except Exception as e:
             print(f"⚠️ Warning: Error parsing dictionary: {e}")
@@ -830,6 +822,8 @@ class XMLMappingGenerator:
         
     def _determine_xml_location(self, item_name: str, item_info: dict) -> str:
         """Determine if item should be XML element or attribute"""
+        # Note: item_info parameter kept for API compatibility but not currently used
+        _ = item_info  # Explicitly mark as unused
         # Extract category and item parts
         if '.' not in item_name:
             return XMLLocation.ELEMENT_CONTENT.value
@@ -857,11 +851,11 @@ class XMLMappingGenerator:
         element_requirements = {}
         
         # Process each category
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             element_only = []
             
             # Get all items for this category
-            category_items = [item for item in self.items.keys() 
+            category_items = [item for item in self.items 
                             if item.startswith(f'_{cat_id}.')]
             
             for item_name in category_items:
@@ -881,11 +875,11 @@ class XMLMappingGenerator:
         attribute_requirements = {}
         
         # Process each category
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             attribute_only = []
             
             # Get all items for this category
-            category_items = [item for item in self.items.keys() 
+            category_items = [item for item in self.items 
                             if item.startswith(f'_{cat_id}.')]
             
             for item_name in category_items:
@@ -937,14 +931,14 @@ class XMLMappingGenerator:
         default_values["atom_site"] = atom_site_defaults
         
         # Process other categories
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             if cat_id == "atom_site":
                 continue  # Already handled above
                 
             category_defaults = {}
             
             # Get all items for this category
-            category_items = [item for item in self.items.keys() 
+            category_items = [item for item in self.items 
                             if item.startswith(f'_{cat_id}.')]
             
             for item_name in category_items:
@@ -965,11 +959,11 @@ class XMLMappingGenerator:
         validation_rules = {}
         
         # Process each category
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             category_validation = {}
             
             # Get all items for this category
-            category_items = [item for item in self.items.keys() 
+            category_items = [item for item in self.items 
                             if item.startswith(f'_{cat_id}.')]
             
             for item_name in category_items:
@@ -1004,10 +998,9 @@ class XMLMappingGenerator:
         
         if data_type in ['int', 'float']:
             return '0'
-        elif data_type == 'code':
+        if data_type == 'code':
             return '.'
-        else:
-            return ''
+        return ''
 
 
 class DictionaryParser:
@@ -1118,7 +1111,7 @@ class DictionaryParser:
                 }
                 
                 # Find items that use this type code and update them
-                for item_name, item_info in self.items.items():
+                for _, item_info in self.items.items():
                     if item_info.get("type_code") == type_code:
                         item_info.update(type_info)
     
@@ -1188,7 +1181,7 @@ class DictionaryParser:
                 return keys
         
         # Debug: Show what categories we do have
-        available_cats = list(self.categories.keys())
+        available_cats = list(self.categories)
         print(f"⚠️ No keys found for category '{clean_category}'")
         print(f"   Available categories: {available_cats[:10]}{'...' if len(available_cats) > 10 else ''}")
         
@@ -1416,7 +1409,6 @@ class PDBMLConverter:
                 key_items = self._get_keys_from_mapping_rules(category_name)
                 if not key_items:
                     # Final fallback for essential categories using Enum
-                    from .pdbml_enums import EssentialKey
                     key_items = EssentialKey.get_keys(category_name)
                 # Special case for atom_site - ensure it has the required references but don't add 
                 # type_symbol or label_comp_id as they must be elements, not attributes
@@ -1444,7 +1436,6 @@ class PDBMLConverter:
                     row_elem.set("database_id", "PDB")
                 
                 # Add special required attributes that must not be elements
-                from .pdbml_enums import RequiredAttribute
                 required_attrs_for_category = RequiredAttribute.get_required_attrs(pdbml_category_name)
                 
                 # Handle special attribute requirements for this category
@@ -1591,7 +1582,6 @@ class PDBMLConverter:
         
         try:
             # Remove surrounding quotes for certain fields that should be raw values
-            from .pdbml_enums import NumericField, get_numeric_fields
             numeric_fields = get_numeric_fields()
             if field_name in numeric_fields and value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
@@ -1833,7 +1823,6 @@ class PDBMLConverter:
         """
         try:
             # Parse the XML to work with it
-            from xml.etree import ElementTree as ET
             root = ET.fromstring(xml_content)
             
             # Fix 1: Ensure proper namespace declarations
@@ -2005,13 +1994,12 @@ class PDBMLConverter:
                               ['decimal', 'float', 'double', 'int', 'integer']):
                             # For numeric types, use "0" as it's a valid numeric value
                             return "0"
-                        elif any(string_type in element_type.lower() for string_type in 
+                        if any(string_type in element_type.lower() for string_type in 
                                 ['string', 'text', 'token', 'normalizedstring']):
                             # For string types, use empty string
                             return ""
-                        else:
-                            # For unknown types, default to empty string
-                            return ""
+                        # For unknown types, default to empty string
+                        return ""
                 break
         
         # Fallback: return empty string to omit element content
@@ -2047,7 +2035,6 @@ class RelationshipResolver:
             try:
                 # Try with lxml which has better error recovery
                 try:
-                    from lxml import etree
                     root = etree.fromstring(xml_content.encode('utf-8'), parser=etree.XMLParser(recover=True))
                     # Convert lxml Element to ElementTree Element
                     root_str = etree.tostring(root)
@@ -2084,8 +2071,6 @@ class RelationshipResolver:
     
     def _extract_simple_data(self, xml_content: str) -> Dict[str, Any]:
         """Fallback method for simple data extraction from potentially invalid XML."""
-        import re
-        
         data = {}
         categories_data = {}
         
@@ -2169,7 +2154,7 @@ class RelationshipResolver:
         
         # Start with root categories (those that are not children of any other category)
         root_categories = []
-        for category_name in categories.keys():
+        for category_name in categories:
             if category_name not in relationships.get('parents', {}):
                 root_categories.append(category_name)
         
@@ -2218,7 +2203,7 @@ class RelationshipResolver:
         
         # Use dictionary relationships if available
         if self.dictionary:
-            for child_category, items in categories.items():
+            for child_category in categories:
                 parents = self.dictionary.get_parent_relationships(child_category)
                 for parent_info in parents:
                     parent_cat = parent_info['parent_name'].split('.')[0].lstrip('_')
@@ -2364,6 +2349,8 @@ class RelationshipResolver:
     
     def _get_item_key(self, item: Dict[str, Any], category_name: str) -> str:
         """Get the primary key for an item."""
+        # Note: category_name parameter kept for future use but not currently used
+        _ = category_name  # Explicitly mark as unused
         # Common key patterns
         key_fields = ['id', 'name', 'code']
         
@@ -2480,7 +2467,6 @@ class MMCIFToPDBMLPipeline:
         file_paths["xml"] = str(xml_path)
         
         # Save nested JSON
-        import json
         json_path = output_dir / f"{base_name}_nested.json"
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(results["nested_json"], f, indent=2)
