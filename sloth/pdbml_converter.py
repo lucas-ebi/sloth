@@ -898,43 +898,18 @@ class XMLMappingGenerator:
         """Generate default values mapping"""
         default_values = {}
         
-        # Get comprehensive defaults for atom_site category using Enum classes
+        # Get defaults for atom_site category from schema-driven sources only
         atom_site_defaults = {}
         atom_site_defaults.update(get_atom_site_defaults())
         atom_site_defaults.update(get_anisotropic_defaults())
         
-        # Add additional required fields not covered in the base defaults
-        additional_defaults = {
-            "aniso_ratio": "1.0",
-            "attached_hydrogens": "0",
-            "auth_asym_id": "A",
-            "auth_atom_id": "N1",
-            "auth_comp_id": "MET",
-            "auth_seq_id": "1",
-            "calc_attached_atom": ".",
-            "chemical_conn_number": "0",
-            "constraints": ".",
-            "details": ".",
-            "disorder_assembly": ".",
-            "disorder_group": ".",
-            "fract_x": "0.0",
-            "fract_x_esd": "0.0",
-            "fract_y": "0.0", 
-            "fract_y_esd": "0.0",
-            "fract_z": "0.0",
-            "fract_z_esd": "0.0",
-            "label_alt_id": ".",
-            "label_asym_id": "A"
-        }
-        atom_site_defaults.update(additional_defaults)
+        # Note: No arbitrary hardcoded defaults added - let schema validation 
+        # fail transparently to show real data issues
         
         default_values["atom_site"] = atom_site_defaults
         
-        # Process other categories
+        # Process all categories using schema-driven approach
         for cat_id in self.categories:
-            if cat_id == "atom_site":
-                continue  # Already handled above
-                
             category_defaults = {}
             
             # Get all items for this category
@@ -988,18 +963,12 @@ class XMLMappingGenerator:
         return 'char'
         
     def _get_item_default_value(self, item_name: str) -> str:
-        """Get default value for item"""
+        """Get default value for item from XSD schema only - no arbitrary defaults."""
         # Check XSD for default values
         if item_name in self.xsd_elements:
             return self.xsd_elements[item_name].get('default', '')
             
-        # Provide sensible defaults based on data type
-        data_type = self._get_item_data_type(item_name)
-        
-        if data_type in ['int', 'float']:
-            return '0'
-        if data_type == 'code':
-            return '.'
+        # Return empty string - let schema validation handle missing values transparently
         return ''
 
 
@@ -1056,7 +1025,7 @@ class DictionaryParser:
                 
             # Print summary
             categories_with_keys = sum(1 for cat in self.categories.values() if cat.get("keys"))
-            print(f"✓ Dictionary parsing complete:")
+            print("✓ Dictionary parsing complete:")
             print(f"  - Categories: {len(self.categories)}")
             print(f"  - Categories with keys: {categories_with_keys}")
             print(f"  - Items: {len(self.items)}")
@@ -1410,12 +1379,6 @@ class PDBMLConverter:
                 if not key_items:
                     # Final fallback for essential categories using Enum
                     key_items = EssentialKey.get_keys(category_name)
-                # Special case for atom_site - ensure it has the required references but don't add 
-                # type_symbol or label_comp_id as they must be elements, not attributes
-                if category_name == "_atom_site":
-                    # For atom_site, we don't add type_symbol and label_comp_id as key items (attributes)
-                    # because they must be elements according to the XML schema
-                    pass
             
             # Create elements for each row
             for row_idx in range(row_count):
@@ -1431,14 +1394,8 @@ class PDBMLConverter:
                             row_elem.set(attr_name, cleaned_value)
                             added_attrs.add(key_item)
                 
-                # Special handling for _database_2: set database_id="PDB" attribute
-                if category_name == "_database_2":
-                    row_elem.set("database_id", "PDB")
-                
-                # Add special required attributes that must not be elements
+                # Handle required attributes based on schema, not hardcoded category checks
                 required_attrs_for_category = RequiredAttribute.get_required_attrs(pdbml_category_name)
-                
-                # Handle special attribute requirements for this category
                 if required_attrs_for_category:
                     for attr_name in required_attrs_for_category:
                         if attr_name in data and row_idx < len(data[attr_name]) and attr_name not in added_attrs:
@@ -1450,13 +1407,6 @@ class PDBMLConverter:
                 
                 # Define items that MUST be attributes (not elements) according to the schema
                 attr_only_items = self._get_attribute_only_items_from_mapping()
-                
-                # Special case for exptl category - method must be an attribute, not an element
-                if pdbml_category_name == "exptl" and "method" in data and row_idx < len(data["method"]) and "method" not in added_attrs:
-                    method_value = self._clean_field_value(str(data["method"][row_idx]), "method")
-                    if method_value:  # Only add non-empty values
-                        row_elem.set("method", method_value)
-                        added_attrs.add("method")
                 
                 # Define items that MUST be elements (not attributes) according to the schema
                 element_only_items = self._get_element_only_items_from_mapping()
@@ -1470,16 +1420,20 @@ class PDBMLConverter:
                 # Add non-key items as child elements
                 for item_name, values in data.items():
                     if item_name not in key_items and row_idx < len(values):
-                        # Special case for _database_2: skip database_id as element since it must be an attribute
-                        if category_name == "_database_2" and item_name == "database_id":
+                        # Skip items that should be attributes based on schema mapping
+                        if item_name in force_as_attrs:
                             continue
                             
-                        # Special case for 'id' in major categories - make it an attribute if not already added
-                        if item_name == "id" and category_name in ["_entry", "_citation", "_entity", "_struct"]:
+                        # Handle 'id' field based on schema requirements rather than hardcoded categories
+                        if item_name == "id":
+                            # Check if this should be an attribute based on mapping rules or requirements
                             if "id" not in added_attrs:
-                                cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
-                                row_elem.set(item_name, cleaned_value)
-                                continue
+                                # Use RequiredAttribute to determine if 'id' should be an attribute for this category
+                                required_attrs = RequiredAttribute.get_required_attrs(pdbml_category_name)
+                                if required_attrs and "id" in required_attrs:
+                                    cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
+                                    row_elem.set(item_name, cleaned_value)
+                                    continue
                                 
                         # Handle items that must be attributes according to schema
                         if item_name in force_as_attrs:
@@ -1490,9 +1444,8 @@ class PDBMLConverter:
                                     added_attrs.add(item_name)
                             continue
                         
-                        # Special case for items that MUST be elements (override the normal behavior)
-                        if (pdbml_category_name == "atom_site" and item_name in force_as_elems) or \
-                           (pdbml_category_name == "pdbx_database_status" and item_name in force_as_elems):
+                        # Handle schema-driven element vs attribute decisions
+                        if (pdbml_category_name in force_as_elems and item_name in force_as_elems[pdbml_category_name]):
                             safe_item_name = self._sanitize_xml_name(item_name)
                             try:
                                 cleaned_value = self._clean_field_value(str(values[row_idx]), item_name)
@@ -1514,53 +1467,223 @@ class PDBMLConverter:
                             except Exception as e:
                                 print(f"⚠️ Error adding element '{safe_item_name}': {str(e)}")
                 
-                # Special handling for atom_site category - report missing data or add mmCIF null indicators in permissive mode
-                if pdbml_category_name == "atom_site":
-                    # Check for missing critical data and report it
-                    missing_elements = []
-                    critical_elements = ["type_symbol", "label_comp_id", "Cartn_x", "Cartn_y", "Cartn_z"]
-                    
-                    for critical_elem in critical_elements:
-                        if not any(child.tag.endswith(critical_elem) for child in row_elem):
-                            # Check if it exists in the data but wasn't added
-                            if critical_elem in data:
-                                continue  # It should have been added
-                            missing_elements.append(critical_elem)
-                    
-                    if missing_elements:
-                        print(f"⚠️ Atom site row missing critical elements: {', '.join(missing_elements)}")
-                        print("   Consider validating source data quality")
-                    
-                    # Handle required schema elements in permissive mode
-                    if self.permissive:
-                        self._add_schema_required_elements(row_elem, "atom_site")
+                # Handle schema validation and permissive mode additions - generalized approach
+                if self.permissive:
+                    self._add_schema_required_elements(row_elem, pdbml_category_name)
                 
-                elif pdbml_category_name == "citation":
-                    # Handle required schema elements in permissive mode for citations
-                    if self.permissive:
-                        self._add_schema_required_elements(row_elem, "citation")
-                
-                elif pdbml_category_name == "entity":
-                    # Handle required schema elements in permissive mode for entities
-                    if self.permissive:
-                        self._add_schema_required_elements(row_elem, "entity")
-                
-                elif pdbml_category_name == "pdbx_database_status":
-                    # Ensure entry_id, deposit_site, process_site are elements, not attributes
-                    # but don't add default values if they don't exist in source data
-                    
-                    # Check if entry_id exists as attribute and move to element
-                    if row_elem.attrib.get("entry_id"):
-                        value = row_elem.attrib.get("entry_id")
-                        del row_elem.attrib["entry_id"]
-                        # Only add element if one doesn't already exist
-                        if not any(child.tag == "entry_id" for child in row_elem):
-                            entry_id_elem = ET.SubElement(row_elem, "entry_id")
-                            entry_id_elem.text = value
+                # Category-specific validation reporting (schema-driven)
+                self._validate_category_completeness(row_elem, pdbml_category_name, data)
                 
         except Exception as e:
             print(f"⚠️ Error processing category {category_name}: {str(e)}")
     
+    def _validate_category_completeness(self, row_elem: ET.Element, category_name: str, data: Dict[str, List[Any]]) -> None:
+        """Validate category completeness and report issues without auto-fixing.
+        
+        This method performs schema-driven validation to check for missing required elements,
+        invalid references, and data integrity issues. It reports problems transparently
+        without adding arbitrary defaults or fixes.
+        
+        Args:
+            row_elem: The XML element representing a row in the category
+            category_name: The name of the category (e.g., "atom_site", "citation", etc.)
+            data: The raw category data from mmCIF
+        """
+        if not row_elem or not category_name:
+            return
+            
+        issues = []
+        warnings = []
+        
+        # 1. Check for missing required elements based on XSD schema
+        required_elements = self._get_required_elements_from_xsd(category_name)
+        if required_elements:
+            missing_required = []
+            for elem_name in required_elements:
+                # Check if element exists in XML
+                existing_elem = row_elem.find(elem_name)
+                if existing_elem is None:
+                    # Check if it exists as an attribute
+                    if elem_name not in row_elem.attrib:
+                        missing_required.append(elem_name)
+            
+            if missing_required:
+                issues.append(f"Missing required elements for {category_name}: {', '.join(missing_required)}")
+        
+        # 2. Check for missing required attributes based on schema
+        required_attrs = RequiredAttribute.get_required_attrs(category_name)
+        if required_attrs:
+            missing_attrs = []
+            for attr_name in required_attrs:
+                if attr_name not in row_elem.attrib:
+                    # Check if it exists in source data but wasn't added
+                    if attr_name in data:
+                        warnings.append(f"Required attribute '{attr_name}' exists in data but not added to XML for {category_name}")
+                    else:
+                        missing_attrs.append(attr_name)
+            
+            if missing_attrs:
+                issues.append(f"Missing required attributes for {category_name}: {', '.join(missing_attrs)}")
+        
+        # 3. Validate referential integrity for key relationships
+        integrity_issues = self._check_referential_integrity(row_elem, category_name, data)
+        if integrity_issues:
+            issues.extend(integrity_issues)
+        
+        # 4. Check for enum validation issues
+        enum_issues = self._check_enumeration_compliance(row_elem, category_name)
+        if enum_issues:
+            warnings.extend(enum_issues)
+        
+        # 5. Check for data type compliance
+        type_issues = self._check_data_type_compliance(row_elem, category_name)
+        if type_issues:
+            warnings.extend(type_issues)
+        
+        # Report issues without fixing them
+        if issues:
+            print(f"⚠️ Validation issues in {category_name}:")
+            for issue in issues:
+                print(f"  - {issue}")
+        
+        if warnings:
+            print(f"💡 Validation warnings in {category_name}:")
+            for warning in warnings:
+                print(f"  - {warning}")
+        
+        # In permissive mode, note what would be added
+        if self.permissive and issues:
+            print(f"  Note: Permissive mode will attempt to add missing schema-required elements with null indicators")
+
+    def _check_referential_integrity(self, row_elem: ET.Element, category_name: str, data: Dict[str, List[Any]]) -> List[str]:
+        """Check for referential integrity issues without auto-fixing."""
+        issues = []
+        
+        # Category-specific integrity checks based on mmCIF standards
+        if category_name == "atom_site":
+            # Check for atom_type references
+            type_symbol = row_elem.get("type_symbol")
+            if not type_symbol:
+                # Check in child elements
+                type_symbol_elem = row_elem.find("type_symbol")
+                if type_symbol_elem is not None:
+                    type_symbol = type_symbol_elem.text
+            
+            if type_symbol:
+                # This would require access to the full XML tree to check atom_type category
+                # For now, just note the potential issue
+                issues.append(f"type_symbol '{type_symbol}' should have corresponding atom_type entry")
+            
+            # Check for entity references
+            entity_id = row_elem.get("label_entity_id")
+            if not entity_id:
+                entity_id_elem = row_elem.find("label_entity_id")
+                if entity_id_elem is not None:
+                    entity_id = entity_id_elem.text
+            
+            if entity_id:
+                issues.append(f"label_entity_id '{entity_id}' should have corresponding entity entry")
+            
+            # Check for struct_asym references
+            asym_id = row_elem.get("label_asym_id")
+            if not asym_id:
+                asym_id_elem = row_elem.find("label_asym_id")
+                if asym_id_elem is not None:
+                    asym_id = asym_id_elem.text
+            
+            if asym_id:
+                issues.append(f"label_asym_id '{asym_id}' should have corresponding struct_asym entry")
+        
+        elif category_name == "citation_author":
+            # Check for citation reference
+            citation_id = row_elem.get("citation_id")
+            if citation_id:
+                issues.append(f"citation_id '{citation_id}' should have corresponding citation entry")
+        
+        elif category_name == "entity_poly_seq":
+            # Check for entity reference
+            entity_id = row_elem.get("entity_id")
+            if entity_id:
+                issues.append(f"entity_id '{entity_id}' should have corresponding entity entry")
+        
+        # Add more category-specific checks as needed
+        
+        return issues
+
+    def _check_enumeration_compliance(self, row_elem: ET.Element, category_name: str) -> List[str]:
+        """Check for enumeration compliance issues."""
+        warnings = []
+        
+        # Get enumeration rules from mapping rules if available
+        if self.mapping_rules:
+            validation_rules = self.mapping_rules.get("validation_rules", {})
+            if category_name in validation_rules:
+                category_rules = validation_rules[category_name]
+                
+                for item_name, rule_info in category_rules.items():
+                    if rule_info.get("type") == "enumeration":
+                        valid_values = rule_info.get("values", [])
+                        
+                        # Check attribute value
+                        attr_value = row_elem.get(item_name)
+                        if attr_value and attr_value not in valid_values:
+                            warnings.append(f"Invalid enumeration value '{attr_value}' for {item_name}, valid values: {valid_values[:5]}")
+                        
+                        # Check element value
+                        elem = row_elem.find(item_name)
+                        if elem is not None and elem.text and elem.text not in valid_values:
+                            warnings.append(f"Invalid enumeration value '{elem.text}' for {item_name}, valid values: {valid_values[:5]}")
+        
+        return warnings
+
+    def _check_data_type_compliance(self, row_elem: ET.Element, category_name: str) -> List[str]:
+        """Check for data type compliance issues."""
+        warnings = []
+        
+        # Get item mappings from mapping rules if available
+        if self.mapping_rules:
+            item_mapping = self.mapping_rules.get("item_mapping", {})
+            
+            # Check all attributes and elements for type compliance
+            for attr_name, attr_value in row_elem.attrib.items():
+                full_item_name = f"_{category_name}.{attr_name}"
+                if full_item_name in item_mapping:
+                    data_type = item_mapping[full_item_name].get("data_type", "")
+                    if not self._validate_data_type(attr_value, data_type):
+                        warnings.append(f"Data type mismatch for {attr_name}: expected {data_type}, got '{attr_value}'")
+            
+            # Check child elements
+            for elem in row_elem:
+                if elem.text:
+                    full_item_name = f"_{category_name}.{elem.tag}"
+                    if full_item_name in item_mapping:
+                        data_type = item_mapping[full_item_name].get("data_type", "")
+                        if not self._validate_data_type(elem.text, data_type):
+                            warnings.append(f"Data type mismatch for {elem.tag}: expected {data_type}, got '{elem.text}'")
+        
+        return warnings
+
+    def _validate_data_type(self, value: str, expected_type: str) -> bool:
+        """Validate if a value matches the expected data type."""
+        if not value or not expected_type:
+            return True  # Skip validation if no value or type info
+        
+        expected_type = expected_type.lower()
+        
+        try:
+            if expected_type in ['int', 'integer']:
+                int(value)
+                return True
+            elif expected_type in ['float', 'real', 'decimal']:
+                float(value)
+                return True
+            elif expected_type in ['char', 'string', 'text']:
+                return True  # Any string is valid for char/string types
+            else:
+                return True  # Unknown type, assume valid
+        except (ValueError, TypeError):
+            return False
+
     def _sanitize_xml_name(self, name: str) -> str:
         """Sanitize a name to be a valid XML element or attribute name."""
         # XML names must start with a letter, underscore, or colon
@@ -1683,11 +1806,8 @@ class PDBMLConverter:
             return self._element_only_items_cache
             
         if not self.mapping_rules:
-            # Fallback to minimal hardcoded values if mapping rules not available
-            self._element_only_items_cache = {
-                "atom_site": ["type_symbol", "label_comp_id", "calc_flag", "footnote_id"],
-                "pdbx_database_status": ["entry_id", "deposit_site", "process_site"]
-            }
+            # No mapping rules available - return empty dict
+            self._element_only_items_cache = {}
         else:
             element_requirements = self.mapping_rules.get("element_requirements", {})
             self._element_only_items_cache = element_requirements
@@ -1700,11 +1820,8 @@ class PDBMLConverter:
             return self._attribute_only_items_cache
             
         if not self.mapping_rules:
-            # Fallback to minimal hardcoded values if mapping rules not available
-            self._attribute_only_items_cache = {
-                "exptl": ["method", "entry_id"],
-                "pdbx_database_status": []  # Override - these should be elements
-            }
+            # No mapping rules available - return empty dict
+            self._attribute_only_items_cache = {}
         else:
             attribute_requirements = self.mapping_rules.get("attribute_requirements", {})
             self._attribute_only_items_cache = attribute_requirements
@@ -2397,7 +2514,6 @@ class MMCIFToPDBMLPipeline:
         )
         self.validator = XMLSchemaValidator(str(self.schema_path)) if self.schema_path.exists() else None
         self.resolver = RelationshipResolver(self.dictionary if self.dictionary_path.exists() else None)
-    
     def process_mmcif_file(self, mmcif_path: Union[str, Path]) -> Dict[str, Any]:
         """Complete pipeline: parse mmCIF -> convert to PDBML -> validate -> resolve relationships."""
         try:
