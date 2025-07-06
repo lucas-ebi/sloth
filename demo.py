@@ -992,9 +992,9 @@ _entity.src_method
 _entity.pdbx_description
 _entity.formula_weight
 _entity.pdbx_number_of_molecules
-1 polymer syn 'Protein Chain A' 15486.2 1
-2 polymer syn 'Protein Chain B' 15486.2 1
-3 non-polymer syn 'WATER' 18.015 245
+1 polymer man 'Protein Chain A' 15486.2 1
+2 polymer man 'Protein Chain B' 15486.2 1
+3 non-polymer man 'WATER' 18.015 245
 
 #
 loop_
@@ -1381,6 +1381,13 @@ _entity_poly_seq.mon_id    VAL
 #
 _struct_asym.id      A
 _struct_asym.entity_id 1
+#
+loop_
+_atom_type.symbol
+_atom_type.number_in_cell
+_atom_type.scat_dispersion_real
+_atom_type.scat_dispersion_imag
+C 1 0.0033 0.0016
 #
 _atom_site.group_PDB  ATOM
 _atom_site.id         1

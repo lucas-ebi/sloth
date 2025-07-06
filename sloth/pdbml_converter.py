@@ -1624,15 +1624,39 @@ class PDBMLConverter:
                     if rule_info.get("type") == "enumeration":
                         valid_values = rule_info.get("values", [])
                         
+                        # Extract just the value part (before any quotes or descriptions) for comparison
+                        clean_valid_values = []
+                        for val in valid_values:
+                            # Handle different enumeration value formats
+                            if '"' in val:
+                                # Has double quote description: "value description"
+                                clean_val = val.split('"')[0].rstrip()
+                            elif "'" in val and val.count("'") == 1:
+                                # Has single quote description: "value  'description"
+                                clean_val = val.split("'")[0].rstrip()
+                            else:
+                                # Check if it has a description after multiple spaces
+                                # Look for pattern like "N  No" where we want "N  "
+                                parts = val.split('  ')  # Split on double space
+                                if len(parts) > 1 and parts[1].strip():
+                                    # Has description after double space, take first part + double space
+                                    clean_val = parts[0] + '  '
+                                else:
+                                    # No description, use as-is
+                                    clean_val = val
+                            clean_valid_values.append(clean_val)
+                        
                         # Check attribute value
                         attr_value = row_elem.get(item_name)
-                        if attr_value and attr_value not in valid_values:
-                            warnings.append(f"Invalid enumeration value '{attr_value}' for {item_name}, valid values: {valid_values[:5]}")
+                        if attr_value:
+                            if attr_value not in clean_valid_values:
+                                warnings.append(f"Invalid enumeration value '{attr_value}' for {item_name}, valid values: {clean_valid_values}")
                         
                         # Check element value
                         elem = row_elem.find(item_name)
-                        if elem is not None and elem.text and elem.text not in valid_values:
-                            warnings.append(f"Invalid enumeration value '{elem.text}' for {item_name}, valid values: {valid_values[:5]}")
+                        if elem is not None and elem.text:
+                            if elem.text not in clean_valid_values:
+                                warnings.append(f"Invalid enumeration value '{elem.text}' for {item_name}, valid values: {clean_valid_values}")
         
         return warnings
 
@@ -1911,6 +1935,8 @@ class PDBMLConverter:
         
         Args:
             mmcif_container: MMCIFDataContainer to convert
+            
+       
             
         Returns:
             Dict containing:
