@@ -61,7 +61,7 @@ from .loaders import (
     DictToMMCIFConverter,
 )
 from .handler import MMCIFHandler
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 from .schemas import (
     SchemaValidator,
     JSONSchemaValidator,

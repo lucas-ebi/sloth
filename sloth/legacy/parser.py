@@ -2,7 +2,7 @@ import os
 from typing import Optional, List, Union
 from pathlib import Path
 from ..models import Category, DataBlock, MMCIFDataContainer, DataSourceFormat
-from ..validator import ValidatorFactory
+from ..plugins import ValidatorFactory
 from ..common import BaseParser
 import shlex
 

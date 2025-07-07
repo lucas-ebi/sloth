@@ -9,7 +9,7 @@ import os
 import mmap
 from abc import ABC, abstractmethod
 from .models import MMCIFDataContainer, DataSourceFormat, Category, DataBlock
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 from .common import auto_detect_format_and_load
 from .schemas import SchemaValidator
 

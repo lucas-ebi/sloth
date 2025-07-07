@@ -7,7 +7,7 @@ from typing import (
 from functools import cached_property
 from enum import Enum, auto
 from abc import ABC, abstractmethod
-from .validator import ValidatorFactory, CategoryValidator
+from .plugins import ValidatorFactory, CategoryValidator
 import sys
 
 

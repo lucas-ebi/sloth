@@ -12,7 +12,7 @@ from typing import Optional, List, Union
 from pathlib import Path
 from .models import MMCIFDataContainer, DataBlock, Category
 from .common import BaseParser
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 
 
 class MMCIFParser(BaseParser):

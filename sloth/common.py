@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union, IO
 from pathlib import Path
 from .models import MMCIFDataContainer, DataSourceFormat
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 from .schemas import SchemaValidator
 
 
