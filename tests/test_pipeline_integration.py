@@ -121,22 +121,29 @@ class TestComponentFixes(unittest.TestCase):
     def test_enum_class_functionality(self):
         """Test that enum classes work correctly."""
         from sloth.pdbml_enums import (
-            EssentialKey, RequiredAttribute, NumericField,
-            ValidationRule, AnisotropicParam
+            XMLLocation, NullValue, NumericField,
+            get_numeric_fields, is_null_value
         )
         
-        # Test EssentialKey
-        keys = EssentialKey.get_keys("_atom_site")
-        self.assertIsInstance(keys, list)
+        # Test XMLLocation enum
+        self.assertEqual(XMLLocation.ATTRIBUTE.value, "attribute")
+        self.assertEqual(XMLLocation.ELEMENT_CONTENT.value, "element_content")
+        self.assertEqual(XMLLocation.ELEMENT.value, "element")
         
-        # Test RequiredAttribute
-        attrs = RequiredAttribute.get_required_attrs("exptl")
-        self.assertIsInstance(attrs, list)
+        # Test NullValue enum and its helper
+        self.assertTrue(NullValue.is_null("?"))
+        self.assertTrue(NullValue.is_null("."))
+        self.assertFalse(NullValue.is_null("actual_value"))
         
-        # Test other enum methods
-        from sloth.pdbml_enums import get_numeric_fields
+        # Test helper functions
         numeric_fields = get_numeric_fields()
         self.assertIsInstance(numeric_fields, set)
+        self.assertIn("year", numeric_fields)
+        
+        # Test is_null_value helper
+        self.assertTrue(is_null_value("?"))
+        self.assertTrue(is_null_value("."))
+        self.assertFalse(is_null_value("real_value"))
     
     def test_xml_mapping_generator_properties(self):
         """Test XMLMappingGenerator lazy-loaded properties."""
@@ -160,7 +167,7 @@ class TestComponentFixes(unittest.TestCase):
         cache_dir = tempfile.mkdtemp()
         
         try:
-            converter = PDBMLConverter(cache_dir=cache_dir)
+            converter = PDBMLConverter(cache_dir=cache_dir, quiet=True)
             self.assertEqual(converter.cache_dir, cache_dir)
             
             # Test that mapping rules can be accessed

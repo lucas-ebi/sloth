@@ -22,14 +22,11 @@ class TestImports(unittest.TestCase):
             self.fail(f"Failed to import main converter classes: {e}")
     
     def test_enum_imports(self):
-        """Test that all enum classes can be imported."""
+        """Test that remaining enum classes can be imported."""
         try:
             from sloth.pdbml_enums import (
-                XMLLocation, ElementOnlyItem, AtomSiteDefault, AnisotropicParam,
-                ProblematicField, NullValue, SpecialAttribute, ValidationRule,
-                EssentialKey, RequiredAttribute, NumericField,
-                get_element_only_items, get_atom_site_defaults, get_anisotropic_defaults,
-                get_problematic_field_replacement, is_null_value, get_numeric_fields
+                XMLLocation, NullValue, NumericField,
+                is_null_value, get_numeric_fields
             )
         except ImportError as e:
             self.fail(f"Failed to import enum classes: {e}")
@@ -79,6 +76,10 @@ class TestImports(unittest.TestCase):
         # Test with dictionary path (even if file doesn't exist)
         converter = PDBMLConverter(dictionary_path="/nonexistent/path.dic")
         self.assertIsNotNone(converter)
+        
+        # Test with quiet mode to suppress warnings
+        converter = PDBMLConverter(quiet=True)
+        self.assertIsNotNone(converter)
     
     def test_pipeline_imports(self):
         """Test that pipeline classes can be imported."""
@@ -96,6 +97,85 @@ class TestImports(unittest.TestCase):
         
         resolver = RelationshipResolver()
         self.assertIsNotNone(resolver)
+    
+    def test_enum_functionality(self):
+        """Test that enum functions work correctly."""
+        from sloth.pdbml_enums import XMLLocation, NullValue, NumericField, is_null_value, get_numeric_fields
+        
+        # Test XMLLocation enum
+        self.assertEqual(XMLLocation.ATTRIBUTE.value, "attribute")
+        self.assertEqual(XMLLocation.ELEMENT_CONTENT.value, "element_content")
+        
+        # Test null value detection
+        self.assertTrue(is_null_value("?"))
+        self.assertTrue(is_null_value("."))
+        self.assertFalse(is_null_value("valid_value"))
+        
+        # Test numeric fields
+        numeric_fields = get_numeric_fields()
+        self.assertIsInstance(numeric_fields, set)
+        self.assertIn("year", numeric_fields)
+    
+    def test_converter_lazy_loading(self):
+        """Test that converter components are properly lazy-loaded."""
+        from sloth.pdbml_converter import PDBMLConverter
+        
+        # Create converter in quiet mode
+        converter = PDBMLConverter(quiet=True)
+        
+        # Initially, internal components should be None (lazy-loaded)
+        self.assertIsNone(converter._dictionary)
+        self.assertIsNone(converter._mapping_rules)
+        self.assertIsNone(converter._xml_validator)
+        
+        # Accessing mapping_rules should trigger lazy loading
+        mapping_rules = converter.mapping_rules
+        self.assertIsInstance(mapping_rules, dict)
+        self.assertIsNotNone(converter._mapping_rules)
+    
+    def test_mapping_generator_lazy_loading(self):
+        """Test that XML mapping generator properly lazy-loads components."""
+        from sloth.pdbml_converter import XMLMappingGenerator
+        
+        # Create mapping generator in quiet mode
+        mapping_gen = XMLMappingGenerator(quiet=True)
+        
+        # Initially, components should be None
+        self.assertIsNone(mapping_gen._categories)
+        self.assertIsNone(mapping_gen._items)
+        self.assertIsNone(mapping_gen._xsd_elements)
+        
+        # Accessing properties should trigger lazy loading
+        categories = mapping_gen.categories
+        self.assertIsInstance(categories, dict)
+        self.assertIsNotNone(mapping_gen._categories)
+    
+    def test_error_handling(self):
+        """Test that error conditions are handled gracefully."""
+        from sloth.pdbml_converter import PDBMLConverter, XMLMappingGenerator
+        
+        # Test with non-existent dictionary file (should not crash)
+        converter = PDBMLConverter(
+            dictionary_path="/totally/nonexistent/path.dic",
+            quiet=True
+        )
+        self.assertIsNotNone(converter)
+        
+        # Should still be able to access mapping rules (with fallbacks)
+        mapping_rules = converter.mapping_rules
+        self.assertIsInstance(mapping_rules, dict)
+        
+        # Test mapping generator with invalid paths
+        mapping_gen = XMLMappingGenerator(
+            dict_file="/invalid/dict.dic",
+            xsd_file="/invalid/schema.xsd",
+            quiet=True
+        )
+        self.assertIsNotNone(mapping_gen)
+        
+        # Should return empty but valid structures
+        self.assertIsInstance(mapping_gen.categories, dict)
+        self.assertIsInstance(mapping_gen.items, dict)
 
 
 class TestModuleStructure(unittest.TestCase):

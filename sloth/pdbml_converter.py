@@ -75,10 +75,11 @@ class XMLMappingGenerator:
     without requiring external JSON files.
     """
     
-    def __init__(self, dict_file: Optional[Union[str, Path]] = None, xsd_file: Optional[Union[str, Path]] = None, cache_dir: Optional[str] = None):
+    def __init__(self, dict_file: Optional[Union[str, Path]] = None, xsd_file: Optional[Union[str, Path]] = None, cache_dir: Optional[str] = None, quiet: bool = False):
         self.dict_file = dict_file
         self.xsd_file = xsd_file
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
+        self.quiet = quiet
         
         # Dictionary data structures - lazy loaded
         self._categories = None
@@ -208,7 +209,8 @@ class XMLMappingGenerator:
                 }
                 
         except Exception as e:
-            print(f"⚠️ Warning: Error parsing dictionary: {e}")
+            if not self.quiet:
+                print(f"⚠️ Warning: Error parsing dictionary: {e}")
             # Initialize empty structures
             self._categories = {}
             self._items = {}
@@ -249,7 +251,7 @@ class XMLMappingGenerator:
                 
             # Parse XSD schema if available (uses lazy loading)
             if self.xsd_file and Path(self.xsd_file).exists():
-                self._ensure_xsd_parsed()
+                pass  # XSD will be parsed on-demand via properties
                 
             # Generate comprehensive mappings
             mapping_rules = self._generate_comprehensive_mapping()
@@ -351,7 +353,8 @@ class XMLMappingGenerator:
                 }
                 
         except Exception as e:
-            print(f"⚠️ Warning: Error parsing XSD schema: {e}")
+            if not self.quiet:
+                print(f"⚠️ Warning: Error parsing XSD schema: {e}")
             # Initialize empty structures
             self._xsd_elements = {}
             self._xsd_attributes = {}
@@ -362,7 +365,8 @@ class XMLMappingGenerator:
     def _parse_dictionary_structure(self):
         """Parse complete dictionary structure with all metadata"""
         if not self.dict_file:
-            print("⚠️ No dictionary file provided")
+            if not self.quiet:
+                print("⚠️ No dictionary file provided")
             return
             
         current_save = None
@@ -407,12 +411,15 @@ class XMLMappingGenerator:
             for cat_name in debug_cats:
                 if cat_name in self._categories:
                     keys = self._categories[cat_name]['keys']
-                    print(f"✓ Category {cat_name}: found with {len(keys)} keys")
+                    if not self.quiet:
+                        print(f"✓ Category {cat_name}: found with {len(keys)} keys")
                 else:
-                    print(f"⚠️ Warning: Category {cat_name}: not found in dictionary")
+                    if not self.quiet:
+                        print(f"⚠️ Warning: Category {cat_name}: not found in dictionary")
         except Exception as e:
-            print(f"⚠️ Warning: Error parsing dictionary: {e}")
-            traceback.print_exc()
+            if not self.quiet:
+                print(f"⚠️ Warning: Error parsing dictionary: {e}")
+                traceback.print_exc()
                         
     def _process_save_frame(self, save_name: str, block: List[str]):
         """Process individual save frame to extract metadata"""
@@ -495,9 +502,11 @@ class XMLMappingGenerator:
                                 if item_name not in self._categories[cat_id]['keys']:  # Avoid duplicates
                                     self._categories[cat_id]['keys'].append(item_name)
                 else:
-                    print(f"⚠️ Warning: Loop pattern did not match in {cat_id}")
+                    if not self.quiet:
+                        print(f"⚠️ Warning: Loop pattern did not match in {cat_id}")
         else:
-            print(f"⚠️ Warning: No _category_key.name found in {cat_id}")
+            if not self.quiet:
+                print(f"⚠️ Warning: No _category_key.name found in {cat_id}")
                                         
     def _extract_item_info(self, save_name: str, block_text: str):
         """Extract item information including data types and constraints"""
@@ -655,7 +664,8 @@ class XMLMappingGenerator:
             self._parse_elements(root, ns)
             
         except Exception as e:
-            print(f"⚠️ Warning: Could not parse XSD schema: {e}")
+            if not self.quiet:
+                print(f"⚠️ Warning: Could not parse XSD schema: {e}")
             
     def _parse_complex_types(self, root: ET.Element, ns: dict):
         """Parse complex types from XSD schema"""
@@ -817,29 +827,7 @@ class XMLMappingGenerator:
             if item_part in keys:
                 return XMLLocation.ATTRIBUTE.value
                 
-        # Schema-driven approach: check mapping rules for element requirements
-        try:
-            mapping_rules = self.get_mapping_rules()
-            if mapping_rules and 'element_requirements' in mapping_rules:
-                element_requirements = mapping_rules['element_requirements']
-                if category_name in element_requirements:
-                    element_only_items = element_requirements[category_name]
-                    if item_part in element_only_items:
-                        return XMLLocation.ELEMENT_CONTENT.value
-            
-            # Also check item mappings for specific XML location rules
-            if mapping_rules and 'item_mapping' in mapping_rules:
-                item_mapping = mapping_rules['item_mapping']
-                if item_name in item_mapping:
-                    xml_location = item_mapping[item_name].get('xml_location')
-                    if xml_location:
-                        return xml_location
-        except Exception as e:
-            # Fallback to default behavior if mapping rules fail
-            print(f"⚠️ Warning: Could not get mapping rules for XML location: {e}")
-            pass
-                
-        # Default to element for most cases
+        # Default to element for most cases (avoid circular dependency with mapping rules)
         return XMLLocation.ELEMENT_CONTENT.value
         
     def _generate_element_requirements(self) -> Dict[str, List[str]]:
@@ -1103,10 +1091,11 @@ class DictionaryParser:
 class PDBMLConverter:
     """Convert mmCIF data to PDBML XML format with optimized performance."""
     
-    def __init__(self, dictionary_path: Optional[Union[str, Path]] = None, cache_dir: Optional[str] = None, permissive: bool = False):
+    def __init__(self, dictionary_path: Optional[Union[str, Path]] = None, cache_dir: Optional[str] = None, permissive: bool = False, quiet: bool = False):
         """Initialize converter with optional dictionary for metadata."""
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
         self.permissive = permissive
+        self.quiet = quiet
         
         # Set default dictionary path if not provided
         if dictionary_path is None:
@@ -1121,7 +1110,8 @@ class PDBMLConverter:
         self.mapping_generator = XMLMappingGenerator(
             dict_file=dictionary_path,
             xsd_file=xsd_path if xsd_path.exists() else None,
-            cache_dir=self.cache_dir
+            cache_dir=self.cache_dir,
+            quiet=self.quiet
         )
         
         # Lazy-load mapping rules
