@@ -14,7 +14,7 @@ import hashlib
 import threading
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 from xml.etree import ElementTree as ET
 from functools import lru_cache, wraps
 
@@ -1581,7 +1581,9 @@ class DictionaryParser:
             self._parse_enumerations(dict_block["_item_enumeration"])
             
         # Parse relationships/links
-        if "_item_linked" in dict_block.categories:
+        if "_pdbx_item_linked_group_list" in dict_block.categories:
+            self._parse_relationships(dict_block["_pdbx_item_linked_group_list"])
+        elif "_item_linked" in dict_block.categories:
             self._parse_relationships(dict_block["_item_linked"])
     
     def _parse_categories(self, category: Category) -> None:
@@ -1634,11 +1636,15 @@ class DictionaryParser:
         data = category.data
         if "child_name" in data and "parent_name" in data:
             for i, child_name in enumerate(data["child_name"]):
-                if child_name not in self.relationships:
-                    self.relationships[child_name] = []
-                self.relationships[child_name].append({
-                    "parent_name": data["parent_name"][i],
-                    "child_name": child_name
+                # Strip quotes from names
+                clean_child_name = child_name.strip('"')
+                clean_parent_name = data["parent_name"][i].strip('"')
+                
+                if clean_child_name not in self.relationships:
+                    self.relationships[clean_child_name] = []
+                self.relationships[clean_child_name].append({
+                    "parent_name": clean_parent_name,
+                    "child_name": clean_child_name
                 })
     
     def _parse_category_keys(self, category: Category) -> None:
@@ -1672,7 +1678,19 @@ class DictionaryParser:
         relationships = []
         for item_name, links in self.relationships.items():
             if item_name.startswith(f"_{child_category}."):
-                relationships.extend(links)
+                # Process each relationship link and extract the child field (link field)
+                for link in links:
+                    # Create a copy and ensure we use the child field as the link field
+                    processed_link = dict(link)
+                    if 'child_name' in processed_link:
+                        # Extract the field name from child_name (e.g., '_entity_poly.entity_id' -> 'entity_id')
+                        child_field = processed_link['child_name'].split('.')[-1]
+                        processed_link['link_field'] = child_field
+                        
+                        # Check if this is a self-referential relationship
+                        parent_cat = processed_link.get('parent_name', '').split('.')[0].lstrip('_')
+                        if parent_cat != child_category:  # Skip self-referential relationships
+                            relationships.append(processed_link)
         return relationships
 
 
@@ -2422,47 +2440,171 @@ class RelationshipResolver:
         return nested
     
     def _identify_relationships(self, categories: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
-        """Identify parent-child relationships using ONLY schema-driven sources."""
+        """Identify parent-child relationships using recursive discovery from dictionary."""
         relationships = {
             'parents': {},  # child_category -> parent_category
             'children': {},  # parent_category -> [child_categories]
             'links': {}     # child_category -> parent_key_field
         }
         
-        # Method 1: Use dictionary relationships (primary source - schema-driven)
-        if self.dictionary:
-            for child_category in categories:
-                parents = self.dictionary.get_parent_relationships(child_category)
-                for parent_info in parents:
-                    parent_cat = parent_info['parent_name'].split('.')[0].lstrip('_')
-                    parent_key = parent_info['parent_name'].split('.')[-1]
-                    
-                    if parent_cat in categories:  # Only if parent category exists in data
-                        self._add_relationship(relationships, child_category, parent_cat, parent_key)
-        
-        # Method 2: Use standard mmCIF patterns ONLY as last resort when dictionary fails
-        # This should be rare if dictionary is properly parsed
-        if not relationships['parents']:  # Only if no dictionary relationships found
-            standard_relationships = StandardRelationship.get_relationships_dict()
+        if not self.dictionary:
+            return relationships
             
-            for child_category, parent_info_list in standard_relationships.items():
-                if child_category in categories:
-                    child_items = categories[child_category]
-                    
-                    # Try each possible parent relationship for this child
-                    for parent_category, link_field in parent_info_list:
-                        if (child_category not in relationships['parents'] and 
-                            parent_category in categories):
-                            
-                            # Verify the link field exists in child data
-                            if child_items and any(link_field in item for item in child_items):
-                                self._add_relationship(relationships, child_category, parent_category, link_field)
-                                break  # Use the first matching relationship
-        
-        # NO hardcoded corrections - all relationships should come from schema/dictionary
-        # If the dictionary/schema defines the relationships correctly, no manual corrections needed
+        # Discover relationships recursively
+        self._discover_relationships_recursive(categories, relationships)
         
         return relationships
+    
+    def _discover_relationships_recursive(self, categories: Dict[str, List[Dict[str, Any]]], relationships: dict, processed: set = None):
+        """Recursively discover and assign parent-child relationships."""
+        if processed is None:
+            processed = set()
+            
+        # Find categories that don't have parents assigned yet
+        unprocessed_categories = [cat for cat in categories.keys() if cat not in relationships['parents'] and cat not in processed]
+        
+        if not unprocessed_categories:
+            return  # All categories processed
+            
+        for child_category in unprocessed_categories:
+            processed.add(child_category)
+            
+            # Get all possible parent relationships for this category
+            parent_options = self.dictionary.get_parent_relationships(child_category)
+            
+            # Find the most direct parent (one that exists in our data and isn't self-referential)
+            direct_parent = self._find_most_direct_parent(child_category, parent_options, categories, relationships)
+            
+            if direct_parent:
+                parent_cat, child_field = direct_parent
+                self._add_relationship(relationships, child_category, parent_cat, child_field)
+                
+                # Recursively process any remaining categories
+                self._discover_relationships_recursive(categories, relationships, processed)
+    
+    def _find_most_direct_parent(self, child_category: str, parent_options: List[Dict], categories: Dict, existing_relationships: dict) -> Optional[Tuple[str, str]]:
+        """Find the most direct parent for a category based on structural analysis."""
+        valid_parents = []
+        
+        for parent_info in parent_options:
+            parent_cat = parent_info['parent_name'].split('.')[0].lstrip('_')
+            
+            # Use the link_field if available, otherwise extract from child_name
+            if 'link_field' in parent_info:
+                child_field = parent_info['link_field']
+            else:
+                child_field = parent_info['child_name'].split('.')[-1]
+            
+            # Skip self-referential relationships
+            if parent_cat == child_category:
+                continue
+                
+            # Only consider parents that exist in our data
+            if parent_cat not in categories:
+                continue
+                
+            # Analyze this relationship for directness
+            directness_score = self._analyze_relationship_directness(child_category, parent_cat, child_field, categories, existing_relationships)
+            
+            valid_parents.append((parent_cat, child_field, directness_score))
+        
+        if not valid_parents:
+            return None
+            
+        # Return the parent with the highest directness score
+        valid_parents.sort(key=lambda x: x[2], reverse=True)
+        best_parent, best_field, _ = valid_parents[0]
+        
+        return (best_parent, best_field)
+    
+    def _analyze_relationship_directness(self, child_cat: str, parent_cat: str, link_field: str, categories: Dict, existing_relationships: dict) -> float:
+        """Analyze how direct a relationship is without hardcoded rules."""
+        score = 0.0
+        
+        # Basic structural analysis
+        
+        # 1. Prefer relationships where the link field name suggests a direct connection
+        # (e.g., 'entity_id' linking to 'entity' is more direct than 'label_entity_id')
+        if link_field == f"{parent_cat}_id":
+            score += 100  # Perfect match: field name directly references parent
+        elif parent_cat in link_field:
+            score += 50   # Parent name appears in field
+        elif link_field.endswith('_id'):
+            score += 30   # At least it's an ID field
+        else:
+            score += 10   # Non-ID field
+            
+        # 2. Prefer relationships where the parent has fewer total children
+        # (more specific parents are better than general ones)
+        parent_child_count = len(existing_relationships.get('children', {}).get(parent_cat, []))
+        if parent_child_count == 0:
+            score += 20  # This would be the first child
+        elif parent_child_count < 3:
+            score += 10  # Parent with few children is more specific
+        
+        # 3. Prefer parents that are "closer" in the naming hierarchy
+        # Categories with similar prefixes are likely related
+        name_similarity = self._calculate_name_similarity(child_cat, parent_cat)
+        score += name_similarity * 15
+        
+        # 4. Analyze data consistency - check if the link field values actually exist in parent data
+        data_consistency = self._check_data_consistency(child_cat, parent_cat, link_field, categories)
+        score += data_consistency * 25
+        
+        return score
+    
+    def _calculate_name_similarity(self, child_name: str, parent_name: str) -> float:
+        """Calculate similarity between category names (0.0 to 1.0)."""
+        # Simple similarity based on common prefixes/substrings
+        if parent_name in child_name:
+            return 1.0
+        elif child_name.startswith(parent_name):
+            return 0.8
+        elif any(part in child_name for part in parent_name.split('_')):
+            return 0.5
+        else:
+            return 0.1
+    
+    def _check_data_consistency(self, child_cat: str, parent_cat: str, link_field: str, categories: Dict) -> float:
+        """Check if child data actually links to existing parent data."""
+        try:
+            child_items = categories.get(child_cat, [])
+            parent_items = categories.get(parent_cat, [])
+            
+            if not child_items or not parent_items:
+                return 0.0
+            
+            # Get parent IDs (try common ID field names)
+            parent_ids = set()
+            for parent_item in parent_items:
+                if 'id' in parent_item:
+                    parent_ids.add(str(parent_item['id']))
+                # Also try the parent category name + '_id' as a fallback
+                parent_id_field = f"{parent_cat}_id"
+                if parent_id_field in parent_item:
+                    parent_ids.add(str(parent_item[parent_id_field]))
+            
+            if not parent_ids:
+                return 0.0
+            
+            # Check how many child items have valid links
+            valid_links = 0
+            total_links = 0
+            
+            for child_item in child_items:
+                if link_field in child_item:
+                    total_links += 1
+                    child_link_value = str(child_item[link_field])
+                    if child_link_value in parent_ids:
+                        valid_links += 1
+            
+            if total_links == 0:
+                return 0.0
+                
+            return valid_links / total_links
+            
+        except Exception:
+            return 0.0
     
     def _add_relationship(self, relationships: dict, child: str, parent: str, link_field: str):
         """Helper to add a relationship while maintaining consistency."""
