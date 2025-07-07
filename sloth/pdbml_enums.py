@@ -5,7 +5,7 @@ This module provides Enum classes for commonly used constants and mappings
 to improve code clarity, maintainability, and reusability.
 """
 
-from enum import Enum, auto
+from enum import Enum
 from typing import Dict, List, Set
 
 

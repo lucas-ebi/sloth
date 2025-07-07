@@ -13,22 +13,16 @@ import hashlib
 import threading
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple, Union
+from typing import Dict, List, Optional, Any, Union
 from xml.etree import ElementTree as ET
-from xml.dom import minidom
-from lxml import etree
 from pathlib import Path
-from collections import defaultdict, Counter
 from functools import lru_cache, wraps
 
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
-from .validator import ValidatorFactory
 from .schemas import XMLSchemaValidator
 from .pdbml_enums import (
-    XMLLocation, ElementOnlyItem, AtomSiteDefault, AnisotropicParam,
-    ProblematicField, NullValue, SpecialAttribute, ValidationRule,
-    EssentialKey, RequiredAttribute, NumericField,
+    XMLLocation,
     get_element_only_items, get_atom_site_defaults, get_anisotropic_defaults,
     get_problematic_field_replacement, is_null_value, get_numeric_fields
 )
@@ -382,7 +376,7 @@ class XMLMappingGenerator:
         
         try:
             with open(self.dict_file, 'r', encoding='utf-8') as f:
-                for line_num, line in enumerate(f, 1):
+                for line in f:
                     line = line.strip()
                     
                     if not line or line.startswith('#'):
@@ -416,6 +410,7 @@ class XMLMappingGenerator:
             for cat_name in debug_cats:
                 if cat_name in self._categories:
                     keys = self._categories[cat_name]['keys']
+                    print(f"✓ Category {cat_name}: found with {len(keys)} keys")
                 else:
                     print(f"⚠️ Warning: Category {cat_name}: not found in dictionary")
         except Exception as e:
@@ -810,7 +805,7 @@ class XMLMappingGenerator:
             
         return item_mapping
         
-    def _determine_xml_location(self, item_name: str, item_info: dict) -> str:
+    def _determine_xml_location(self, item_name: str, _item_info: dict) -> str:
         """Determine if item should be XML element or attribute"""
         # Extract category and item parts
         if '.' not in item_name:
@@ -839,7 +834,7 @@ class XMLMappingGenerator:
         element_requirements = {}
         
         # Process each category
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             element_only = []
             
             # Get all items for this category
@@ -863,7 +858,7 @@ class XMLMappingGenerator:
         attribute_requirements = {}
         
         # Process each category
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             attribute_only = []
             
             # Get all items for this category
@@ -919,7 +914,7 @@ class XMLMappingGenerator:
         default_values["atom_site"] = atom_site_defaults
         
         # Process other categories
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             if cat_id == "atom_site":
                 continue  # Already handled above
                 
@@ -947,7 +942,7 @@ class XMLMappingGenerator:
         validation_rules = {}
         
         # Process each category
-        for cat_id, cat_info in self.categories.items():
+        for cat_id in self.categories:
             category_validation = {}
             
             # Get all items for this category
@@ -1418,7 +1413,6 @@ class PDBMLConverter:
         
         try:
             # Remove surrounding quotes for certain fields that should be raw values
-            from .pdbml_enums import NumericField, get_numeric_fields
             numeric_fields = get_numeric_fields()
             if field_name in numeric_fields and value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
@@ -1909,7 +1903,7 @@ class RelationshipResolver:
         
         # Use dictionary relationships if available
         if self.dictionary:
-            for child_category, items in categories.items():
+            for child_category in categories:
                 parents = self.dictionary.get_parent_relationships(child_category)
                 for parent_info in parents:
                     parent_cat = parent_info['parent_name'].split('.')[0].lstrip('_')
@@ -2053,7 +2047,7 @@ class RelationshipResolver:
         
         return nested_items
     
-    def _get_item_key(self, item: Dict[str, Any], category_name: str) -> str:
+    def _get_item_key(self, item: Dict[str, Any], _category_name: str) -> str:
         """Get the primary key for an item."""
         # Common key patterns
         key_fields = ['id', 'name', 'code']

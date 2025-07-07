@@ -302,7 +302,7 @@ class CsvLoader(FormatLoader):
         # Validate CSV data if a schema validator is provided
         # Pass each CSV file's data to the validator
         if self.schema_validator:
-            for filename, file_data in csv_file_data.items():
+            for file_data in csv_file_data.values():
                 self.validate_schema(file_data)
 
         container = DictToMMCIFConverter(self.validator_factory).convert(data_dict)
