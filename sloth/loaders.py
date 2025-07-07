@@ -9,9 +9,9 @@ import os
 import mmap
 from abc import ABC, abstractmethod
 from .models import MMCIFDataContainer, DataSourceFormat, Category, DataBlock
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 from .common import auto_detect_format_and_load
-from .schemas import SchemaValidator
+from .validators import SchemaValidator
 
 
 class DictToMMCIFConverter:
@@ -44,7 +44,7 @@ class DictToMMCIFConverter:
         )
 
     def _populate_multiline_category(self, category: Category, rows: list):
-        all_item_names = {k for row in rows for k in row.keys()}
+        all_item_names = {k for row in rows for k in row}
         for item_name in all_item_names:
             category[item_name] = []
         for row in rows:
@@ -255,7 +255,12 @@ class CsvLoader(FormatLoader):
 
         if not isinstance(input_, str):
             raise TypeError("CsvLoader requires a directory path string.")
-        pattern = r"^(.+?)_(.+?)\.csv$"  # Non-greedy match for block and category names with underscores
+        
+        # Pattern: matches block_name followed by single underscore, then category_name  
+        # Category name may or may not start with underscore - we'll normalize it
+        # e.g., "1ABC__entry.csv" -> block="1ABC", category="_entry"
+        # e.g., "block1_category1.csv" -> block="block1", category="category1" (we'll add _ prefix)
+        pattern = r"^(.+?)_(.+)\.csv$"  # block_name + _ + category_name
         data_dict = {}
         csv_file_data = {}  # Store file data for validation
 
@@ -263,6 +268,15 @@ class CsvLoader(FormatLoader):
             match = re.match(pattern, os.path.basename(csv_file))
             if match:
                 block_name, category_name = match.groups()
+                
+                # Normalize category name: 
+                # - If it starts with underscore, remove it for internal storage
+                # - If it doesn't start with underscore, keep it as-is (and Category class will handle the prefix)
+                if category_name.startswith('_'):
+                    internal_category_name = category_name[1:]  # Remove the _ prefix for internal storage
+                else:
+                    internal_category_name = category_name  # Keep as-is for internal storage
+                
                 if block_name not in data_dict:
                     data_dict[block_name] = {}
 
@@ -279,7 +293,7 @@ class CsvLoader(FormatLoader):
                         "data": df,
                     }
 
-                    data_dict[block_name][category_name] = df.to_dict("records")
+                    data_dict[block_name][internal_category_name] = df.to_dict("records")
 
                 except pd.errors.EmptyDataError:
                     # Skip files with no columns or empty files
@@ -288,7 +302,7 @@ class CsvLoader(FormatLoader):
         # Validate CSV data if a schema validator is provided
         # Pass each CSV file's data to the validator
         if self.schema_validator:
-            for filename, file_data in csv_file_data.items():
+            for file_data in csv_file_data.values():
                 self.validate_schema(file_data)
 
         container = DictToMMCIFConverter(self.validator_factory).convert(data_dict)

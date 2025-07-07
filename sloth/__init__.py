@@ -61,8 +61,8 @@ from .loaders import (
     DictToMMCIFConverter,
 )
 from .handler import MMCIFHandler
-from .validator import ValidatorFactory
-from .schemas import (
+from .plugins import ValidatorFactory
+from .validators import (
     SchemaValidator,
     JSONSchemaValidator,
     XMLSchemaValidator,
@@ -72,6 +72,13 @@ from .schemas import (
     ValidationSeverity,
     SchemaValidatorFactory,
     default_mmcif_json_schema,
+)
+from .serializers import (
+    PDBMLConverter,
+    XMLMappingGenerator,
+    DictionaryParser,
+    RelationshipResolver,
+    MMCIFToPDBMLPipeline,
 )
 
 __all__ = [
@@ -104,6 +111,12 @@ __all__ = [
     "ValidationSeverity",
     "SchemaValidatorFactory",
     "default_mmcif_json_schema",
+    # PDBML Converter components
+    "PDBMLConverter",
+    "XMLMappingGenerator", 
+    "DictionaryParser", 
+    "RelationshipResolver",
+    "MMCIFToPDBMLPipeline",
     # Version information
     "__version__",
     "__author__",

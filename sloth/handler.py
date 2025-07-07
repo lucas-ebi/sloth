@@ -4,7 +4,7 @@ from .writer import MMCIFWriter
 from .exporter import MMCIFExporter
 from .loaders import MMCIFImporter
 from .models import MMCIFDataContainer, DataSourceFormat
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 
 
 class MMCIFHandler:

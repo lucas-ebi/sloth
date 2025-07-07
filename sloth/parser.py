@@ -12,7 +12,7 @@ from typing import Optional, List, Union
 from pathlib import Path
 from .models import MMCIFDataContainer, DataBlock, Category
 from .common import BaseParser
-from .validator import ValidatorFactory
+from .plugins import ValidatorFactory
 
 
 class MMCIFParser(BaseParser):
@@ -25,7 +25,7 @@ class MMCIFParser(BaseParser):
     
     def __init__(
         self,
-        validator_factory: Optional[ValidatorFactory],
+        validator_factory: Optional[ValidatorFactory] = None,
         categories: Optional[List[str]] = None,
     ):
         """

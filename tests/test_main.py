@@ -482,8 +482,9 @@ ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
             handler = MMCIFHandler()
             data = handler.parse(large_file)
             parse_time = time.time() - start_time
-
-            print(f"Parsing time: {parse_time:.4f}s")
+            
+            # Assert parsing completed in reasonable time (under 10 seconds for large files)
+            self.assertLess(parse_time, 10.0, f"Parsing took too long: {parse_time:.4f}s")
 
             # Verify data was parsed correctly
             block = data.data[0]
@@ -1529,7 +1530,7 @@ class TestCsvLoader(TestFormatLoaders):
             self.assertIn("data_block1", container.blocks)
 
             # Get the category name with underscore prefix (core functionality doesn't add prefixes)
-            category_names = list(container["block1"]._categories.keys())
+            category_names = list(container["block1"]._categories)
             self.assertTrue(any("category1" in name for name in category_names))
             self.assertTrue(any("category2" in name for name in category_names))
 
