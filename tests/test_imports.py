@@ -42,7 +42,7 @@ class TestImports(unittest.TestCase):
     def test_schema_imports(self):
         """Test that schema validation classes can be imported."""
         try:
-            from sloth.schemas import XMLSchemaValidator
+            from sloth.validators import XMLSchemaValidator
             from sloth import SchemaValidator, ValidatorFactory
         except ImportError as e:
             self.fail(f"Failed to import schema classes: {e}")
@@ -201,7 +201,7 @@ class TestModuleStructure(unittest.TestCase):
         try:
             import sloth.parser
             import sloth.pdbml_converter
-            import sloth.schemas
+            import sloth.validators
             import sloth.models
         except ImportError as e:
             self.fail(f"Failed to import submodules: {e}")

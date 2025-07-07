@@ -14,7 +14,7 @@ from typing import Optional, Union, IO
 from pathlib import Path
 from .models import MMCIFDataContainer, DataSourceFormat
 from .plugins import ValidatorFactory
-from .schemas import SchemaValidator
+from .validators import SchemaValidator
 
 
 def auto_detect_format_and_load(
@@ -47,7 +47,7 @@ def auto_detect_format_and_load(
         else:
             try:
                 # Import here to avoid circular imports
-                from .schemas import SchemaValidatorFactory
+                from .validators import SchemaValidatorFactory
 
                 # Detect format first
                 detected_format = None

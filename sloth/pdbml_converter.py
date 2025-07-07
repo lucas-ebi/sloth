@@ -19,7 +19,7 @@ from functools import lru_cache, wraps
 
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
-from .schemas import XMLSchemaValidator
+from .validators import XMLSchemaValidator
 from .pdbml_enums import (
     XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
     PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 

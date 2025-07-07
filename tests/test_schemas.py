@@ -5,7 +5,7 @@ import unittest
 import tempfile
 import shutil
 import json
-from sloth.schemas import (
+from sloth.validators import (
     XMLSchemaValidator,
     SchemaValidatorFactory,
     ValidationError,
@@ -311,7 +311,7 @@ if __name__ == "__main__":
 # Adjust the paths as necessary based on your project structure.
 # The tests also assume that the XML and JSON schemas are correctly defined and
 # that the XML and JSON data samples provided match the expected structure.
-# Ensure that the sloth.schemas module is correctly implemented with the necessary
+# Ensure that the sloth.validators module is correctly implemented with the necessary
 # classes and methods for schema validation.
 # The tests cover various scenarios including valid data, missing required attributes,
 # incorrect structure, and empty data. They also test the integration with the

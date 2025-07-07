@@ -62,7 +62,7 @@ from .loaders import (
 )
 from .handler import MMCIFHandler
 from .plugins import ValidatorFactory
-from .schemas import (
+from .validators import (
     SchemaValidator,
     JSONSchemaValidator,
     XMLSchemaValidator,

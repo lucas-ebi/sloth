@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from .models import MMCIFDataContainer, DataSourceFormat, Category, DataBlock
 from .plugins import ValidatorFactory
 from .common import auto_detect_format_and_load
-from .schemas import SchemaValidator
+from .validators import SchemaValidator
 
 
 class DictToMMCIFConverter:

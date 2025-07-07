@@ -29,7 +29,7 @@ from sloth import (
     DictionaryParser
 )
 from sloth.models import MMCIFDataContainer, DataBlock, Category
-from sloth.schemas import ValidationError
+from sloth.validators import ValidationError
 
 
 class TestPDBMLConversion(unittest.TestCase):
@@ -1573,7 +1573,7 @@ ATOM   1    BADTYPE BADATOM BADCOMP 0.0 0.0 0.0
             self.skipTest("Schema validation not available - skipping validation comparison")
         
         try:
-            from sloth.schemas import XMLSchemaValidator
+            from sloth.validators import XMLSchemaValidator
             validator = XMLSchemaValidator(schema_path)
             
             if validator.schema is None:

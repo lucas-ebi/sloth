@@ -17,7 +17,7 @@ import shutil
 
 from sloth.parser import MMCIFParser
 from sloth.pdbml_converter import PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, DictionaryParser
-from sloth.schemas import XMLSchemaValidator
+from sloth.validators import XMLSchemaValidator
 
 
 class TestRelationshipResolution(unittest.TestCase):
