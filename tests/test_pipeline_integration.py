@@ -121,7 +121,7 @@ class TestComponentFixes(unittest.TestCase):
     def test_enum_class_functionality(self):
         """Test that enum classes work correctly."""
         from sloth.pdbml_enums import (
-            XMLLocation, NullValue, NumericField,
+            XMLLocation, NullValue, NumericDataType,
             get_numeric_fields, is_null_value
         )
         
@@ -138,7 +138,13 @@ class TestComponentFixes(unittest.TestCase):
         # Test helper functions
         numeric_fields = get_numeric_fields()
         self.assertIsInstance(numeric_fields, set)
-        self.assertIn("year", numeric_fields)
+        # Schema-driven approach returns empty set without mapping generator
+        
+        # Test NumericDataType enum
+        numeric_types = NumericDataType.get_type_names()
+        self.assertIsInstance(numeric_types, set)
+        self.assertIn("int", numeric_types)
+        self.assertIn("float", numeric_types)
         
         # Test is_null_value helper
         self.assertTrue(is_null_value("?"))

@@ -8,7 +8,6 @@ for nested JSON output.
 
 import os
 import re
-import pickle
 import json
 import hashlib
 import threading
@@ -22,7 +21,9 @@ from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
 from .schemas import XMLSchemaValidator
 from .pdbml_enums import (
-    XMLLocation, get_numeric_fields, is_null_value, StandardRelationship
+    XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
+    PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 
+    is_null_value, PDBMLNamespace
 )
 
 
@@ -638,13 +639,9 @@ class XMLMappingGenerator:
         # - Categories involved in core data hierarchy
         # - Categories referenced by ID items in other categories
         for cat_id, cat_info in self._categories.items():
-            # Find categories with mandatory items
-            has_mandatory_items = False
-            
             # Search for any mandatory items in this category
             for item_name, item_info in self._items.items():
                 if item_name.startswith(f"_{cat_id}.") and item_info.get('mandatory', 'no') == 'yes':
-                    has_mandatory_items = True
                     key_categories.add(cat_id)
                     break
                     
@@ -895,7 +892,7 @@ class XMLMappingGenerator:
                 print(f"⚠️ Warning: Error parsing dictionary: {e}")
                 traceback.print_exc()
                 
-    def _should_process_save_frame_schema_driven(self, save_name: str, block: List[str], 
+    def _should_process_save_frame_schema_driven(self, _save_name: str, block: List[str], 
                                                 high_priority: set, medium_priority: set, 
                                                 processed_categories: set, use_permissive_parsing: bool = False) -> bool:
         """Pure schema-driven decision on whether to process a save frame.
@@ -1319,8 +1316,8 @@ class XMLMappingGenerator:
         """Generate complete mapping rules that eliminate hardcoding needs"""
         mapping_rules = {
             "structural_mapping": {
-                "root_element": "datablock",
-                "root_attributes": ["datablockName"],
+                "root_element": PDBMLElement.DATABLOCK.value,
+                "root_attributes": [PDBMLAttribute.DATABLOCK_NAME.value],
                 "namespace": "http://pdbml.pdb.org/schema/pdbx-v50.xsd",
                 "schema_location": "pdbx-v50.xsd"
             },
@@ -1350,11 +1347,11 @@ class XMLMappingGenerator:
             keys = cat_info.get('keys', [])
             
             if not keys:
-                xml_type = "root_child_element"
+                xml_type = XMLElementType.ROOT_CHILD_ELEMENT.value
             elif len(keys) == 1:
-                xml_type = "simple_element"
+                xml_type = XMLElementType.SIMPLE_ELEMENT.value
             else:
-                xml_type = "composite_element"
+                xml_type = XMLElementType.COMPOSITE_ELEMENT.value
                 
             # Generate key attributes
             key_attributes = []
@@ -1364,8 +1361,8 @@ class XMLMappingGenerator:
             category_mapping[cat_id] = {
                 "xml_type": xml_type,
                 "key_attributes": key_attributes,
-                "grouping": "by_composite_key" if len(keys) > 1 else "by_single_key",
-                "container": "entry" if xml_type == "root_child_element" else "category",
+                "grouping": XMLGroupingType.BY_COMPOSITE_KEY.value if len(keys) > 1 else XMLGroupingType.BY_SINGLE_KEY.value,
+                "container": XMLContainerType.ENTRY.value if xml_type == XMLElementType.ROOT_CHILD_ELEMENT.value else XMLContainerType.CATEGORY.value,
                 "mandatory": cat_info.get('mandatory', 'no')
             }
             
@@ -1434,7 +1431,7 @@ class XMLMappingGenerator:
                 item_part = item_name.split('.', 1)[1]
                 xml_location = self._determine_xml_location(item_name, self.items[item_name])
                 
-                if xml_location == "element_content":
+                if xml_location == XMLLocation.ELEMENT_CONTENT.value:
                     element_only.append(item_part)
                     
             if element_only:
@@ -1458,7 +1455,7 @@ class XMLMappingGenerator:
                 item_part = item_name.split('.', 1)[1]
                 xml_location = self._determine_xml_location(item_name, self.items[item_name])
                 
-                if xml_location == "attribute":
+                if xml_location == XMLLocation.ATTRIBUTE.value:
                     attribute_only.append(item_part)
                     
             if attribute_only:
@@ -1723,7 +1720,7 @@ class PDBMLConverter:
         self._xml_validator = None
         
         # PDBML namespace
-        self.namespace = "http://pdbml.pdb.org/schema/pdbx-v50.xsd"
+        self.namespace = PDBMLNamespace.get_default_namespace()
         self.ns_prefix = "PDBx"
         
         # Cache for frequently used data
@@ -1763,8 +1760,8 @@ class PDBMLConverter:
         data_block = mmcif_container.data[0]
         
         # Create root datablock element with namespace
-        root = ET.Element("datablock")
-        root.set("datablockName", data_block.name)
+        root = ET.Element(PDBMLElement.DATABLOCK.value)
+        root.set(PDBMLAttribute.DATABLOCK_NAME.value, data_block.name)
         
         # Set up namespace attributes carefully to avoid duplicates
         root.set("xmlns", self.namespace)
@@ -1785,7 +1782,7 @@ class PDBMLConverter:
             rough_string = ET.tostring(root, encoding='utf-8')
             
             # Write raw XML to file for debugging
-            with open("debug_raw_xml.xml", "wb") as f:
+            with open(DebugFile.RAW_XML.value, "wb") as f:
                 f.write(rough_string)
                 
             # First, use a simpler method to get valid XML
@@ -1811,7 +1808,7 @@ class PDBMLConverter:
         # instead of hardcoded category-specific logic
         
         # Get basic datablock info
-        datablock_name = root.get("datablockName", "unknown")
+        datablock_name = root.get(PDBMLAttribute.DATABLOCK_NAME.value, "unknown")
         
         # Use schema-driven approach to determine missing required categories
         # based on what data is actually present and what the schema requires
@@ -1839,7 +1836,7 @@ class PDBMLConverter:
             print("⚠️ Adding minimal entry category for schema compliance (permissive mode)")
             entry_cat = ET.SubElement(root, "entryCategory")
             entry_elem = ET.SubElement(entry_cat, "entry")
-            entry_elem.set("id", datablock_name)
+            entry_elem.set(PDBMLAttribute.ID.value, datablock_name)
         
         # The rest should be handled by schema validation reporting missing references
         # rather than auto-adding hardcoded categories
@@ -1847,14 +1844,14 @@ class PDBMLConverter:
     def _generate_fallback_xml(self, data_block: DataBlock) -> str:
         """Generate a minimal valid XML as fallback."""
         lines = ['<?xml version="1.0" encoding="utf-8"?>']
-        lines.append(f'<datablock xmlns="{self.namespace}" datablockName="{data_block.name}">')
+        lines.append(f'<{PDBMLElement.DATABLOCK.value} xmlns="{self.namespace}" {PDBMLAttribute.DATABLOCK_NAME.value}="{data_block.name}">')
         
         # Add minimal content - just the entry category
         lines.append('  <entryCategory>')
-        lines.append(f'    <entry id="{data_block.name}"/>')
+        lines.append(f'    <{PDBMLElement.ENTRY.value} {PDBMLAttribute.ID.value}="{data_block.name}"/>')
         lines.append('  </entryCategory>')
         
-        lines.append('</datablock>')
+        lines.append(f'</{PDBMLElement.DATABLOCK.value}>')
         return '\n'.join(lines)
     
     def _add_category_to_pdbml(self, parent: ET.Element, category_name: str, category: Category) -> None:
@@ -1985,7 +1982,8 @@ class PDBMLConverter:
         
         try:
             # Remove surrounding quotes for certain fields that should be raw values
-            numeric_fields = get_numeric_fields()
+            # Use schema-driven numeric field detection when available
+            numeric_fields = get_numeric_fields(self.mapping_generator)
             if field_name in numeric_fields and value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
             
@@ -2233,8 +2231,8 @@ class PDBMLConverter:
                         f"{self.namespace} pdbx-v50.xsd")
             
             # Fix 2: Ensure datablock has proper attributes
-            if "datablockName" not in root.attrib and root.tag == "datablock":
-                root.set("datablockName", "UNKNOWN")
+            if PDBMLAttribute.DATABLOCK_NAME.value not in root.attrib and root.tag == PDBMLElement.DATABLOCK.value:
+                root.set(PDBMLAttribute.DATABLOCK_NAME.value, "UNKNOWN")
             
             # Fix 3: Remove empty categories that might cause validation issues
             categories_to_remove = []
@@ -2272,7 +2270,7 @@ class PDBMLConverter:
             # Add minimal entry category for validation
             entry_cat = ET.SubElement(root, "entryCategory")
             entry_elem = ET.SubElement(entry_cat, "entry")
-            entry_elem.set("id", root.get("datablockName", "UNKNOWN"))
+            entry_elem.set(PDBMLAttribute.ID.value, root.get(PDBMLAttribute.DATABLOCK_NAME.value, "UNKNOWN"))
 
 
 class RelationshipResolver:
@@ -2350,7 +2348,7 @@ class RelationshipResolver:
         # Just look for basic patterns like <category>
         
         # Extract datablock name
-        match = re.search(r'datablockName="([^"]+)"', xml_content)
+        match = re.search(rf'{PDBMLAttribute.DATABLOCK_NAME.value}="([^"]+)"', xml_content)
         if match:
             data["datablock"] = match.group(1)
             
@@ -2814,7 +2812,7 @@ class MMCIFToPDBMLPipeline:
                 nested_json = {"error": str(e)}
                 
                 # Save the problematic XML for debugging
-                with open("debug_problem_xml.xml", "w", encoding="utf-8") as f:
+                with open(DebugFile.PROBLEM_XML.value, "w", encoding="utf-8") as f:
                     f.write(pdbml_xml)
             
             return {

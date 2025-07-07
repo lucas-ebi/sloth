@@ -25,7 +25,7 @@ class TestImports(unittest.TestCase):
         """Test that remaining enum classes can be imported."""
         try:
             from sloth.pdbml_enums import (
-                XMLLocation, NullValue, NumericField,
+                XMLLocation, NullValue, NumericDataType,
                 is_null_value, get_numeric_fields
             )
         except ImportError as e:
@@ -100,7 +100,7 @@ class TestImports(unittest.TestCase):
     
     def test_enum_functionality(self):
         """Test that enum functions work correctly."""
-        from sloth.pdbml_enums import XMLLocation, NullValue, NumericField, is_null_value, get_numeric_fields
+        from sloth.pdbml_enums import XMLLocation, NullValue, NumericDataType, is_null_value, get_numeric_fields
         
         # Test XMLLocation enum
         self.assertEqual(XMLLocation.ATTRIBUTE.value, "attribute")
@@ -111,10 +111,15 @@ class TestImports(unittest.TestCase):
         self.assertTrue(is_null_value("."))
         self.assertFalse(is_null_value("valid_value"))
         
-        # Test numeric fields
+        # Test numeric data types
+        numeric_types = NumericDataType.get_type_names()
+        self.assertIsInstance(numeric_types, set)
+        self.assertIn("int", numeric_types)
+        self.assertIn("float", numeric_types)
+        
+        # Test schema-driven numeric fields (returns empty set without mapping generator)
         numeric_fields = get_numeric_fields()
         self.assertIsInstance(numeric_fields, set)
-        self.assertIn("year", numeric_fields)
     
     def test_converter_lazy_loading(self):
         """Test that converter components are properly lazy-loaded."""
