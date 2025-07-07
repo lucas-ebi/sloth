@@ -810,7 +810,18 @@ class XMLMappingGenerator:
             return
             
         # Analyze what categories we actually need based on schema and data
+        # When parsing dictionary initially (no data available), be more permissive
+        # to ensure we capture all potentially needed categories
         high_priority, medium_priority = self._get_priority_categories()
+        
+        # If we don't have much priority data (indicating no data container was passed),
+        # be more permissive to capture all essential structural categories
+        if len(high_priority) + len(medium_priority) < 20:
+            if not self.quiet:
+                print("📋 No data available for analysis - using permissive parsing for all structural categories")
+            use_permissive_parsing = True
+        else:
+            use_permissive_parsing = False
         
         current_save = None
         current_block = []
@@ -831,7 +842,7 @@ class XMLMappingGenerator:
                         if in_save_frame and current_save:
                             # Use schema-driven decision making
                             should_process = self._should_process_save_frame_schema_driven(
-                                current_save, current_block, high_priority, medium_priority, processed_categories
+                                current_save, current_block, high_priority, medium_priority, processed_categories, use_permissive_parsing
                             )
                             
                             if should_process:
@@ -853,7 +864,7 @@ class XMLMappingGenerator:
                     elif line == 'save_':
                         if in_save_frame and current_save:
                             should_process = self._should_process_save_frame_schema_driven(
-                                current_save, current_block, high_priority, medium_priority, processed_categories
+                                current_save, current_block, high_priority, medium_priority, processed_categories, use_permissive_parsing
                             )
                             
                             if should_process:
@@ -886,7 +897,7 @@ class XMLMappingGenerator:
                 
     def _should_process_save_frame_schema_driven(self, save_name: str, block: List[str], 
                                                 high_priority: set, medium_priority: set, 
-                                                processed_categories: set) -> bool:
+                                                processed_categories: set, use_permissive_parsing: bool = False) -> bool:
         """Pure schema-driven decision on whether to process a save frame.
         
         This approach eliminates ALL hardcoding and uses only:
@@ -911,18 +922,14 @@ class XMLMappingGenerator:
                 if cat_id in medium_priority:
                     return True
                     
-                # TEMPORARY FIX: Include essential PDBML categories that are commonly used in tests
-                # This should be replaced with proper schema analysis once XSD parsing is working correctly
-                essential_categories = {
-                    'database_2', 'entity', 'citation', 'entry', 'pdbx_database_status',
-                    'struct_asym', 'entity_poly', 'entity_poly_seq', 'chem_comp', 'struct_conf'
-                }
-                if cat_id in essential_categories:
+                # In permissive mode (when no data available), include ALL categories
+                # Let the schema and dictionary drive the decision completely
+                if use_permissive_parsing:
                     if not self.quiet:
-                        print(f"📋 Including essential category: {cat_id}")
+                        print(f"📋 Including category in permissive mode: {cat_id}")
                     return True
-                    
-                # NO OTHER HARDCODED PATTERNS - reject all others
+                
+                # Otherwise, reject categories not found through proper analysis
                 return False
                 
         # Process items only for categories we've decided to include
@@ -1693,6 +1700,16 @@ class PDBMLConverter:
             self._xml_validator = self._initialize_xml_validator()
         return self._xml_validator
         
+    @property
+    def _dictionary(self) -> Optional[Dict[str, Any]]:
+        """Backward compatibility property - returns None until mapping generator is accessed."""
+        # For backward compatibility with tests that expect _dictionary attribute
+        # Return None if mapping generator hasn't been accessed yet (lazy loading)
+        if self.mapping_generator._categories is None:
+            return None
+        # Return the categories dictionary from the mapping generator
+        return self.mapping_generator.categories
+    
     def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
         """Convert mmCIF container to PDBML XML string."""
         if len(mmcif_container.data) != 1:
