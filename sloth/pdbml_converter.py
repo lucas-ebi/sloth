@@ -15,16 +15,13 @@ import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from xml.etree import ElementTree as ET
-from pathlib import Path
 from functools import lru_cache, wraps
 
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
 from .schemas import XMLSchemaValidator
 from .pdbml_enums import (
-    XMLLocation,
-    get_element_only_items, get_atom_site_defaults, get_anisotropic_defaults,
-    get_problematic_field_replacement, is_null_value, get_numeric_fields
+    XMLLocation, get_numeric_fields, is_null_value
 )
 
 
@@ -820,11 +817,27 @@ class XMLMappingGenerator:
             if item_part in keys:
                 return XMLLocation.ATTRIBUTE.value
                 
-        # Special rules for known categories
-        element_only_items = get_element_only_items(category_name)
-        
-        if element_only_items and item_part in element_only_items:
-            return XMLLocation.ELEMENT_CONTENT.value
+        # Schema-driven approach: check mapping rules for element requirements
+        try:
+            mapping_rules = self.get_mapping_rules()
+            if mapping_rules and 'element_requirements' in mapping_rules:
+                element_requirements = mapping_rules['element_requirements']
+                if category_name in element_requirements:
+                    element_only_items = element_requirements[category_name]
+                    if item_part in element_only_items:
+                        return XMLLocation.ELEMENT_CONTENT.value
+            
+            # Also check item mappings for specific XML location rules
+            if mapping_rules and 'item_mapping' in mapping_rules:
+                item_mapping = mapping_rules['item_mapping']
+                if item_name in item_mapping:
+                    xml_location = item_mapping[item_name].get('xml_location')
+                    if xml_location:
+                        return xml_location
+        except Exception as e:
+            # Fallback to default behavior if mapping rules fail
+            print(f"⚠️ Warning: Could not get mapping rules for XML location: {e}")
+            pass
                 
         # Default to element for most cases
         return XMLLocation.ELEMENT_CONTENT.value
@@ -878,46 +891,11 @@ class XMLMappingGenerator:
         return attribute_requirements
         
     def _generate_default_values(self) -> Dict[str, Dict[str, str]]:
-        """Generate default values mapping"""
+        """Generate default values mapping based on schema/dictionary definitions"""
         default_values = {}
         
-        # Get comprehensive defaults for atom_site category using Enum classes
-        atom_site_defaults = {}
-        atom_site_defaults.update(get_atom_site_defaults())
-        atom_site_defaults.update(get_anisotropic_defaults())
-        
-        # Add additional required fields not covered in the base defaults
-        additional_defaults = {
-            "aniso_ratio": "1.0",
-            "attached_hydrogens": "0",
-            "auth_asym_id": "A",
-            "auth_atom_id": "N1",
-            "auth_comp_id": "MET",
-            "auth_seq_id": "1",
-            "calc_attached_atom": ".",
-            "chemical_conn_number": "0",
-            "constraints": ".",
-            "details": ".",
-            "disorder_assembly": ".",
-            "disorder_group": ".",
-            "fract_x": "0.0",
-            "fract_x_esd": "0.0",
-            "fract_y": "0.0", 
-            "fract_y_esd": "0.0",
-            "fract_z": "0.0",
-            "fract_z_esd": "0.0",
-            "label_alt_id": ".",
-            "label_asym_id": "A"
-        }
-        atom_site_defaults.update(additional_defaults)
-        
-        default_values["atom_site"] = atom_site_defaults
-        
-        # Process other categories
+        # Process all categories to extract defaults from schema/dictionary
         for cat_id in self.categories:
-            if cat_id == "atom_site":
-                continue  # Already handled above
-                
             category_defaults = {}
             
             # Get all items for this category
@@ -927,7 +905,7 @@ class XMLMappingGenerator:
             for item_name in category_items:
                 item_part = item_name.split('.', 1)[1]
                 
-                # Get default value
+                # Get default value from schema/dictionary
                 default_val = self._get_item_default_value(item_name)
                 if default_val:
                     category_defaults[item_part] = default_val
@@ -1425,10 +1403,9 @@ class PDBMLConverter:
             if is_null_value(value):
                 return ""
             
-            # Handle problematic fields using Enum classes
-            replacement = get_problematic_field_replacement(field_name, value)
-            if replacement != value:
-                return replacement
+            # Handle null values properly using schema validation
+            if is_null_value(value):
+                return ""
                 
             # Remove/replace invalid XML characters
             # Replace control chars except for whitespace (\n, \t, etc.)
