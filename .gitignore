@@ -31,9 +31,12 @@ fix_*.py
 verify_*.py
 
 # Analysis and sample files
-*_analysis.py
+*_analysis*.py
 *_analysis.json
 sample_*
+*_benchmark.py
+*_profiling.py
+*_test.py
 
 # Commented out files (keeping as-is)
 # *.json
