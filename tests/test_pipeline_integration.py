@@ -120,7 +120,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_enum_class_functionality(self):
         """Test that enum classes work correctly."""
-        from sloth.pdbml_enums import (
+        from sloth.schemas import (
             XMLLocation, NullValue, NumericDataType,
             get_numeric_fields, is_null_value
         )

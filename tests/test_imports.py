@@ -24,7 +24,7 @@ class TestImports(unittest.TestCase):
     def test_enum_imports(self):
         """Test that remaining enum classes can be imported."""
         try:
-            from sloth.pdbml_enums import (
+            from sloth.schemas import (
                 XMLLocation, NullValue, NumericDataType,
                 is_null_value, get_numeric_fields
             )
@@ -100,7 +100,7 @@ class TestImports(unittest.TestCase):
     
     def test_enum_functionality(self):
         """Test that enum functions work correctly."""
-        from sloth.pdbml_enums import XMLLocation, NullValue, NumericDataType, is_null_value, get_numeric_fields
+        from sloth.schemas import XMLLocation, NullValue, NumericDataType, is_null_value, get_numeric_fields
         
         # Test XMLLocation enum
         self.assertEqual(XMLLocation.ATTRIBUTE.value, "attribute")
