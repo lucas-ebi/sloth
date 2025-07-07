@@ -2523,16 +2523,9 @@ class RelationshipResolver:
         
         # Basic structural analysis
         
-        # 1. Prefer relationships where the link field name suggests a direct connection
-        # (e.g., 'entity_id' linking to 'entity' is more direct than 'label_entity_id')
-        if link_field == f"{parent_cat}_id":
-            score += 100  # Perfect match: field name directly references parent
-        elif parent_cat in link_field:
-            score += 50   # Parent name appears in field
-        elif link_field.endswith('_id'):
-            score += 30   # At least it's an ID field
-        else:
-            score += 10   # Non-ID field
+        # 1. Enhanced field name matching that recognizes core category identifiers
+        field_score = self._calculate_field_match_score(parent_cat, link_field)
+        score += field_score
             
         # 2. Prefer relationships where the parent has fewer total children
         # (more specific parents are better than general ones)
@@ -2551,7 +2544,40 @@ class RelationshipResolver:
         data_consistency = self._check_data_consistency(child_cat, parent_cat, link_field, categories)
         score += data_consistency * 25
         
+        # 5. Prefer more specific parents in a hierarchical sense
+        # If this parent already has a parent assigned, it's more specific than root categories
+        if parent_cat in existing_relationships.get('parents', {}):
+            score += 30  # Prefer deeper hierarchy levels for more specific relationships
+        
         return score
+    
+    def _calculate_field_match_score(self, parent_cat: str, link_field: str) -> float:
+        """Calculate how well the link field matches the parent category."""
+        # Extract the core identifier from the parent category
+        # e.g., 'struct_asym' -> 'asym', 'entity_poly' -> 'poly' or 'entity'
+        parent_core_parts = parent_cat.split('_')
+        
+        # Check for perfect match: field exactly references parent
+        if link_field == f"{parent_cat}_id":
+            return 100.0  # Perfect match
+        
+        # Check if any core part of parent appears in the field
+        for part in parent_core_parts:
+            if len(part) > 2:  # Only consider meaningful parts (not "id", "no", etc.)
+                if f"{part}_id" in link_field or f"label_{part}_id" in link_field:
+                    return 90.0  # Very good match: core part with id
+                elif part in link_field:
+                    return 70.0  # Good match: core part appears
+        
+        # Check if parent name appears anywhere in field
+        if parent_cat in link_field:
+            return 50.0   # Parent name appears in field
+        
+        # Check for ID fields (general preference)
+        if link_field.endswith('_id'):
+            return 30.0   # At least it's an ID field
+        
+        return 10.0  # Non-ID field
     
     def _calculate_name_similarity(self, child_name: str, parent_name: str) -> float:
         """Calculate similarity between category names (0.0 to 1.0)."""

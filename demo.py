@@ -1422,13 +1422,16 @@ _atom_site.pdbx_PDB_model_num 1
         
         # Step 2: Convert to PDBML XML
         print(f"\n2️⃣ Converting to PDBML XML...")
-        converter = PDBMLConverter()
+        dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        converter = PDBMLConverter(dictionary_path=dict_path)
         xml_content = converter.convert_to_pdbml(container)
         print(f"   ✅ XML generated - {len(xml_content)} characters")
         
-        # Step 3: Resolve relationships
+        # Step 3: Resolve relationships using dictionary-driven approach
         print(f"\n3️⃣ Resolving parent-child relationships...")
-        resolver = RelationshipResolver()
+        dictionary = DictionaryParser()
+        dictionary.parse_dictionary(dict_path)
+        resolver = RelationshipResolver(dictionary)
         nested_json = resolver.resolve_relationships(xml_content)
         print(f"   ✅ Relationships resolved")
         print(f"   📊 Root categories: {list(nested_json)}")

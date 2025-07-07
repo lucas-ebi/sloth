@@ -16,7 +16,7 @@ from pathlib import Path
 import shutil
 
 from sloth.parser import MMCIFParser
-from sloth.pdbml_converter import PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline
+from sloth.pdbml_converter import PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, DictionaryParser
 from sloth.schemas import XMLSchemaValidator
 
 
@@ -72,6 +72,13 @@ _atom_site.B_iso_or_equiv 25.0
         """Clean up temporary files."""
         shutil.rmtree(self.temp_dir)
     
+    def _create_resolver_with_dictionary(self):
+        """Helper method to create RelationshipResolver with dictionary."""
+        dictionary = DictionaryParser()
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        dictionary.parse_dictionary(dict_path)
+        return RelationshipResolver(dictionary)
+    
     def test_relationship_identification(self):
         """Test that relationships are correctly identified from XML."""
         # Parse and convert to XML
@@ -80,8 +87,8 @@ _atom_site.B_iso_or_equiv 25.0
         converter = PDBMLConverter()
         xml_content = converter.convert_to_pdbml(container)
         
-        # Create resolver and test relationship identification
-        resolver = RelationshipResolver()
+        # Create resolver with dictionary and test relationship identification
+        resolver = self._create_resolver_with_dictionary()
         
         # Parse XML to check relationships
         root = ET.fromstring(xml_content)
@@ -119,7 +126,7 @@ _atom_site.B_iso_or_equiv 25.0
         converter = PDBMLConverter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Check the basic structure
@@ -153,7 +160,7 @@ _atom_site.B_iso_or_equiv 25.0
         converter = PDBMLConverter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Navigate the 4-level hierarchy and verify each level
@@ -220,7 +227,7 @@ _atom_site.Cartn_x
         converter = PDBMLConverter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Check that multiple atoms are properly handled
@@ -247,7 +254,7 @@ _atom_site.Cartn_x
         converter = PDBMLConverter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Check that foreign key values are preserved
@@ -272,7 +279,7 @@ _atom_site.Cartn_x
     </entityCategory>
 </datablock>"""
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         
         # Should not crash, should return valid JSON
         try:
@@ -292,7 +299,7 @@ _atom_site.Cartn_x
     </atom_siteCategory>
 </datablock>"""
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         result = resolver.resolve_relationships(empty_xml)
         
         # Should return empty structure, not crash
@@ -359,7 +366,7 @@ _atom_site.Cartn_x
         converter = PDBMLConverter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         end_time = time.time()
@@ -419,17 +426,24 @@ _atom_site.Cartn_x    0.000
         """Clean up temporary files."""
         shutil.rmtree(self.temp_dir)
     
+    def _create_resolver_with_dictionary(self):
+        """Helper method to create RelationshipResolver with dictionary."""
+        dictionary = DictionaryParser()
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        dictionary.parse_dictionary(dict_path)
+        return RelationshipResolver(dictionary)
+    
     def test_end_to_end_pipeline(self):
         """Test the complete end-to-end pipeline."""
         try:
             # Test with pipeline class if available
             pipeline = MMCIFToPDBMLPipeline()
-            result = pipeline.process_file(self.test_file)
+            result = pipeline.process_mmcif_file(self.test_file)
             
             # Verify all expected outputs
-            self.assertIn('xml_content', result)
+            self.assertIn('pdbml_xml', result)
             self.assertIn('nested_json', result)
-            self.assertIn('validation_results', result)
+            self.assertIn('validation', result)
             
             # Test nested structure
             nested_json = result['nested_json']
@@ -446,7 +460,7 @@ _atom_site.Cartn_x    0.000
             converter = PDBMLConverter()
             xml_content = converter.convert_to_pdbml(container)
             
-            resolver = RelationshipResolver()
+            resolver = self._create_resolver_with_dictionary()
             nested_json = resolver.resolve_relationships(xml_content)
             
             # Verify structure

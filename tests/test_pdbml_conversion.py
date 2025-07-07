@@ -433,7 +433,7 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
         
         self.handler = MMCIFHandler(validator_factory=None)
         self.converter = PDBMLConverter()
-        self.resolver = RelationshipResolver()
+        self.resolver = self._create_resolver_with_dictionary()
         self.temp_dir = tempfile.mkdtemp()
         
         # Create temp file for testing
@@ -446,6 +446,14 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
         if os.path.exists(self.temp_dir):
             import shutil
             shutil.rmtree(self.temp_dir)
+    
+    def _create_resolver_with_dictionary(self):
+        """Helper method to create RelationshipResolver with dictionary."""
+        from sloth.pdbml_converter import DictionaryParser
+        dictionary = DictionaryParser()
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        dictionary.parse_dictionary(dict_path)
+        return RelationshipResolver(dictionary)
         
     def test_parent_child_relationship_resolution(self):
         """Test resolution of parent-child relationships."""
@@ -736,6 +744,14 @@ _atom_site.pdbx_PDB_model_num 1
         import shutil
         shutil.rmtree(self.temp_dir)
     
+    def _create_resolver_with_dictionary(self):
+        """Helper method to create RelationshipResolver with dictionary."""
+        from sloth.pdbml_converter import DictionaryParser
+        dictionary = DictionaryParser()
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        dictionary.parse_dictionary(dict_path)
+        return RelationshipResolver(dictionary)
+    
     def test_mmcif_parsing_for_nested_data(self):
         """Test that the mmCIF parser correctly handles nested relationship data."""
         parser = MMCIFParser()
@@ -925,7 +941,7 @@ _atom_site.pdbx_PDB_model_num 1
         converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Verify the nested structure exists
@@ -991,7 +1007,7 @@ _atom_site.pdbx_PDB_model_num 1
     </struct_asymCategory>
 </datablock>"""
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(test_xml)
         
         # Verify basic nesting works
@@ -1052,7 +1068,7 @@ _atom_site.pdbx_PDB_model_num 1
         converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Verify 4-level nesting works
@@ -1114,7 +1130,7 @@ _atom_site.Cartn_x
         converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = RelationshipResolver()
+        resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Verify both entities are present and correctly nested
