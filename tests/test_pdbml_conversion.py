@@ -449,7 +449,7 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.pdbml_converter import DictionaryParser
+        from sloth.serializers import DictionaryParser
         dictionary = DictionaryParser()
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
         dictionary.parse_dictionary(dict_path)
@@ -526,7 +526,7 @@ ATOM 2 C 11.234 21.567 31.890
             import shutil
             shutil.rmtree(self.temp_dir)
             
-    @patch('sloth.pdbml_converter.XMLSchemaValidator')
+    @patch('sloth.serializers.XMLSchemaValidator')
     def test_complete_pipeline_execution(self, mock_validator_class):
         """Test complete pipeline from mmCIF to nested JSON."""
         # Mock the validator to avoid XSD dependency
@@ -746,7 +746,7 @@ _atom_site.pdbx_PDB_model_num 1
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.pdbml_converter import DictionaryParser
+        from sloth.serializers import DictionaryParser
         dictionary = DictionaryParser()
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
         dictionary.parse_dictionary(dict_path)

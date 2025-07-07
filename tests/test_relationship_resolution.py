@@ -16,7 +16,7 @@ from pathlib import Path
 import shutil
 
 from sloth.parser import MMCIFParser
-from sloth.pdbml_converter import PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, DictionaryParser
+from sloth.serializers import PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, DictionaryParser
 from sloth.validators import XMLSchemaValidator
 
 

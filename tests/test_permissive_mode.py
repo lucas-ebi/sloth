@@ -14,7 +14,7 @@ import tempfile
 import os
 from pathlib import Path
 from sloth import MMCIFHandler, PDBMLConverter, XMLSchemaValidator
-from sloth.pdbml_converter import MMCIFToPDBMLPipeline
+from sloth.serializers import MMCIFToPDBMLPipeline
 
 
 class TestPermissiveMode(unittest.TestCase):

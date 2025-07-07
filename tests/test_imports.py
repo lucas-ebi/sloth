@@ -17,7 +17,7 @@ class TestImports(unittest.TestCase):
     def test_main_converter_imports(self):
         """Test that main converter classes can be imported."""
         try:
-            from sloth.pdbml_converter import PDBMLConverter, XMLMappingGenerator, DictionaryParser
+            from sloth.serializers import PDBMLConverter, XMLMappingGenerator, DictionaryParser
         except ImportError as e:
             self.fail(f"Failed to import main converter classes: {e}")
     
@@ -49,7 +49,7 @@ class TestImports(unittest.TestCase):
     
     def test_basic_instantiation(self):
         """Test that basic classes can be instantiated."""
-        from sloth.pdbml_converter import PDBMLConverter, XMLMappingGenerator, DictionaryParser
+        from sloth.serializers import PDBMLConverter, XMLMappingGenerator, DictionaryParser
         from sloth.parser import MMCIFParser
         
         # Test instantiation without parameters
@@ -67,7 +67,7 @@ class TestImports(unittest.TestCase):
     
     def test_converter_with_parameters(self):
         """Test that converter can be instantiated with optional parameters."""
-        from sloth.pdbml_converter import PDBMLConverter
+        from sloth.serializers import PDBMLConverter
         
         # Test with cache directory
         converter = PDBMLConverter(cache_dir="/tmp/test_cache")
@@ -84,13 +84,13 @@ class TestImports(unittest.TestCase):
     def test_pipeline_imports(self):
         """Test that pipeline classes can be imported."""
         try:
-            from sloth.pdbml_converter import MMCIFToPDBMLPipeline, RelationshipResolver
+            from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver
         except ImportError as e:
             self.fail(f"Failed to import pipeline classes: {e}")
     
     def test_pipeline_instantiation(self):
         """Test that pipeline classes can be instantiated."""
-        from sloth.pdbml_converter import MMCIFToPDBMLPipeline, RelationshipResolver
+        from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver
         
         pipeline = MMCIFToPDBMLPipeline()
         self.assertIsNotNone(pipeline)
@@ -123,7 +123,7 @@ class TestImports(unittest.TestCase):
     
     def test_converter_lazy_loading(self):
         """Test that converter components are properly lazy-loaded."""
-        from sloth.pdbml_converter import PDBMLConverter
+        from sloth.serializers import PDBMLConverter
         
         # Create converter in quiet mode
         converter = PDBMLConverter(quiet=True)
@@ -140,7 +140,7 @@ class TestImports(unittest.TestCase):
     
     def test_mapping_generator_lazy_loading(self):
         """Test that XML mapping generator properly lazy-loads components."""
-        from sloth.pdbml_converter import XMLMappingGenerator
+        from sloth.serializers import XMLMappingGenerator
         
         # Create mapping generator in quiet mode
         mapping_gen = XMLMappingGenerator(quiet=True)
@@ -157,7 +157,7 @@ class TestImports(unittest.TestCase):
     
     def test_error_handling(self):
         """Test that error conditions are handled gracefully."""
-        from sloth.pdbml_converter import PDBMLConverter, XMLMappingGenerator
+        from sloth.serializers import PDBMLConverter, XMLMappingGenerator
         
         # Test with non-existent dictionary file (should not crash)
         converter = PDBMLConverter(
@@ -200,7 +200,7 @@ class TestModuleStructure(unittest.TestCase):
         """Test that submodules are accessible."""
         try:
             import sloth.parser
-            import sloth.pdbml_converter
+            import sloth.serializers
             import sloth.validators
             import sloth.models
         except ImportError as e:

@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 
 from sloth.parser import MMCIFParser
-from sloth.pdbml_converter import PDBMLConverter, XMLMappingGenerator
+from sloth.serializers import PDBMLConverter, XMLMappingGenerator
 from sloth import MMCIFHandler
 
 
@@ -185,7 +185,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_dictionary_parser_instantiation(self):
         """Test DictionaryParser instantiation and basic functionality."""
-        from sloth.pdbml_converter import DictionaryParser
+        from sloth.serializers import DictionaryParser
         
         parser = DictionaryParser()
         self.assertIsNotNone(parser)

@@ -73,7 +73,7 @@ from .validators import (
     SchemaValidatorFactory,
     default_mmcif_json_schema,
 )
-from .pdbml_converter import (
+from .serializers import (
     PDBMLConverter,
     XMLMappingGenerator,
     DictionaryParser,
