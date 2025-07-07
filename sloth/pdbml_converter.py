@@ -22,7 +22,7 @@ from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
 from .schemas import XMLSchemaValidator
 from .pdbml_enums import (
-    XMLLocation, get_numeric_fields, is_null_value
+    XMLLocation, get_numeric_fields, is_null_value, StandardRelationship
 )
 
 
@@ -1182,28 +1182,55 @@ class XMLMappingGenerator:
     def _extract_relationship_info(self, save_name: str, block_text: str):
         """Extract parent-child relationships"""
         # Extract parent-child relationships from loops
-        if 'loop_' in block_text and '_item_linked.parent_name' in block_text:
-            # Parse loop structure
-            parent_pattern = r'_item_linked\.parent_name\s*\n((?:\s*[^\n]+\n)*)'
-            child_pattern = r'_item_linked\.child_name\s*\n((?:\s*[^\n]+\n)*)'
+        if 'loop_' in block_text and '_pdbx_item_linked_group_list' in block_text:
+            # Parse the PDBX relationship format
+            lines = block_text.split('\n')
+            in_loop = False
+            header_found = False
+            col_indices = {}
             
-            parent_match = re.search(parent_pattern, block_text)
-            child_match = re.search(child_pattern, block_text)
-            
-            if parent_match and child_match:
-                parent_lines = parent_match.group(1).strip().split('\n')
-                child_lines = child_match.group(1).strip().split('\n')
+            for line in lines:
+                line = line.strip()
                 
-                for parent_line, child_line in zip(parent_lines, child_lines):
-                    parent_name = parent_line.strip().strip('\'"')
-                    child_name = child_line.strip().strip('\'"')
+                if line.startswith('loop_'):
+                    in_loop = True
+                    continue
                     
-                    if parent_name and child_name:
-                        self._relationships.append({
-                            'parent_name': parent_name,
-                            'child_name': child_name,
-                            'save_name': save_name
-                        })
+                if in_loop and line.startswith('_pdbx_item_linked_group_list.'):
+                    # Map column headers to indices
+                    field_name = line.split('.')[-1]
+                    col_indices[field_name] = len(col_indices)
+                    header_found = True
+                    continue
+                    
+                if in_loop and header_found and line and not line.startswith('_') and not line.startswith('#'):
+                    # This is a data row
+                    columns = line.split()
+                    if len(columns) >= len(col_indices):
+                        try:
+                            # Extract relationship data
+                            child_cat_idx = col_indices.get('child_category_id', -1)
+                            parent_name_idx = col_indices.get('parent_name', -1)
+                            child_name_idx = col_indices.get('child_name', -1)
+                            
+                            if child_cat_idx >= 0 and parent_name_idx >= 0 and child_name_idx >= 0:
+                                child_category = columns[child_cat_idx].strip('\'"')
+                                parent_name = columns[parent_name_idx].strip('\'"')
+                                child_name = columns[child_name_idx].strip('\'"')
+                                
+                                if child_category and parent_name and child_name:
+                                    self._relationships.append({
+                                        'parent_name': parent_name,
+                                        'child_name': child_name,
+                                        'child_category': child_category,
+                                        'save_name': save_name
+                                    })
+                        except IndexError:
+                            continue
+                            
+                if line.startswith('#') or (in_loop and line.startswith('_') and 'pdbx_item_linked_group_list' not in line):
+                    # End of this loop
+                    break
                         
     def _parse_xsd_schema(self):
         """Parse XSD schema to extract element/attribute requirements"""
@@ -2395,88 +2422,56 @@ class RelationshipResolver:
         return nested
     
     def _identify_relationships(self, categories: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
-        """Identify parent-child relationships in the data."""
+        """Identify parent-child relationships using ONLY schema-driven sources."""
         relationships = {
             'parents': {},  # child_category -> parent_category
             'children': {},  # parent_category -> [child_categories]
             'links': {}     # child_category -> parent_key_field
         }
         
-        # Enhanced mmCIF relationship patterns based on standard _item_linked definitions
-        mmcif_relationships = {
-            # Core structural relationships
-            'entity_poly': ('entity', 'entity_id'),
-            'entity_poly_seq': ('entity_poly', 'entity_id'),  # Note: this links to entity via entity_id
-            'struct_asym': ('entity', 'entity_id'),
-            'atom_site': ('struct_asym', 'label_asym_id'),  # Primary link to struct_asym
-            
-            # Additional relationships for atom_site (multi-parent)
-            'atom_site_entity': ('entity', 'label_entity_id'),
-            'atom_site_seq': ('entity_poly_seq', 'label_seq_id'),
-            
-            # Citation relationships
-            'citation_author': ('citation', 'citation_id'),
-            'citation_editor': ('citation', 'citation_id'),
-            
-            # Chemical component relationships
-            'chem_comp_atom': ('chem_comp', 'comp_id'),
-            'chem_comp_bond': ('chem_comp', 'comp_id'),
-            'chem_comp_angle': ('chem_comp', 'comp_id'),
-            
-            # Database relationships
-            'database_2': ('entry', 'entry_id'),
-            'pdbx_database_status': ('entry', 'entry_id'),
-        }
-        
-        # Use dictionary relationships if available
+        # Method 1: Use dictionary relationships (primary source - schema-driven)
         if self.dictionary:
             for child_category in categories:
                 parents = self.dictionary.get_parent_relationships(child_category)
                 for parent_info in parents:
                     parent_cat = parent_info['parent_name'].split('.')[0].lstrip('_')
-
                     parent_key = parent_info['parent_name'].split('.')[-1]
                     
                     if parent_cat in categories:  # Only if parent category exists in data
-                        relationships['parents'][child_category] = parent_cat
-                        if parent_cat not in relationships['children']:
-                            relationships['children'][parent_cat] = []
-                        relationships['children'][parent_cat].append(child_category)
-                        relationships['links'][child_category] = parent_key
+                        self._add_relationship(relationships, child_category, parent_cat, parent_key)
         
-        # Fallback to mmCIF pattern analysis
-        for child_category, (parent_category, link_field) in mmcif_relationships.items():
-            # Check if both categories exist in our data
-            if child_category in categories and parent_category in categories:
-                # Verify the link field exists in child data
-                child_items = categories[child_category]
-                if child_items and any(link_field in item for item in child_items):
-                    relationships['parents'][child_category] = parent_category
-                    if parent_category not in relationships['children']:
-                        relationships['children'][parent_category] = []
-                    if child_category not in relationships['children'][parent_category]:
-                        relationships['children'][parent_category].append(child_category)
-                    relationships['links'][child_category] = link_field
+        # Method 2: Use standard mmCIF patterns ONLY as last resort when dictionary fails
+        # This should be rare if dictionary is properly parsed
+        if not relationships['parents']:  # Only if no dictionary relationships found
+            standard_relationships = StandardRelationship.get_relationships_dict()
+            
+            for child_category, parent_info_list in standard_relationships.items():
+                if child_category in categories:
+                    child_items = categories[child_category]
+                    
+                    # Try each possible parent relationship for this child
+                    for parent_category, link_field in parent_info_list:
+                        if (child_category not in relationships['parents'] and 
+                            parent_category in categories):
+                            
+                            # Verify the link field exists in child data
+                            if child_items and any(link_field in item for item in child_items):
+                                self._add_relationship(relationships, child_category, parent_category, link_field)
+                                break  # Use the first matching relationship
         
-        # Special handling for multi-level nesting (entity_poly_seq should nest under entity_poly)
-        if 'entity_poly_seq' in categories and 'entity_poly' in categories:
-            # entity_poly_seq should be nested under entity_poly, not directly under entity
-            if 'entity_poly_seq' in relationships['parents']:
-                # Change the parent from entity to entity_poly for proper nesting
-                relationships['parents']['entity_poly_seq'] = 'entity_poly'
-                relationships['links']['entity_poly_seq'] = 'entity_id'
-                
-                # Update children mapping
-                if 'entity' in relationships['children']:
-                    if 'entity_poly_seq' in relationships['children']['entity']:
-                        relationships['children']['entity'].remove('entity_poly_seq')
-                        
-                if 'entity_poly' not in relationships['children']:
-                    relationships['children']['entity_poly'] = []
-                if 'entity_poly_seq' not in relationships['children']['entity_poly']:
-                    relationships['children']['entity_poly'].append('entity_poly_seq')
+        # NO hardcoded corrections - all relationships should come from schema/dictionary
+        # If the dictionary/schema defines the relationships correctly, no manual corrections needed
         
         return relationships
+    
+    def _add_relationship(self, relationships: dict, child: str, parent: str, link_field: str):
+        """Helper to add a relationship while maintaining consistency."""
+        relationships['parents'][child] = parent
+        if parent not in relationships['children']:
+            relationships['children'][parent] = []
+        if child not in relationships['children'][parent]:
+            relationships['children'][parent].append(child)
+        relationships['links'][child] = link_field
     
     def _nest_category_items(
         self, 
