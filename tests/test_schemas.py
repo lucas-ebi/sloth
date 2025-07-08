@@ -279,7 +279,7 @@ block1:
         self.assertTrue(
             any(
                 phrase in str(context.exception)
-                for phrase in ["is too short", "is not valid", "empty array"]
+                for phrase in ["is too short", "is not valid", "empty array", "should be non-empty"]
             ),
             f"Error message '{str(context.exception)}' should indicate invalid data",
         )
