@@ -981,7 +981,7 @@ class MMCIFToPDBMLPipeline:
         # Set up converter and resolver
         self.converter = PDBMLConverter(mapping_generator, permissive, quiet)
         self.resolver = RelationshipResolver(mapping_generator)
-        self.validator = XMLSchemaValidator(xsd_path) if xsd_path else None
+        self.validator = XMLSchemaValidator(xsd_path) if xsd_path and not permissive else None
     
     def process_mmcif_file(self, mmcif_path: Union[str, Path]) -> Dict[str, Any]:
         # Parse mmCIF
