@@ -234,33 +234,78 @@ class DictionaryParser(MetadataParser):
                             loop_data.append(row_data)
                         i += 1
                     
-                    # Process loop data
-                    for row in loop_data:
-                        if len(row) >= len(loop_headers):
-                            for j, header in enumerate(loop_headers):
-                                key = header.strip('_')
-                                if key not in frame_data:  # First occurrence wins
-                                    frame_data[key] = row[j].strip('"\'')
+                    # Process loop data - handle multiple rows properly
+                    if loop_data:
+                        # For loops, we need to handle multiple items being defined
+                        # Each row in the loop defines a separate item/entity
+                        loop_items = []
+                        for row in loop_data:
+                            if len(row) >= len(loop_headers):
+                                row_data = {}
+                                for j, header in enumerate(loop_headers):
+                                    key = header.strip('_')
+                                    row_data[key] = row[j].strip('"\'')
+                                loop_items.append(row_data)
+                        
+                        # Store loop data for later processing
+                        frame_data['_loop_data'] = {
+                            'headers': [h.strip('_') for h in loop_headers],
+                            'items': loop_items
+                        }
+                        
+                        # Also set first item's data as direct attributes for compatibility
+                        if loop_items:
+                            first_item = loop_items[0]
+                            for key, value in first_item.items():
+                                if key not in frame_data:
+                                    frame_data[key] = value
                     continue
                 
                 # Skip unrecognized lines
                 i += 1
             
-            # Classify frame by type
-            if 'category.id' in frame_data:
-                categories[frame_data['category.id']] = frame_data
-            elif 'item.name' in frame_data:
-                item_name = frame_data['item.name'].strip('"\'')
-                items[item_name] = frame_data
+            # Process loop data first if present
+            if '_loop_data' in frame_data:
+                loop_info = frame_data['_loop_data']
+                headers = loop_info['headers']
                 
-                # Check for enumerations
-                if 'item_enumeration.value' in frame_data:
-                    values = frame_data['item_enumeration.value']
-                    if isinstance(values, str):
-                        values = [values]
-                    enumerations[item_name] = values
-            elif 'item_linked.child_name' in frame_data and 'item_linked.parent_name' in frame_data:
-                relationships.append(frame_data)
+                # Process each item in the loop
+                for loop_item in loop_info['items']:
+                    # Create a combined data structure for each loop item
+                    combined_data = {**frame_data}  # Start with frame data
+                    combined_data.update(loop_item)  # Add loop item data
+                    
+                    # Classify each loop item
+                    if 'category.id' in combined_data:
+                        categories[combined_data['category.id']] = combined_data
+                    elif 'item.name' in combined_data:
+                        item_name = combined_data['item.name'].strip('"\'')
+                        items[item_name] = combined_data
+                        
+                        # Check for enumerations in loop items
+                        if 'item_enumeration.value' in combined_data:
+                            values = combined_data['item_enumeration.value']
+                            if isinstance(values, str):
+                                values = [values]
+                            enumerations[item_name] = values
+                    elif 'item_linked.child_name' in combined_data and 'item_linked.parent_name' in combined_data:
+                        relationships.append(combined_data)
+            else:
+                # Classify frame by type (non-loop items)
+                if 'category.id' in frame_data:
+                    categories[frame_data['category.id']] = frame_data
+                elif 'item.name' in frame_data:
+                    item_name = frame_data['item.name'].strip('"\'')
+                    items[item_name] = frame_data
+                    
+                    # Check for enumerations
+                    if 'item_enumeration.value' in frame_data:
+                        values = frame_data['item_enumeration.value']
+                        if isinstance(values, str):
+                            values = [values]
+                        enumerations[item_name] = values
+                elif 'item_linked.child_name' in frame_data and 'item_linked.parent_name' in frame_data:
+                    relationships.append(frame_data)
         
         # Also parse any tabular data from the main parser
         try:
