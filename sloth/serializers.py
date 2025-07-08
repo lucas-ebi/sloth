@@ -105,6 +105,17 @@ class HybridCache(CacheManager):
         self.memory_cache.set(key, value)
         self.disk_cache.set(key, value)
 
+class NoCache(CacheManager):
+    """Disabled cache for debugging - always returns None and ignores sets"""
+    def __init__(self, cache_dir: str = None):
+        pass
+    
+    def get(self, key: str) -> Optional[Any]:
+        return None
+    
+    def set(self, key: str, value: Any) -> None:
+        pass
+
 # ====================== Metadata Parsers ======================
 class MetadataParser(ABC):
     """Base class for metadata parsers"""
@@ -840,13 +851,19 @@ class MMCIFToPDBMLPipeline:
     def __init__(
         self,
         dict_path: Optional[Union[str, Path]] = None,
-        xsd_path: Optional[Union[str, Path]] = None,
+        xsd_path: Optional[Union[str, Path]] = "default",  # Use "default" as sentinel to allow None
         cache_dir: Optional[str] = None,
         permissive: bool = False,
         quiet: bool = False
     ):
-        # Set up caching
-        cache = HybridCache(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
+        # Set default schema paths if not provided
+        if dict_path is None:
+            dict_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
+        if xsd_path == "default":
+            xsd_path = Path(__file__).parent / "schemas" / "pdbx-v50.xsd"
+            
+        # Set up caching (temporarily disabled for debugging)
+        cache = NoCache(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
         
         # Set up metadata parsers
         dict_parser = DictionaryParser(cache, quiet)
