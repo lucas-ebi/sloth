@@ -579,7 +579,8 @@ class PDBMLConverter:
         block = next(iter(mmcif_container))
         
         # Generate XML manually to avoid namespace prefix issues
-        xml_lines = ['<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" datablockName="{}">'.format(block.name)]
+        xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+        xml_lines.append('<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" datablockName="{}">'.format(block.name))
         
         for cat_name in block.data:
             # cat_name is already a string (category name), remove leading underscore

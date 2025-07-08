@@ -153,14 +153,14 @@ _citation.page_last           ?
     def test_permissive_parameter_accepted(self):
         """Test that the permissive parameter is correctly accepted by PDBMLConverter."""
         # Test that both permissive values are accepted
-        converter_false = PDBMLConverter(permissive=False)
-        converter_true = PDBMLConverter(permissive=True)
+        converter_false = self._create_converter(permissive=False)
+        converter_true = self._create_converter(permissive=True)
         
         self.assertEqual(converter_false.permissive, False)
         self.assertEqual(converter_true.permissive, True)
         
         # Test default value
-        converter_default = PDBMLConverter()
+        converter_default = self._create_converter()
         self.assertEqual(converter_default.permissive, False)
         
         print(f"✓ Permissive parameter correctly accepted and defaults to False")
