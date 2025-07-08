@@ -750,7 +750,7 @@ class MMCIFToPDBMLPipeline:
         pdbml_xml = self.converter.convert_to_pdbml(mmcif_container)
         
         # Validate
-        validation = self.validator.validate(pdbml_xml) if self.validator else {"is_valid": True, "errors": []}
+        validation = self.validator.validate(pdbml_xml) if self.validator else {"valid": True, "errors": []}
         
         # Resolve relationships
         nested_json = self.resolver.resolve_relationships(pdbml_xml)
