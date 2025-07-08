@@ -16,7 +16,10 @@ from pathlib import Path
 import shutil
 
 from sloth.parser import MMCIFParser
-from sloth.serializers import PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, DictionaryParser
+from sloth.serializers import (
+    PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, 
+    DictionaryParser, HybridCache, XSDParser, MappingGenerator
+)
 from sloth.validators import XMLSchemaValidator
 
 
@@ -72,23 +75,60 @@ _atom_site.B_iso_or_equiv 25.0
         """Clean up temporary files."""
         shutil.rmtree(self.temp_dir)
     
-    def _create_resolver_with_dictionary(self):
-        """Helper method to create RelationshipResolver with dictionary."""
-        dictionary = DictionaryParser()
+    def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
+        """Helper method to create a properly configured PDBMLConverter."""
+        from pathlib import Path
+        
+        # Set up caching
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        
+        # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        dictionary.parse_dictionary(dict_path)
-        return RelationshipResolver(dictionary)
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        
+        # Create converter
+        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+    
+    def _create_resolver(self) -> RelationshipResolver:
+        """Helper method to create RelationshipResolver with proper mapping generator."""
+        from pathlib import Path
+        
+        # Set up caching
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        
+        # Set up metadata parsers with default paths
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        
+        # Create resolver
+        return RelationshipResolver(mapping_generator)
     
     def test_relationship_identification(self):
         """Test that relationships are correctly identified from XML."""
         # Parse and convert to XML
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
         # Create resolver with dictionary and test relationship identification
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         
         # Parse XML to check relationships
         root = ET.fromstring(xml_content)
@@ -123,10 +163,10 @@ _atom_site.B_iso_or_equiv 25.0
         """Test that categories are correctly nested based on relationships."""
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Check the basic structure
@@ -157,10 +197,10 @@ _atom_site.B_iso_or_equiv 25.0
         """Test that the complete 4-level hierarchy is correctly constructed."""
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Navigate the 4-level hierarchy and verify each level
@@ -224,10 +264,10 @@ _atom_site.Cartn_x
         
         parser = MMCIFParser()
         container = parser.parse_file(multi_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Check that multiple atoms are properly handled
@@ -251,10 +291,10 @@ _atom_site.Cartn_x
         """Test that cross-references between categories are preserved."""
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         nested_json = resolver.resolve_relationships(xml_content)
         
         # Check that foreign key values are preserved
@@ -279,7 +319,7 @@ _atom_site.Cartn_x
     </entityCategory>
 </datablock>"""
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         
         # Should not crash, should return valid JSON
         try:
@@ -299,7 +339,7 @@ _atom_site.Cartn_x
     </atom_siteCategory>
 </datablock>"""
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         result = resolver.resolve_relationships(empty_xml)
         
         # Should return empty structure, not crash
@@ -363,10 +403,10 @@ _atom_site.Cartn_x
         
         parser = MMCIFParser()
         container = parser.parse_file(large_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
-        resolver = self._create_resolver_with_dictionary()
+        resolver = self._create_resolver()
         nested_json = resolver.resolve_relationships(xml_content)
         
         end_time = time.time()
@@ -426,12 +466,49 @@ _atom_site.Cartn_x    0.000
         """Clean up temporary files."""
         shutil.rmtree(self.temp_dir)
     
-    def _create_resolver_with_dictionary(self):
-        """Helper method to create RelationshipResolver with dictionary."""
-        dictionary = DictionaryParser()
+    def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
+        """Helper method to create a properly configured PDBMLConverter."""
+        from pathlib import Path
+        
+        # Set up caching
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        
+        # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        dictionary.parse_dictionary(dict_path)
-        return RelationshipResolver(dictionary)
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        
+        # Create converter
+        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+    
+    def _create_resolver(self) -> RelationshipResolver:
+        """Helper method to create RelationshipResolver with proper mapping generator."""
+        from pathlib import Path
+        
+        # Set up caching
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        
+        # Set up metadata parsers with default paths
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        
+        # Create resolver
+        return RelationshipResolver(mapping_generator)
     
     def test_end_to_end_pipeline(self):
         """Test the complete end-to-end pipeline."""
@@ -457,7 +534,7 @@ _atom_site.Cartn_x    0.000
             parser = MMCIFParser()
             container = parser.parse_file(self.test_file)
             
-            converter = PDBMLConverter()
+            converter = self._create_converter()
             xml_content = converter.convert_to_pdbml(container)
             
             resolver = self._create_resolver_with_dictionary()
@@ -467,8 +544,3 @@ _atom_site.Cartn_x    0.000
             self.assertIn('entity', nested_json)
             entity_1 = nested_json['entity']['1']
             self.assertEqual(entity_1['pdbx_description'], 'Pipeline test protein')
-
-
-if __name__ == '__main__':
-    # Run tests with detailed output
-    unittest.main(verbosity=2)
