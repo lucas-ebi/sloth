@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sloth.parser import MMCIFParser
 from sloth.serializers import (
-    PDBMLConverter, MappingGenerator, HybridCache, 
+    PDBMLConverter, MappingGenerator, NoCache, 
     DictionaryParser, XSDParser
 )
 from sloth import MMCIFHandler
@@ -54,7 +54,7 @@ _atom_site.Cartn_z    3.0
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -156,7 +156,7 @@ class TestComponentFixes(unittest.TestCase):
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -208,8 +208,8 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_xml_mapping_generator_properties(self):
         """Test MappingGenerator properties."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser
-        cache = HybridCache("/tmp/test_cache")
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser
+        cache = NoCache("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)
         xsd_parser = XSDParser(cache)
         mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
@@ -224,7 +224,7 @@ class TestComponentFixes(unittest.TestCase):
         
         try:
             # Set up caching manually
-            cache = HybridCache(cache_dir)
+            cache = NoCache(cache_dir)
             
             # Set up metadata parsers with default paths
             from pathlib import Path
@@ -254,7 +254,7 @@ class TestComponentFixes(unittest.TestCase):
         from sloth.serializers import DictionaryParser
         
         # Create with cache
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         parser = DictionaryParser(cache, quiet=True)
         self.assertIsNotNone(parser)
         
@@ -285,7 +285,7 @@ class TestErrorHandling(unittest.TestCase):
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"

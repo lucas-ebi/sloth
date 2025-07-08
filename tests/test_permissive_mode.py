@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from sloth import MMCIFHandler, PDBMLConverter, XMLSchemaValidator
 from sloth.serializers import (
-    HybridCache, DictionaryParser, XSDParser, MappingGenerator
+    NoCache, DictionaryParser, XSDParser, MappingGenerator
 )
 from sloth.serializers import MMCIFToPDBMLPipeline
 
@@ -84,7 +84,7 @@ _citation.page_last           ?
     def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
         """Helper method to create a properly configured PDBMLConverter."""
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers
         dict_parser = DictionaryParser(cache, quiet=True)

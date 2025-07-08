@@ -29,7 +29,7 @@ from sloth import (
     XMLSchemaValidator,
     DictionaryParser
 )
-from sloth.serializers import HybridCache, XSDParser, MappingGenerator
+from sloth.serializers import NoCache, XSDParser, MappingGenerator
 from sloth.models import MMCIFDataContainer, DataBlock, Category
 from sloth.validators import ValidationError
 
@@ -161,8 +161,8 @@ TEST_STRUCTURE RCSB RCSB
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
         xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
         
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         dict_parser.source = dict_path
@@ -444,8 +444,8 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
         
         self.handler = MMCIFHandler(validator_factory=None)
         # Set up converter and resolver with new API
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
@@ -466,8 +466,8 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -625,7 +625,7 @@ class TestDictionaryBasedValidation(unittest.TestCase):
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -788,9 +788,9 @@ _atom_site.pdbx_PDB_model_num 1
     
     def _create_converter(self, permissive=False, quiet=True):
         """Helper method to create PDBMLConverter with the new API."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
         import tempfile
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, quiet)
         xsd_parser = XSDParser(cache, quiet)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -802,8 +802,8 @@ _atom_site.pdbx_PDB_model_num 1
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -1408,9 +1408,9 @@ _entity.pdbx_description 'Test entity'
     
     def _create_converter(self, permissive=False, quiet=True):
         """Helper method to create PDBMLConverter with the new API."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
         import tempfile
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, quiet)
         xsd_parser = XSDParser(cache, quiet)
         dict_parser.source = self.dict_path
@@ -1697,8 +1697,8 @@ ATOM   1    BADTYPE BADATOM BADCOMP 0.0 0.0 0.0
     
     def _create_converter(self, permissive=False, quiet=True):
         """Helper method to create PDBMLConverter with the new API."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import NoCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, quiet)
         xsd_parser = XSDParser(cache, quiet)
         dict_parser.source = self.dict_path

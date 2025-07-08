@@ -18,7 +18,7 @@ import shutil
 from sloth.parser import MMCIFParser
 from sloth.serializers import (
     PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, 
-    DictionaryParser, HybridCache, XSDParser, MappingGenerator
+    DictionaryParser, NoCache, XSDParser, MappingGenerator
 )
 from sloth.validators import XMLSchemaValidator
 
@@ -80,7 +80,7 @@ _atom_site.B_iso_or_equiv 25.0
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -102,7 +102,7 @@ _atom_site.B_iso_or_equiv 25.0
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -471,7 +471,7 @@ _atom_site.Cartn_x    0.000
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -493,7 +493,7 @@ _atom_site.Cartn_x    0.000
         from pathlib import Path
         
         # Set up caching
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
