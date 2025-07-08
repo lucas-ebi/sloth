@@ -2772,7 +2772,7 @@ class MMCIFToPDBMLPipeline:
             self.dictionary.parse_dictionary(self.dictionary_path)
         
         self.converter = PDBMLConverter(self.dictionary_path if self.dictionary_path.exists() else None, permissive=permissive)
-        self.plugins = XMLSchemaValidator(str(self.schema_path)) if self.schema_path.exists() else None
+        self.validator = XMLSchemaValidator(str(self.schema_path)) if self.schema_path.exists() else None
         self.resolver = RelationshipResolver(self.dictionary if self.dictionary_path.exists() else None)
     
     def process_mmcif_file(self, mmcif_path: Union[str, Path]) -> Dict[str, Any]:
@@ -2787,9 +2787,9 @@ class MMCIFToPDBMLPipeline:
             
             # Step 3: Validate XML against schema
             validation_results = {"is_valid": True, "errors": []}
-            if self.plugins:
+            if self.validator:
                 try:
-                    validation_result = self.plugins.validate(pdbml_xml)
+                    validation_result = self.validator.validate(pdbml_xml)
                     is_valid = validation_result["valid"]
                     errors = validation_result.get("errors", [])
                     validation_results = {"is_valid": is_valid, "errors": errors}

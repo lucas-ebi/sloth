@@ -154,7 +154,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
         }
 
         # Create JSON validator
-        self.plugins = JSONSchemaValidator(self.schema)
+        self.validator = JSONSchemaValidator(self.schema)
 
     def tearDown(self):
         """Clean up test fixtures."""
@@ -162,20 +162,20 @@ class TestJSONSchemaValidation(unittest.TestCase):
 
     def test_valid_json_data(self):
         """Test that valid JSON data passes validation."""
-        is_valid = self.plugins.is_valid(self.valid_data)
+        is_valid = self.validator.is_valid(self.valid_data)
         self.assertTrue(is_valid, "Valid data should pass is_valid check")
 
-        result = self.plugins.validate(self.valid_data)
+        result = self.validator.validate(self.valid_data)
         self.assertTrue(result["valid"], "Valid data should pass validate()")
         self.assertEqual(result["errors"], [], "Valid data should have no errors")
 
     def test_invalid_json_data(self):
         """Test that invalid JSON data fails validation."""
-        is_valid = self.plugins.is_valid(self.invalid_data)
+        is_valid = self.validator.is_valid(self.invalid_data)
         self.assertFalse(is_valid, "Invalid data should fail is_valid check")
 
         with self.assertRaises(ValidationError) as context:
-            self.plugins.validate(self.invalid_data)
+            self.validator.validate(self.invalid_data)
 
         self.assertIn(
             "is not valid",
@@ -186,11 +186,11 @@ class TestJSONSchemaValidation(unittest.TestCase):
     def test_empty_data(self):
         """Test validation with empty data."""
         empty_data = {}
-        is_valid = self.plugins.is_valid(empty_data)
+        is_valid = self.validator.is_valid(empty_data)
         self.assertFalse(is_valid, "Empty data should fail is_valid check")
 
         with self.assertRaises(ValidationError) as context:
-            self.plugins.validate(empty_data)
+            self.validator.validate(empty_data)
         self.assertIn("Data cannot be empty", str(context.exception))
 
     def test_data_with_empty_array(self):
@@ -199,11 +199,11 @@ class TestJSONSchemaValidation(unittest.TestCase):
             "block1": {"_category1": []}  # Empty array, should fail validation
         }
 
-        is_valid = self.plugins.is_valid(data_with_empty_array)
+        is_valid = self.validator.is_valid(data_with_empty_array)
         self.assertFalse(is_valid, "Data with empty array should fail is_valid check")
 
         with self.assertRaises(ValidationError) as context:
-            self.plugins.validate(data_with_empty_array)
+            self.validator.validate(data_with_empty_array)
         self.assertIn("is not valid", str(context.exception))
 
     def test_integration_with_mmcif_handler(self):
@@ -224,7 +224,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
         # Test with valid data
         handler = MMCIFHandler()
         valid_container = handler.import_from_json(
-            valid_json_path, schema_validator=self.plugins
+            valid_json_path, schema_validator=self.validator
         )
         self.assertIsNotNone(
             valid_container, "Valid data should be imported successfully"
@@ -232,7 +232,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
 
         # Test with invalid data
         with self.assertRaises(ValidationError) as context:
-            handler.import_from_json(invalid_json_path, schema_validator=self.plugins)
+            handler.import_from_json(invalid_json_path, schema_validator=self.validator)
 
         self.assertIn(
             "is not valid",
@@ -262,18 +262,18 @@ block1:
     _category1: []  # Empty category, should fail validation
 """
         # Create YAML validator
-        self.plugins = SchemaValidatorFactory.create_validator(DataSourceFormat.YAML)
+        self.validator = SchemaValidatorFactory.create_validator(DataSourceFormat.YAML)
 
     def test_valid_yaml_data(self):
         """Test that valid YAML data passes validation."""
-        result = self.plugins.validate(self.valid_yaml)
+        result = self.validator.validate(self.valid_yaml)
         self.assertTrue(result["valid"])
         self.assertEqual(result["errors"], [])
 
     def test_invalid_yaml_data(self):
         """Test that invalid YAML data fails validation."""
         with self.assertRaises(ValidationError) as context:
-            self.plugins.validate(self.invalid_yaml)
+            self.validator.validate(self.invalid_yaml)
         # The exact error message may vary depending on the validation library
         # but should indicate that the empty array is invalid
         self.assertTrue(
@@ -287,7 +287,7 @@ block1:
     def test_empty_yaml(self):
         """Test validation with empty YAML."""
         with self.assertRaises(ValidationError):
-            self.plugins.validate("")
+            self.validator.validate("")
 
     def test_integration_with_mmcif_handler(self):
         """Test YAML validation integration with MMCIFHandler."""
@@ -299,7 +299,7 @@ block1:
 
             handler = MMCIFHandler()
             valid_container = handler.import_from_yaml(
-                f.name, schema_validator=self.plugins
+                f.name, schema_validator=self.validator
             )
             self.assertIsNotNone(valid_container)
 
