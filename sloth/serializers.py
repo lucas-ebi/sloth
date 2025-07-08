@@ -475,6 +475,13 @@ class XSDParser(MetadataParser):
                 continue
             fields = []
             
+            # Look for attributes first (these are important for XML structure)
+            for attr in ctype.findall('.//xs:attribute', ns):
+                attr_name = attr.get('name')
+                attr_type = attr.get('type', 'xs:string')
+                if attr_name:
+                    fields.append((attr_name, attr_type))
+            
             # Look for sequence elements
             sequence = ctype.find('.//xs:sequence', ns)
             if sequence is not None:
@@ -587,9 +594,13 @@ class MappingGenerator:
                     field_name = item_name[len(f"_{cat_name}."):]
                     cat_items.append(field_name)
             
-            # Combine XSD fields and dictionary items
-            all_fields = set(cat_items)
+            # Combine XSD fields and dictionary items - prioritize XSD fields
+            all_fields = set()
+            # First add all XSD fields (these are authoritative for XML structure)
             for field_name, field_type in xsd_fields:
+                all_fields.add(field_name)
+            # Then add dictionary items
+            for field_name in cat_items:
                 all_fields.add(field_name)
             
             category_mapping[cat_name] = {
