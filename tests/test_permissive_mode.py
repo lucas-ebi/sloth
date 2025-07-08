@@ -14,6 +14,9 @@ import tempfile
 import os
 from pathlib import Path
 from sloth import MMCIFHandler, PDBMLConverter, XMLSchemaValidator
+from sloth.serializers import (
+    HybridCache, DictionaryParser, XSDParser, MappingGenerator
+)
 from sloth.serializers import MMCIFToPDBMLPipeline
 
 
@@ -78,6 +81,23 @@ _citation.page_last           ?
             import shutil
             shutil.rmtree(self.temp_dir)
     
+    def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
+        """Helper method to create a properly configured PDBMLConverter."""
+        # Set up caching
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        
+        # Set up metadata parsers
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = self.dict_path
+        xsd_parser.source = self.schema_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        
+        # Create converter
+        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+    
     def test_permissive_false_default_behavior(self):
         """Test that permissive=False (default) lets validation fail transparently."""
         # Parse mmCIF data
@@ -85,7 +105,7 @@ _citation.page_last           ?
         container = handler.parse(self.test_file)
         
         # Test with permissive=False (default)
-        converter = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
+        converter = self._create_converter(permissive=False)
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify XML was generated
@@ -111,7 +131,7 @@ _citation.page_last           ?
         container = handler.parse(self.test_file)
         
         # Test with permissive=True
-        converter = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter = self._create_converter(permissive=True)
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify XML was generated
@@ -183,8 +203,8 @@ _citation.page_last           ?
         container = handler.parse(self.test_file)
         
         # Test both modes
-        converter_strict = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
-        converter_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter_strict = self._create_converter(permissive=False)
+        converter_permissive = self._create_converter(permissive=True)
         
         xml_strict = converter_strict.convert_to_pdbml(container)
         xml_permissive = converter_permissive.convert_to_pdbml(container)
@@ -215,7 +235,7 @@ _citation.page_last           ?
         handler = MMCIFHandler(validator_factory=None)
         container = handler.parse(self.test_file)
         
-        converter = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter = self._create_converter(permissive=True)
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify source data is preserved
@@ -242,8 +262,8 @@ _citation.page_last           ?
             container = handler.parse(self.test_file)
             
             # Generate XML in both modes
-            converter_strict = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
-            converter_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+            converter_strict = self._create_converter(permissive=False)
+            converter_permissive = self._create_converter(permissive=True)
             
             xml_strict = converter_strict.convert_to_pdbml(container)
             xml_permissive = converter_permissive.convert_to_pdbml(container)
@@ -282,8 +302,8 @@ _citation.page_last           ?
         container = handler.parse(self.test_file)
         
         # Test both modes
-        converter_strict = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
-        converter_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter_strict = self._create_converter(permissive=False)
+        converter_permissive = self._create_converter(permissive=True)
         
         xml_strict = converter_strict.convert_to_pdbml(container)
         xml_permissive = converter_permissive.convert_to_pdbml(container)
@@ -307,7 +327,7 @@ _citation.page_last           ?
         self.assertIn('20.154', xml_permissive)    # From source
         
         # Goal 4: Permissive=False is default
-        converter_default = PDBMLConverter(dictionary_path=self.dict_path)
+        converter_default = self._create_converter()
         self.assertEqual(converter_default.permissive, False)
         
         print(f"✓ All refactoring goals achieved:")
