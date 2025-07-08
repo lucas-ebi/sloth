@@ -16,6 +16,7 @@ import threading
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple
+from xml.etree import ElementTree
 from xml.etree import ElementTree as ET
 from functools import lru_cache, wraps
 from abc import ABC, abstractmethod
@@ -389,12 +390,34 @@ class DictionaryParser(MetadataParser):
         # Extract primary key information
         primary_keys = {}
         for cat_name, cat_data in categories.items():
+            # Handle both single and composite keys
+            key_items = []
+            
+            # Check if we have a direct key field
             if 'category_key.name' in cat_data:
                 key_item = cat_data['category_key.name'].strip('"\'')
-                if key_item.startswith('_') and '.' in key_item:
-                    # Extract field name from "_category.field" format
-                    field_name = key_item.split('.')[-1]
-                    primary_keys[cat_name] = field_name
+                if key_item:
+                    key_items.append(key_item)
+            
+            # Check for composite keys in _loop_data
+            if '_loop_data' in cat_data:
+                loop_data = cat_data['_loop_data']
+                for item in loop_data['items']:
+                    if 'category_key.name' in item:
+                        key_item = item['category_key.name'].strip('"\'')
+                        if key_item and key_item not in key_items:
+                            key_items.append(key_item)
+            
+            # Process all found key items
+            if key_items:
+                fields = []
+                for key_item in key_items:
+                    if key_item.startswith('_') and '.' in key_item:
+                        # Extract field name from "_category.field" format
+                        field_name = key_item.split('.')[-1]
+                        fields.append(field_name)
+                if fields:
+                    primary_keys[cat_name] = fields[0] if len(fields) == 1 else fields
 
         result = {
             "categories": categories,
@@ -404,9 +427,15 @@ class DictionaryParser(MetadataParser):
             "item_types": item_types,
             "primary_keys": primary_keys
         }
-        self.cache.set(cache_key, result)
+        
+        # Debug output
         if not self.quiet:
             print(f"📚 Parsed {len(categories)} categories, {len(items)} items")
+            print(f"📝 Found {len(primary_keys)} primary keys:")
+            for cat, key in primary_keys.items():
+                print(f"  - {cat}: {key}")
+        
+        self.cache.set(cache_key, result)
         return result
 
 class XSDParser(MetadataParser):
@@ -653,6 +682,72 @@ class PDBMLConverter:
         self.quiet = quiet
         self.namespace = PDBMLNamespace.get_default_namespace()
         self._category_keys_cache = {}
+        # Get schema info once at init
+        self.xsd_meta = self.mapping_generator.xsd_parser.parse(
+            self.mapping_generator.xsd_parser.source
+        )
+
+    def _clean_value(self, value: Any) -> str:
+        """Clean and normalize values from mmCIF data."""
+        if value is None:
+            return ""
+        
+        str_value = str(value)
+        
+        # Remove surrounding quotes if they exist
+        if len(str_value) >= 2:
+            if (str_value.startswith('"') and str_value.endswith('"')) or \
+               (str_value.startswith("'") and str_value.endswith("'")):
+                str_value = str_value[1:-1]
+        
+        return str_value
+
+    def _is_attribute_field(self, cat_name: str, field_name: str) -> bool:
+        """Determine if a field should be an XML attribute based on schema and conventions"""
+        # Get mapping info
+        mapping = self.mapping_generator.get_mapping_rules()
+        
+        # Check if field is a primary key - primary keys are typically attributes
+        if cat_name in mapping["primary_keys"]:
+            pk = mapping["primary_keys"][cat_name]
+            if isinstance(pk, list):
+                if field_name in pk:
+                    return True
+            elif field_name == pk:
+                return True
+        
+        # Check complex type definition in schema
+        type_name = f"{cat_name}Type"
+        if type_name in self.xsd_meta['complex_types']:
+            try:
+                ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
+                root = ElementTree.parse(self.mapping_generator.xsd_parser.source).getroot()
+                
+                # Find complex type definition
+                for type_elem in root.findall(f".//xs:complexType[@name='{type_name}']", ns):
+                    # Check attributes
+                    for attr_elem in type_elem.findall(".//xs:attribute", ns):
+                        if attr_elem.get('name') == field_name:
+                            return True
+                    
+                    # If field is not found in attributes, check if it's explicitly defined as an element
+                    for elem_elem in type_elem.findall(".//xs:element", ns):
+                        if elem_elem.get('name') == field_name:
+                            return False
+                    
+                    # Also check if the field matches common attribute patterns
+                    attr_patterns = ['id', 'name', 'type', 'value', 'code']
+                    if field_name in attr_patterns or \
+                       field_name.endswith('_id') or \
+                       field_name.endswith('_no') or \
+                       field_name.endswith('_index'):
+                        return True
+            except Exception:
+                if not self.quiet:
+                    print(f"Warning: Error checking schema for {cat_name}.{field_name}")
+        
+        # Default to element if no attribute patterns match
+        return False
 
     def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
         """Convert mmCIF container to PDBML XML string"""
@@ -691,31 +786,27 @@ class PDBMLConverter:
                 mapped_fields = mapping["category_mapping"][cat_name_clean]["fields"]
                 item_mapping = mapping["item_mapping"][cat_name_clean]
                 
-                # Determine which fields should be attributes vs elements
-                # More accurate heuristic based on PDBML schema patterns:
-                # - Only core ID fields (id, entity_id) should be attributes
-                # - Most other fields should be elements
+                # Determine which fields should be attributes vs elements based on schema
                 attribute_fields = set()
                 element_fields = set()
                 
                 for field in mapped_fields:
-                    # Check if field exists in row data (including null values for elements)
+                    # Check if field exists in row data
                     value = row.data.get(field)
                     if value is not None:
-                        # Only core ID fields as attributes - be very selective
-                        if field == 'id':
+                        if self._is_attribute_field(cat_name_clean, field):
                             attribute_fields.add(field)
                         else:
-                            # Everything else as elements (including null values)
                             element_fields.add(field)
-                
+
                 # Build row element
                 row_attrs = []
                 for field in sorted(attribute_fields):
                     value = row.data.get(field)
                     if value is not None and str(value) not in ['', '.', '?']:
-                        # Escape XML attribute value
-                        escaped_value = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
+                        # Clean and escape XML attribute value
+                        clean_value = self._clean_value(value)
+                        escaped_value = clean_value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
                         row_attrs.append(f'{field}="{escaped_value}"')
                 
                 # Create row element
@@ -735,8 +826,9 @@ class PDBMLConverter:
                                 else:
                                     xml_lines.append(f'      <{field}></{field}>')
                             else:
-                                # Escape XML text content
-                                escaped_value = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                                # Clean and escape XML text content
+                                clean_value = self._clean_value(value)
+                                escaped_value = clean_value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                                 xml_lines.append(f'      <{field}>{escaped_value}</{field}>')
                     
                     xml_lines.append(f'    </{cat_name_clean}>')
@@ -888,7 +980,11 @@ class MMCIFToPDBMLPipeline:
         pdbml_xml = self.converter.convert_to_pdbml(mmcif_container)
         
         # Validate
-        validation = self.validator.validate(pdbml_xml) if self.validator else {"valid": True, "errors": []}
+        if self.validator:
+            is_valid, errors = self.validator.validate(pdbml_xml)
+            validation = {"valid": is_valid, "errors": errors}
+        else:
+            validation = {"valid": True, "errors": []}
         
         # Resolve relationships
         nested_json = self.resolver.resolve_relationships(pdbml_xml)
