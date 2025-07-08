@@ -297,7 +297,7 @@ class XMLSchemaValidator(SchemaValidator):
 
             # Validate
             self.schema.assertValid(xml_doc)
-            return {"valid": True, "errors": []}
+            return {"is_valid": True, "errors": []}
         except self._etree.XMLSyntaxError as e:
             raise ValidationError(f"XML syntax error: {str(e)}")
         except self._etree.DocumentInvalid as e:
