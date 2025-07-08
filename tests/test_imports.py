@@ -17,7 +17,7 @@ class TestImports(unittest.TestCase):
     def test_main_converter_imports(self):
         """Test that main converter classes can be imported."""
         try:
-            from sloth.serializers import PDBMLConverter, XMLMappingGenerator, DictionaryParser
+            from sloth.serializers import PDBMLConverter, MappingGenerator, DictionaryParser
         except ImportError as e:
             self.fail(f"Failed to import main converter classes: {e}")
     
@@ -49,17 +49,23 @@ class TestImports(unittest.TestCase):
     
     def test_basic_instantiation(self):
         """Test that basic classes can be instantiated."""
-        from sloth.serializers import PDBMLConverter, XMLMappingGenerator, DictionaryParser
+        from sloth.serializers import PDBMLConverter, MappingGenerator, DictionaryParser, XSDParser
         from sloth.parser import MMCIFParser
         
         # Test instantiation without parameters
-        converter = PDBMLConverter()
+        # PDBMLConverter now requires a MappingGenerator
+        from sloth.serializers import HybridCache
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache)
+        xsd_parser = XSDParser(cache)  
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
+        converter = PDBMLConverter(mapping_gen)
         self.assertIsNotNone(converter)
         
-        mapping_gen = XMLMappingGenerator()
+        # MappingGenerator requires cache and parsers
         self.assertIsNotNone(mapping_gen)
         
-        dict_parser = DictionaryParser()
+        dict_parser = DictionaryParser(cache)
         self.assertIsNotNone(dict_parser)
         
         parser = MMCIFParser()
@@ -67,18 +73,22 @@ class TestImports(unittest.TestCase):
     
     def test_converter_with_parameters(self):
         """Test that converter can be instantiated with optional parameters."""
-        from sloth.serializers import PDBMLConverter
+        from sloth.serializers import PDBMLConverter, HybridCache, DictionaryParser, XSDParser, MappingGenerator
         
         # Test with cache directory
-        converter = PDBMLConverter(cache_dir="/tmp/test_cache")
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache)
+        xsd_parser = XSDParser(cache)
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
+        converter = PDBMLConverter(mapping_gen)
         self.assertIsNotNone(converter)
         
-        # Test with dictionary path (even if file doesn't exist)
-        converter = PDBMLConverter(dictionary_path="/nonexistent/path.dic")
+        # Test with permissive mode
+        converter = PDBMLConverter(mapping_gen, permissive=True)
         self.assertIsNotNone(converter)
         
         # Test with quiet mode to suppress warnings
-        converter = PDBMLConverter(quiet=True)
+        converter = PDBMLConverter(mapping_gen, quiet=True)
         self.assertIsNotNone(converter)
     
     def test_pipeline_imports(self):
@@ -90,12 +100,17 @@ class TestImports(unittest.TestCase):
     
     def test_pipeline_instantiation(self):
         """Test that pipeline classes can be instantiated."""
-        from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver
+        from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver, HybridCache, DictionaryParser, XSDParser, MappingGenerator
         
         pipeline = MMCIFToPDBMLPipeline()
         self.assertIsNotNone(pipeline)
         
-        resolver = RelationshipResolver()
+        # RelationshipResolver requires a mapping generator
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache)
+        xsd_parser = XSDParser(cache)
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
+        resolver = RelationshipResolver(mapping_gen)
         self.assertIsNotNone(resolver)
     
     def test_enum_functionality(self):
@@ -123,64 +138,72 @@ class TestImports(unittest.TestCase):
     
     def test_converter_lazy_loading(self):
         """Test that converter components are properly lazy-loaded."""
-        from sloth.serializers import PDBMLConverter
+        from sloth.serializers import PDBMLConverter, HybridCache, DictionaryParser, XSDParser, MappingGenerator
         
-        # Create converter in quiet mode
-        converter = PDBMLConverter(quiet=True)
+        # Create converter with required mapping generator
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        converter = PDBMLConverter(mapping_gen, quiet=True)
         
-        # Initially, internal components should be None (lazy-loaded)
-        self.assertIsNone(converter._dictionary)
-        self.assertIsNone(converter._mapping_rules)
-        self.assertIsNone(converter._xml_validator)
+        # Test that converter is created successfully
+        self.assertIsNotNone(converter)
+        self.assertIsNotNone(converter.mapping_generator)
         
-        # Accessing mapping_rules should trigger lazy loading
-        mapping_rules = converter.mapping_rules
+        # Test that mapping generator can provide mapping rules
+        mapping_rules = converter.mapping_generator.get_mapping_rules()
         self.assertIsInstance(mapping_rules, dict)
-        self.assertIsNotNone(converter._mapping_rules)
     
     def test_mapping_generator_lazy_loading(self):
         """Test that XML mapping generator properly lazy-loads components."""
-        from sloth.serializers import XMLMappingGenerator
+        from sloth.serializers import MappingGenerator, HybridCache, DictionaryParser, XSDParser
         
         # Create mapping generator in quiet mode
-        mapping_gen = XMLMappingGenerator(quiet=True)
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
         
-        # Initially, components should be None
-        self.assertIsNone(mapping_gen._categories)
-        self.assertIsNone(mapping_gen._items)
-        self.assertIsNone(mapping_gen._xsd_elements)
+        # Initially, mapping rules should be None
+        self.assertIsNone(mapping_gen._mapping_rules)
         
-        # Accessing properties should trigger lazy loading
-        categories = mapping_gen.categories
-        self.assertIsInstance(categories, dict)
-        self.assertIsNotNone(mapping_gen._categories)
+        # Accessing mapping rules should trigger lazy loading
+        mapping_rules = mapping_gen.get_mapping_rules()
+        self.assertIsInstance(mapping_rules, dict)
+        self.assertIsNotNone(mapping_gen._mapping_rules)
     
     def test_error_handling(self):
         """Test that error conditions are handled gracefully."""
-        from sloth.serializers import PDBMLConverter, XMLMappingGenerator
+        from sloth.serializers import PDBMLConverter, MappingGenerator, HybridCache, DictionaryParser, XSDParser
         
         # Test with non-existent dictionary file (should not crash)
-        converter = PDBMLConverter(
-            dictionary_path="/totally/nonexistent/path.dic",
-            quiet=True
-        )
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = "/totally/nonexistent/path.dic"
+        xsd_parser.source = "/totally/nonexistent/path.xsd"
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        converter = PDBMLConverter(mapping_gen, quiet=True)
         self.assertIsNotNone(converter)
         
         # Should still be able to access mapping rules (with fallbacks)
-        mapping_rules = converter.mapping_rules
+        mapping_rules = mapping_gen.get_mapping_rules()
         self.assertIsInstance(mapping_rules, dict)
         
         # Test mapping generator with invalid paths
-        mapping_gen = XMLMappingGenerator(
-            dict_file="/invalid/dict.dic",
-            xsd_file="/invalid/schema.xsd",
-            quiet=True
-        )
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = "/invalid/dict.dic"
+        xsd_parser.source = "/invalid/schema.xsd"
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
         self.assertIsNotNone(mapping_gen)
         
         # Should return empty but valid structures
-        self.assertIsInstance(mapping_gen.categories, dict)
-        self.assertIsInstance(mapping_gen.items, dict)
+        mapping_rules = mapping_gen.get_mapping_rules()
+        self.assertIsInstance(mapping_rules, dict)
 
 
 class TestModuleStructure(unittest.TestCase):

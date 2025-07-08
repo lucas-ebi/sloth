@@ -17,6 +17,7 @@ import tempfile
 import os
 import json
 import xml.etree.ElementTree as ET
+import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from sloth import (
@@ -155,9 +156,18 @@ TEST_STRUCTURE RCSB RCSB
 """
         
         self.handler = MMCIFHandler(validator_factory=None)
-        # Pass the dictionary path to enable key extraction
+        # Set up the converter with the new API
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        self.converter = PDBMLConverter(dictionary_path=dict_path)
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, True)
+        xsd_parser = XSDParser(cache, True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
+        self.converter = PDBMLConverter(mapping_generator)
         self.temp_dir = tempfile.mkdtemp()
         
         # Create temp file for testing
@@ -432,8 +442,14 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
 """
         
         self.handler = MMCIFHandler(validator_factory=None)
-        self.converter = PDBMLConverter()
-        self.resolver = self._create_resolver_with_dictionary()
+        # Set up converter and resolver with new API
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, True)
+        xsd_parser = XSDParser(cache, True)
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
+        self.converter = PDBMLConverter(mapping_generator)
+        self.resolver = RelationshipResolver(mapping_generator)
         self.temp_dir = tempfile.mkdtemp()
         
         # Create temp file for testing
@@ -449,11 +465,14 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializers import DictionaryParser
-        dictionary = DictionaryParser()
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, True)
+        xsd_parser = XSDParser(cache, True)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        dictionary.parse_dictionary(dict_path)
-        return RelationshipResolver(dictionary)
+        dict_parser.source = dict_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
+        return RelationshipResolver(mapping_generator)
         
     def test_parent_child_relationship_resolution(self):
         """Test resolution of parent-child relationships."""
@@ -744,13 +763,30 @@ _atom_site.pdbx_PDB_model_num 1
         import shutil
         shutil.rmtree(self.temp_dir)
     
+    def _create_converter(self, permissive=False, quiet=True):
+        """Helper method to create PDBMLConverter with the new API."""
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        import tempfile
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, quiet)
+        xsd_parser = XSDParser(cache, quiet)
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet)
+        return PDBMLConverter(mapping_generator, permissive, quiet)
+    
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializers import DictionaryParser
-        dictionary = DictionaryParser()
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, True)
+        xsd_parser = XSDParser(cache, True)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        dictionary.parse_dictionary(dict_path)
-        return RelationshipResolver(dictionary)
+        dict_parser.source = dict_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
+        return RelationshipResolver(mapping_generator)
     
     def test_mmcif_parsing_for_nested_data(self):
         """Test that the mmCIF parser correctly handles nested relationship data."""
@@ -798,8 +834,7 @@ _atom_site.pdbx_PDB_model_num 1
         container = parser.parse_file(self.test_file)
         
         # Convert to PDBML XML
-        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        converter = PDBMLConverter(dictionary_path=dict_path)
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify XML is valid
@@ -859,7 +894,7 @@ _atom_site.pdbx_PDB_model_num 1
                 self.skipTest(f"Schema validation skipped: Schema failed to parse")
             
             # Test 1: Non-permissive mode - should fail validation due to data integrity issues
-            converter = PDBMLConverter(dictionary_path=dict_path, permissive=False)
+            converter = self._create_converter(permissive=False)
             xml_content = converter.convert_to_pdbml(container)
             
             try:
@@ -885,7 +920,7 @@ _atom_site.pdbx_PDB_model_num 1
             
             # Test 2: Permissive mode - should also fail for data integrity issues
             # (Permissive mode only adds missing required schema elements, not fix data integrity)
-            converter_permissive = PDBMLConverter(dictionary_path=dict_path, permissive=True)
+            converter_permissive = self._create_converter(permissive=True)
             xml_content_permissive = converter_permissive.convert_to_pdbml(container)
             
             try:
@@ -938,7 +973,7 @@ _atom_site.pdbx_PDB_model_num 1
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
         
-        converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
         resolver = self._create_resolver_with_dictionary()
@@ -1065,7 +1100,7 @@ _atom_site.pdbx_PDB_model_num 1
         parser = MMCIFParser()
         container = parser.parse_file(self.test_file)
         
-        converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
         resolver = self._create_resolver_with_dictionary()
@@ -1127,7 +1162,7 @@ _atom_site.Cartn_x
         parser = MMCIFParser()
         container = parser.parse_file(multi_test_file)
         
-        converter = PDBMLConverter(dictionary_path=Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic")
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
         resolver = self._create_resolver_with_dictionary()
@@ -1226,7 +1261,7 @@ _atom_site.pdbx_PDB_model_num 1
                 self.skipTest(f"Schema validation skipped: Schema failed to parse")
             
             # Test non-permissive mode with complete data
-            converter = PDBMLConverter(dictionary_path=dict_path, permissive=False)
+            converter = self._create_converter(permissive=False)
             xml_content = converter.convert_to_pdbml(container)
             
             try:
@@ -1248,7 +1283,7 @@ _atom_site.pdbx_PDB_model_num 1
                 print(f"Non-permissive mode errors (missing elements, not data integrity): {len(errors)}")
             
             # Test permissive mode with complete data
-            converter_permissive = PDBMLConverter(dictionary_path=dict_path, permissive=True)
+            converter_permissive = self._create_converter(permissive=True)
             xml_content_permissive = converter_permissive.convert_to_pdbml(container)
             
             try:
@@ -1348,15 +1383,28 @@ _entity.pdbx_description 'Test entity'
         import shutil
         shutil.rmtree(self.temp_dir)
     
+    def _create_converter(self, permissive=False, quiet=True):
+        """Helper method to create PDBMLConverter with the new API."""
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        import tempfile
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, quiet)
+        xsd_parser = XSDParser(cache, quiet)
+        dict_parser.source = self.dict_path
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        xsd_parser.source = xsd_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet)
+        return PDBMLConverter(mapping_generator, permissive, quiet)
+    
     def test_permissive_mode_parameter_default(self):
         """Test that permissive parameter defaults to False."""
-        converter = PDBMLConverter(dictionary_path=self.dict_path)
+        converter = self._create_converter()
         self.assertFalse(converter.permissive, "permissive should default to False")
         
-        converter_explicit_false = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
+        converter_explicit_false = self._create_converter(permissive=False)
         self.assertFalse(converter_explicit_false.permissive, "permissive=False should work")
         
-        converter_explicit_true = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter_explicit_true = self._create_converter(permissive=True)
         self.assertTrue(converter_explicit_true.permissive, "permissive=True should work")
     
     def test_non_permissive_mode_fails_with_missing_elements(self):
@@ -1364,7 +1412,7 @@ _entity.pdbx_description 'Test entity'
         container = self.handler.parse(self.test_file)
         
         # Non-permissive mode should not add missing elements
-        converter = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
+        converter = self._create_converter(permissive=False)
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify XML is generated but missing many schema-required elements
@@ -1401,7 +1449,7 @@ _entity.pdbx_description 'Test entity'
         container = self.handler.parse(self.test_file)
         
         # Permissive mode should add missing required elements
-        converter = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter = self._create_converter(permissive=True)
         xml_content = converter.convert_to_pdbml(container)
         
         # Verify XML is generated
@@ -1426,8 +1474,8 @@ _entity.pdbx_description 'Test entity'
         container = self.handler.parse(self.test_file)
         
         # Both modes should preserve existing data
-        converter_non_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
-        converter_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter_non_permissive = self._create_converter(permissive=False)
+        converter_permissive = self._create_converter(permissive=True)
         
         xml_non_permissive = converter_non_permissive.convert_to_pdbml(container)
         xml_permissive = converter_permissive.convert_to_pdbml(container)
@@ -1455,7 +1503,7 @@ _entity.pdbx_description 'Test entity'
         """Test that permissive mode uses appropriate mmCIF null indicators for missing elements."""
         container = self.handler.parse(self.test_file)
         
-        converter = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter = self._create_converter(permissive=True)
         xml_content = converter.convert_to_pdbml(container)
         
         # In permissive mode, missing required elements should be added with null indicators
@@ -1513,8 +1561,8 @@ ATOM   1    BADTYPE BADATOM BADCOMP 0.0 0.0 0.0
         container = self.handler.parse(integrity_test_file)
         
         # Both permissive and non-permissive should have the same data integrity issues
-        converter_non_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
-        converter_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+        converter_non_permissive = self._create_converter(permissive=False)
+        converter_permissive = self._create_converter(permissive=True)
         
         xml_non_permissive = converter_non_permissive.convert_to_pdbml(container)
         xml_permissive = converter_permissive.convert_to_pdbml(container)
@@ -1580,8 +1628,8 @@ ATOM   1    BADTYPE BADATOM BADCOMP 0.0 0.0 0.0
                 self.skipTest("Schema validation initialization failed")
             
             # Compare validation results between permissive and non-permissive modes
-            converter_non_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=False)
-            converter_permissive = PDBMLConverter(dictionary_path=self.dict_path, permissive=True)
+            converter_non_permissive = self._create_converter(permissive=False)
+            converter_permissive = self._create_converter(permissive=True)
             
             xml_non_permissive = converter_non_permissive.convert_to_pdbml(container)
             xml_permissive = converter_permissive.convert_to_pdbml(container)
@@ -1623,3 +1671,15 @@ ATOM   1    BADTYPE BADATOM BADCOMP 0.0 0.0 0.0
             self.skipTest("Schema validation not available")
         except Exception as e:
             self.skipTest(f"Schema validation failed: {e}")
+    
+    def _create_converter(self, permissive=False, quiet=True):
+        """Helper method to create PDBMLConverter with the new API."""
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, quiet)
+        xsd_parser = XSDParser(cache, quiet)
+        dict_parser.source = self.dict_path
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        xsd_parser.source = xsd_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet)
+        return PDBMLConverter(mapping_generator, permissive, quiet)

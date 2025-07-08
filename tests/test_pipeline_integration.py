@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 
 from sloth.parser import MMCIFParser
-from sloth.serializers import PDBMLConverter, XMLMappingGenerator
+from sloth.serializers import PDBMLConverter, MappingGenerator
 from sloth import MMCIFHandler
 
 
@@ -152,21 +152,16 @@ class TestComponentFixes(unittest.TestCase):
         self.assertFalse(is_null_value("real_value"))
     
     def test_xml_mapping_generator_properties(self):
-        """Test XMLMappingGenerator lazy-loaded properties."""
-        mapping_gen = XMLMappingGenerator()
+        """Test MappingGenerator properties."""
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser
+        cache = HybridCache("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache)
+        xsd_parser = XSDParser(cache)
+        mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
         
-        # Test that properties can be accessed without errors
-        categories = mapping_gen.categories
-        self.assertIsInstance(categories, dict)
-        
-        items = mapping_gen.items
-        self.assertIsInstance(items, dict)
-        
-        xsd_elements = mapping_gen.xsd_elements
-        self.assertIsInstance(xsd_elements, dict)
-        
-        xsd_complex_types = mapping_gen.xsd_complex_types
-        self.assertIsInstance(xsd_complex_types, dict)
+        # Test that mapping rules can be accessed without errors
+        mapping_rules = mapping_gen.get_mapping_rules()
+        self.assertIsInstance(mapping_rules, dict)
     
     def test_converter_with_caching(self):
         """Test that converter caching works correctly."""

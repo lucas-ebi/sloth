@@ -75,8 +75,10 @@ from .validators import (
 )
 from .serializers import (
     PDBMLConverter,
-    XMLMappingGenerator,
+    MappingGenerator,
     DictionaryParser,
+    XSDParser,
+    HybridCache,
     RelationshipResolver,
     MMCIFToPDBMLPipeline,
 )
@@ -113,8 +115,10 @@ __all__ = [
     "default_mmcif_json_schema",
     # PDBML Converter components
     "PDBMLConverter",
-    "XMLMappingGenerator", 
-    "DictionaryParser", 
+    "MappingGenerator", 
+    "DictionaryParser",
+    "XSDParser",
+    "HybridCache", 
     "RelationshipResolver",
     "MMCIFToPDBMLPipeline",
     # Version information
