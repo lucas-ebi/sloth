@@ -448,6 +448,11 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
         cache = NoCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
+        # Set source paths for parsers
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
         mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
         self.converter = PDBMLConverter(mapping_generator)
         self.resolver = RelationshipResolver(mapping_generator)
