@@ -708,8 +708,9 @@ class PDBMLConverter:
         mapping = self.mapping_generator.get_mapping_rules()
         
         # Check if field is a primary key - primary keys are typically attributes
-        if cat_name in mapping["primary_keys"]:
-            pk = mapping["primary_keys"][cat_name]
+        primary_keys = mapping.get("primary_keys", {})
+        if cat_name in primary_keys:
+            pk = primary_keys[cat_name]
             if isinstance(pk, list):
                 if field_name in pk:
                     return True
@@ -982,9 +983,9 @@ class MMCIFToPDBMLPipeline:
         # Validate
         if self.validator:
             is_valid, errors = self.validator.validate(pdbml_xml)
-            validation = {"valid": is_valid, "errors": errors}
+            validation = {"is_valid": is_valid, "errors": errors}
         else:
-            validation = {"valid": True, "errors": []}
+            validation = {"is_valid": True, "errors": []}
         
         # Resolve relationships
         nested_json = self.resolver.resolve_relationships(pdbml_xml)
