@@ -578,11 +578,8 @@ class PDBMLConverter:
         # Assume single data block for simplicity
         block = next(iter(mmcif_container))
         
-        # Create root element with namespace
-        root = ET.Element("datablock", attrib={
-            "datablockName": block.name,
-            "xmlns": self.namespace
-        })
+        # Generate XML manually to avoid namespace prefix issues
+        xml_lines = ['<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" datablockName="{}">'.format(block.name)]
         
         for cat_name in block.data:
             # cat_name is already a string (category name), remove leading underscore
@@ -599,15 +596,12 @@ class PDBMLConverter:
             if category.row_count == 0:
                 continue
             
-            # Create category element
-            category_elem = ET.SubElement(root, f"{cat_name_clean}Category")
+            # Generate category element
+            xml_lines.append(f'  <{cat_name_clean}Category>')
             
             # Process each row in the category
             for i in range(category.row_count):
                 row = category[i]
-                
-                # Create element for this row
-                row_elem = ET.SubElement(category_elem, cat_name_clean)
                 
                 # Get mapped fields for this category
                 mapped_fields = mapping["category_mapping"][cat_name_clean]["fields"]
@@ -630,24 +624,39 @@ class PDBMLConverter:
                         else:
                             element_fields.add(field)
                 
-                # Set attributes first
+                # Build row element
+                row_attrs = []
                 for field in sorted(attribute_fields):
                     value = row.data.get(field)
                     if value is not None and str(value) not in ['', '.', '?']:
-                        row_elem.set(field, str(value))
+                        # Escape XML attribute value
+                        escaped_value = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
+                        row_attrs.append(f'{field}="{escaped_value}"')
                 
-                # Set elements
-                for field in sorted(element_fields):
-                    value = row.data.get(field)
-                    if value is not None and str(value) not in ['', '.', '?']:
-                        field_elem = ET.SubElement(row_elem, field)
-                        field_elem.text = str(value)
+                # Create row element
+                if element_fields:
+                    # Has child elements
+                    attr_str = ' ' + ' '.join(row_attrs) if row_attrs else ''
+                    xml_lines.append(f'    <{cat_name_clean}{attr_str}>')
+                    
+                    # Add child elements
+                    for field in sorted(element_fields):
+                        value = row.data.get(field)
+                        if value is not None and str(value) not in ['', '.', '?']:
+                            # Escape XML text content
+                            escaped_value = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                            xml_lines.append(f'      <{field}>{escaped_value}</{field}>')
+                    
+                    xml_lines.append(f'    </{cat_name_clean}>')
+                else:
+                    # Self-closing or empty element
+                    attr_str = ' ' + ' '.join(row_attrs) if row_attrs else ''
+                    xml_lines.append(f'    <{cat_name_clean}{attr_str}/>')
+            
+            xml_lines.append(f'  </{cat_name_clean}Category>')
         
-        # Convert to string with proper formatting
-        from xml.dom import minidom
-        rough_string = ET.tostring(root, encoding="unicode")
-        reparsed = minidom.parseString(rough_string)
-        return reparsed.toprettyxml(indent="  ").split('\n', 1)[1]  # Remove XML declaration
+        xml_lines.append('</datablock>')
+        return '\n'.join(xml_lines)
 
 # ====================== Relationship Resolver ======================
 class RelationshipResolver:
@@ -660,8 +669,27 @@ class RelationshipResolver:
         tree = ET.ElementTree(ET.fromstring(xml_content))
         root = tree.getroot()
         flat = {}
+        
         for elem in root:
-            flat.setdefault(elem.tag, []).append({c.tag: c.text for c in elem})
+            # Strip namespace from tag name 
+            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            
+            # Remove 'Category' suffix to get entity name
+            entity_name = tag.replace('Category', '') if tag.endswith('Category') else tag
+            
+            # Process each item in the category
+            for item_elem in elem:
+                # Create row data from both attributes and child elements
+                row_data = {}
+                # Add attributes
+                row_data.update(item_elem.attrib)
+                # Add child elements
+                for child in item_elem:
+                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    row_data[child_tag] = child.text
+                
+                flat.setdefault(entity_name, []).append(row_data)
+        
         # Use FK map to nest
         mapping = self.mapping_generator.get_mapping_rules()
         fk_map = mapping["fk_map"]
@@ -728,6 +756,7 @@ class MMCIFToPDBMLPipeline:
         nested_json = self.resolver.resolve_relationships(pdbml_xml)
         
         return {
+            "mmcif_data": mmcif_container,
             "pdbml_xml": pdbml_xml,
             "validation": validation,
             "nested_json": nested_json
