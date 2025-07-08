@@ -29,6 +29,7 @@ from sloth import (
     XMLSchemaValidator,
     DictionaryParser
 )
+from sloth.serializers import HybridCache, XSDParser, MappingGenerator
 from sloth.models import MMCIFDataContainer, DataBlock, Category
 from sloth.validators import ValidationError
 
@@ -619,6 +620,28 @@ class TestDictionaryBasedValidation(unittest.TestCase):
             import shutil
             shutil.rmtree(self.temp_dir)
     
+    def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
+        """Helper method to create a properly configured PDBMLConverter."""
+        from pathlib import Path
+        
+        # Set up caching
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        
+        # Set up metadata parsers with default paths
+        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        dict_parser = DictionaryParser(cache, quiet=True)
+        xsd_parser = XSDParser(cache, quiet=True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
+        
+        # Create converter
+        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+    
     def test_category_key_validation(self):
         """Test validation of category keys based on 5 universal patterns."""
         # Entry-level categories must have entry_id
@@ -680,7 +703,7 @@ _atom_site.footnote_id 1
         
         handler = MMCIFHandler(validator_factory=None)
         container = handler.parse(test_file)
-        converter = PDBMLConverter()
+        converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
         
         root = ET.fromstring(xml_content)

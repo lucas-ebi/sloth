@@ -290,6 +290,20 @@ class DictionaryParser(MetadataParser):
                             enumerations[item_name] = values
                     elif 'item_linked.child_name' in combined_data and 'item_linked.parent_name' in combined_data:
                         relationships.append(combined_data)
+                    elif 'pdbx_item_linked_group_list.child_category_id' in combined_data:
+                        # Handle pdbx_item_linked_group_list entries
+                        child_cat = combined_data.get('pdbx_item_linked_group_list.child_category_id')
+                        child_name = combined_data.get('pdbx_item_linked_group_list.child_name')
+                        parent_name = combined_data.get('pdbx_item_linked_group_list.parent_name')
+                        parent_cat = combined_data.get('pdbx_item_linked_group_list.parent_category_id')
+                        
+                        if child_cat and child_name and parent_name and parent_cat:
+                            relationships.append({
+                                'child_category': child_cat,
+                                'child_name': child_name,
+                                'parent_category': parent_cat,
+                                'parent_name': parent_name
+                            })
             else:
                 # Classify frame by type (non-loop items)
                 if 'category.id' in frame_data:
@@ -306,9 +320,24 @@ class DictionaryParser(MetadataParser):
                         enumerations[item_name] = values
                 elif 'item_linked.child_name' in frame_data and 'item_linked.parent_name' in frame_data:
                     relationships.append(frame_data)
+                elif 'pdbx_item_linked_group_list.child_category_id' in frame_data:
+                    # Handle pdbx_item_linked_group_list entries
+                    child_cat = frame_data.get('pdbx_item_linked_group_list.child_category_id')
+                    child_name = frame_data.get('pdbx_item_linked_group_list.child_name')
+                    parent_name = frame_data.get('pdbx_item_linked_group_list.parent_name')
+                    parent_cat = frame_data.get('pdbx_item_linked_group_list.parent_category_id')
+                    
+                    if child_cat and child_name and parent_name and parent_cat:
+                        relationships.append({
+                            'child_category': child_cat,
+                            'child_name': child_name,
+                            'parent_category': parent_cat,
+                            'parent_name': parent_name
+                        })
         
         # Also parse any tabular data from the main parser
         try:
+            from .parser import MMCIFParser  # Explicit import
             parser = MMCIFParser()
             container = parser.parse_file(dict_path)
             
@@ -320,16 +349,49 @@ class DictionaryParser(MetadataParser):
                     code = row.get("code")
                     if code:
                         item_types[code] = row
+            
+            # Extract relationships from pdbx_item_linked_group_list
+            if "pdbx_item_linked_group_list" in container[0].data:
+                linked_list = container[0].data["pdbx_item_linked_group_list"]
+                if not self.quiet:
+                    print(f"📊 Found {linked_list.row_count} relationships in dictionary")
+                for i in range(linked_list.row_count):
+                    row = linked_list[i].data
+                    child_cat = row.get("child_category_id")
+                    child_name = row.get("child_name", "").strip('"')
+                    parent_name = row.get("parent_name", "").strip('"')
+                    parent_cat = row.get("parent_category_id")
+                    
+                    if child_cat and child_name and parent_name and parent_cat:
+                        relationships.append({
+                            'child_category': child_cat,
+                            'child_name': child_name,
+                            'parent_category': parent_cat,
+                            'parent_name': parent_name
+                        })
         except Exception as e:
             if not self.quiet:
                 print(f"Warning: Could not parse tabular data: {e}")
+                import traceback
+                traceback.print_exc()
         
+        # Extract primary key information
+        primary_keys = {}
+        for cat_name, cat_data in categories.items():
+            if 'category_key.name' in cat_data:
+                key_item = cat_data['category_key.name'].strip('"\'')
+                if key_item.startswith('_') and '.' in key_item:
+                    # Extract field name from "_category.field" format
+                    field_name = key_item.split('.')[-1]
+                    primary_keys[cat_name] = field_name
+
         result = {
             "categories": categories,
             "items": items,
             "relationships": relationships,
             "enumerations": enumerations,
-            "item_types": item_types
+            "item_types": item_types,
+            "primary_keys": primary_keys
         }
         self.cache.set(cache_key, result)
         if not self.quiet:
@@ -542,18 +604,28 @@ class MappingGenerator:
             # Handle different relationship types
             child_name = rel.get("item_linked.child_name") or rel.get("child_name")
             parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
+            child_cat = rel.get("child_category")
+            parent_cat = rel.get("parent_category")
             
             if child_name and parent_name:
-                child_parts = child_name.strip("_").split(".")
-                parent_parts = parent_name.strip("_").split(".")
-                
-                if len(child_parts) == 2 and len(parent_parts) == 2:
-                    fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
+                if child_cat and parent_cat:
+                    # New format with explicit categories
+                    child_field = child_name.strip("_").split(".")[-1] if "." in child_name else child_name
+                    parent_field = parent_name.strip("_").split(".")[-1] if "." in parent_name else parent_name
+                    fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+                else:
+                    # Legacy format - extract from field names
+                    child_parts = child_name.strip("_").split(".")
+                    parent_parts = parent_name.strip("_").split(".")
+                    
+                    if len(child_parts) == 2 and len(parent_parts) == 2:
+                        fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
         
         return {
             "category_mapping": category_mapping,
             "item_mapping": item_mapping,
-            "fk_map": fk_map
+            "fk_map": fk_map,
+            "primary_keys": dict_meta.get("primary_keys", {})
         }
 
 # ====================== PDBML Converter ======================
@@ -609,20 +681,21 @@ class PDBMLConverter:
                 item_mapping = mapping["item_mapping"][cat_name_clean]
                 
                 # Determine which fields should be attributes vs elements
-                # Simple heuristic: ID fields and keys are attributes, others are elements
+                # More accurate heuristic based on PDBML schema patterns:
+                # - Only core ID fields (id, entity_id) should be attributes
+                # - Most other fields should be elements
                 attribute_fields = set()
                 element_fields = set()
                 
                 for field in mapped_fields:
-                    # Check if field exists in row data
+                    # Check if field exists in row data (including null values for elements)
                     value = row.data.get(field)
-                    if value is not None and str(value) not in ['', '.', '?']:
-                        # ID fields and short identifiers as attributes
-                        if (field.endswith('_id') or field == 'id' or 
-                            field in ['symbol', 'code', 'type'] or
-                            len(str(value)) < 10):
+                    if value is not None:
+                        # Only core ID fields as attributes - be very selective
+                        if field == 'id':
                             attribute_fields.add(field)
                         else:
+                            # Everything else as elements (including null values)
                             element_fields.add(field)
                 
                 # Build row element
@@ -643,10 +716,17 @@ class PDBMLConverter:
                     # Add child elements
                     for field in sorted(element_fields):
                         value = row.data.get(field)
-                        if value is not None and str(value) not in ['', '.', '?']:
-                            # Escape XML text content
-                            escaped_value = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                            xml_lines.append(f'      <{field}>{escaped_value}</{field}>')
+                        if value is not None:
+                            if str(value) in ['', '.', '?']:
+                                # Null values as empty elements or special markers
+                                if str(value) == '.':
+                                    xml_lines.append(f'      <{field} nilValue="true"></{field}>')
+                                else:
+                                    xml_lines.append(f'      <{field}></{field}>')
+                            else:
+                                # Escape XML text content
+                                escaped_value = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                                xml_lines.append(f'      <{field}>{escaped_value}</{field}>')
                     
                     xml_lines.append(f'    </{cat_name_clean}>')
                 else:
@@ -691,27 +771,67 @@ class RelationshipResolver:
                 
                 flat.setdefault(entity_name, []).append(row_data)
         
-        # Use FK map to nest
+        # Use FK map to nest and convert lists to dictionaries using primary keys
         mapping = self.mapping_generator.get_mapping_rules()
         fk_map = mapping["fk_map"]
-        # Build parent lookup
+        primary_keys = mapping.get("primary_keys", {})
+        
+        # Convert lists to dictionaries using primary keys
+        indexed = {}
+        for entity_name, entity_list in flat.items():
+            pk_field = primary_keys.get(entity_name, 'id')  # Default to 'id' if not specified
+            entity_dict = {}
+            for row in entity_list:
+                pk_value = row.get(pk_field)
+                if pk_value is not None:
+                    entity_dict[str(pk_value)] = row
+                else:
+                    # If no primary key value, use index as fallback (but this shouldn't happen in well-formed data)
+                    entity_dict[str(len(entity_dict))] = row
+            indexed[entity_name] = entity_dict
+        
+        # Build parent lookup using indexed structure
         parent_lookup = {}
         for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
             parent_lookup.setdefault(parent_cat, {})
-            for row in flat.get(parent_cat, []):
-                pk = row.get(parent_col)
-                if pk is not None:
-                    parent_lookup[parent_cat][pk] = row
-        # Assign children
+            for pk, row in indexed.get(parent_cat, {}).items():
+                parent_lookup[parent_cat][pk] = row
+        
+        # Assign children using indexed structure
         for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
-            for row in flat.get(child_cat, []):
+            for child_pk, row in indexed.get(child_cat, {}).items():
                 fk = row.get(child_col)
-                if fk in parent_lookup.get(parent_cat, {}):
-                    parent = parent_lookup[parent_cat][fk]
-                    parent.setdefault(child_cat, []).append(row)
-        # Return top-level tables only (those that are not children)
+                if fk and str(fk) in indexed.get(parent_cat, {}):
+                    parent = indexed[parent_cat][str(fk)]
+                    if child_cat not in parent:
+                        parent[child_cat] = {}
+                    parent[child_cat] = row  # Single child relationship
+        
+        # Return top-level categories
+        # A category is top-level if:
+        # 1. It's a parent in the current data (actually has nested children)
+        # 2. It's standalone (neither parent nor child in current data)
+        parent_cats = {p for (c, _), (p, _) in fk_map.items()}
         child_cats = {c for (c, _) in fk_map.keys()}
-        top = {k: v for k, v in flat.items() if k not in child_cats}
+        
+        # Find which categories actually have nested children in the current data
+        actual_parent_cats = set()
+        for entity_name, entity_dict in indexed.items():
+            for pk, entity_data in entity_dict.items():
+                # Check if this entity has any nested children (categories as keys)
+                for key in entity_data.keys():
+                    if key in indexed:  # This is a nested category
+                        actual_parent_cats.add(entity_name)
+                        break
+        
+        top = {}
+        for k, v in indexed.items():
+            is_actual_parent = k in actual_parent_cats
+            is_child = k in child_cats
+            
+            # Include if it's an actual parent (has children) OR if it's not a child at all
+            if is_actual_parent or not is_child:
+                top[k] = v
         return top
 
 # ====================== Main Pipeline ======================
