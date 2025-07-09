@@ -1201,8 +1201,15 @@ class RelationshipResolver:
     ) -> float:
         """
         Analyze relationship cardinality from actual data.
-        Ownership typically shows 1:many (parent:child) patterns.
-        References typically show many:1 (child:parent) patterns.
+        
+        Key insight: We need to look at the DIRECTION of the relationship:
+        - True ownership: Parent category naturally contains/owns children 
+          (e.g., struct_asym owns atom_site records within that asymmetric unit)
+        - Reference: Child references a lookup/type table 
+          (e.g., atom_site.type_symbol references atom_type.symbol for type info)
+        
+        For references to lookup/type tables, even if many children reference 
+        the same parent, this indicates REFERENCE, not ownership.
         """
         if child_cat not in data or parent_cat not in data:
             return 0.0
@@ -1213,7 +1220,22 @@ class RelationshipResolver:
         if not child_data or not parent_data:
             return 0.0
         
-        # Count relationships
+        # First, detect if parent category is a lookup/reference table
+        # These patterns strongly indicate reference relationships
+        lookup_table_patterns = [
+            'type', 'class', 'method', 'status', 'code', 'symbol',
+            'enum', 'dict', 'list', 'table', 'ref'
+        ]
+        
+        is_lookup_table = any(pattern in parent_cat.lower() for pattern in lookup_table_patterns)
+        is_reference_field = any(pattern in child_field.lower() for pattern in lookup_table_patterns)
+        
+        # Special handling for known reference patterns
+        if is_lookup_table or is_reference_field:
+            # This is very likely a reference relationship, not ownership
+            return -30.0
+        
+        # For non-lookup relationships, analyze cardinality patterns
         parent_to_children = {}
         for child_row in child_data:
             fk_value = child_row.get(child_field)
@@ -1221,23 +1243,34 @@ class RelationshipResolver:
                 parent_to_children.setdefault(fk_value, 0)
                 parent_to_children[fk_value] += 1
         
-        # Analyze cardinality patterns
         if not parent_to_children:
             return 0.0
+        
+        # Check if this looks like a natural hierarchy vs reference
+        # For ownership, we expect:
+        # 1. Most or all parents have children
+        # 2. Reasonable distribution of children per parent
+        parent_count = len(parent_data)
+        referenced_parent_count = len(parent_to_children)
+        coverage_ratio = referenced_parent_count / parent_count if parent_count > 0 else 0
+        
+        # If only a small fraction of parents are referenced, likely reference table
+        if coverage_ratio < 0.3:
+            return -20.0
         
         # Calculate average children per parent
         avg_children = sum(parent_to_children.values()) / len(parent_to_children)
         
-        # Calculate what percentage of parents have multiple children
-        parents_with_multiple = sum(1 for count in parent_to_children.values() if count > 1)
-        multiple_ratio = parents_with_multiple / len(parent_to_children)
-        
-        # Score based on cardinality patterns
-        # High average children + high multiple ratio = likely ownership
-        # Low average children + low multiple ratio = likely reference
-        cardinality_score = (avg_children - 1.0) * 10 + (multiple_ratio - 0.5) * 20
-        
-        return min(max(cardinality_score, -50), 50)  # Clamp to reasonable range
+        # For true ownership relationships, we expect moderate child counts
+        # Very high child counts per parent often indicate reference relationships
+        if avg_children > 10:  # Many children per parent = likely reference
+            return -15.0
+        elif avg_children > 5:
+            return -5.0
+        elif avg_children > 2:
+            return 10.0
+        else:
+            return 20.0  # 1:1 or 1:2 relationships often indicate ownership
     
     def _analyze_semantic_patterns(
         self, 
@@ -1259,6 +1292,23 @@ class RelationshipResolver:
         # Analyze field naming patterns
         semantic_score = 0.0
         
+        # Strong reference indicators in field names
+        strong_reference_patterns = [
+            'type_symbol', 'symbol', 'type', 'code', 'class', 'method', 
+            'status', 'enum', 'category', 'kind'
+        ]
+        
+        if any(pattern in child_field.lower() for pattern in strong_reference_patterns):
+            semantic_score -= 40  # Strong reference indicator
+        
+        # Strong ownership indicators
+        ownership_patterns = [
+            f'{parent_cat}_id', 'asym_id', 'entity_id', 'struct_id'
+        ]
+        
+        if any(pattern in child_field.lower() for pattern in ownership_patterns):
+            semantic_score += 30  # Strong ownership indicator
+        
         # Primary key references often indicate ownership
         if child_field == 'id' or child_field.endswith('_id'):
             # Check if this ID field references the parent's primary key
@@ -1273,7 +1323,7 @@ class RelationshipResolver:
         # Field description analysis
         if description:
             ownership_terms = ['identifier', 'key', 'belongs', 'member', 'part']
-            reference_terms = ['type', 'code', 'symbol', 'class', 'method']
+            reference_terms = ['type', 'code', 'symbol', 'class', 'method', 'lookup', 'refers to']
             
             for term in ownership_terms:
                 if term in description:
