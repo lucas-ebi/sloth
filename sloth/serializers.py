@@ -494,104 +494,25 @@ class XSDParser(MetadataParser):
     def parse(self, xsd_path: Union[str, Path]) -> Dict[str, Any]:
         self.source = xsd_path
         if not xsd_path or not Path(xsd_path).exists():
-            return {
-                'elements': {},
-                'attributes': {},
-                'required_elements': {},
-                'default_values': {},
-                'complex_types': {}
-            }
+            return self._empty_schema()
         
-        # Generate cache key with path and modification time for auto-invalidation
-        xsd_path_resolved = str(Path(xsd_path).resolve())
-        mtime = os.path.getmtime(xsd_path)
-        cache_key = f"xsd_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
-        
-        # Check unified cache
+        cache_key = self._generate_cache_key(xsd_path)
         cached = self.cache_manager.get('xsd', cache_key)
         if cached:
             if not self.quiet:
                 print("📦 Using cached XSD data")
             return cached
+        
         if not self.quiet:
             print("📋 Parsing XSD schema...")
+        
         import xml.etree.ElementTree as ET
-        ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
         tree = ET.parse(xsd_path)
         root = tree.getroot()
         
-        def _get_element_type(elem, ns):
-            """Helper function to extract type from an element, handling inline restrictions"""
-            col_type = elem.get('type', 'xs:string')
-            # If no direct type, check for inline simpleType with restriction
-            if col_type == 'xs:string':
-                simple_type = elem.find('.//xs:restriction', ns)
-                if simple_type is not None:
-                    base_type = simple_type.get('base')
-                    if base_type:
-                        col_type = base_type
-            return col_type
-
-        # Parse complexTypes
-        complex_types = {}
-        for ctype in root.findall('xs:complexType', ns):
-            name = ctype.get('name')
-            if not name:
-                continue
-            fields = []
-            
-            # Look for attributes first (these are important for XML structure)
-            for attr in ctype.findall('.//xs:attribute', ns):
-                attr_name = attr.get('name')
-                attr_type = attr.get('type', 'xs:string')
-                if attr_name:
-                    fields.append((attr_name, attr_type))
-            
-            # Look for sequence elements
-            sequence = ctype.find('.//xs:sequence', ns)
-            if sequence is not None:
-                for elem in sequence.findall('xs:element', ns):
-                    col_name = elem.get('name')
-                    col_type = _get_element_type(elem, ns)
-                    if col_name:
-                        fields.append((col_name, col_type))
-            
-            # Look for direct elements (choice/all)
-            for elem in ctype.findall('.//xs:element', ns):
-                col_name = elem.get('name')
-                col_type = _get_element_type(elem, ns)
-                if col_name and (col_name, col_type) not in fields:
-                    fields.append((col_name, col_type))
-            
-            complex_types[name] = fields
-        
-        # Parse top-level elements
-        elements = {}
-        for elem in root.findall('xs:element', ns):
-            table_name = elem.get('name')
-            type_name = elem.get('type')
-            if table_name and type_name:
-                # Remove namespace prefix if present
-                if ':' in type_name:
-                    type_name = type_name.split(':')[-1]
-                if type_name in complex_types:
-                    elements[table_name] = complex_types[type_name]
-                else:
-                    # Simple element
-                    elements[table_name] = [(table_name, type_name)]
-        
-        # If no top-level elements found, use complex types as elements
-        # This is common in PDBML schemas where each complex type represents a table
-        if not elements:
-            for type_name, fields in complex_types.items():
-                # Convert type names to element names (remove 'Type' suffix)
-                elem_name = type_name
-                if elem_name.endswith('Type'):
-                    elem_name = elem_name[:-4]
-                # Convert camelCase to snake_case for mmCIF compatibility
-                import re
-                elem_name = re.sub(r'([A-Z])', r'_\1', elem_name).lower().strip('_')
-                elements[elem_name] = fields
+        parser = XSDSchemaParser()
+        complex_types = parser.parse_complex_types(root)
+        elements = parser.parse_elements(root, complex_types)
         
         result = {
             'elements': elements,
@@ -600,11 +521,133 @@ class XSDParser(MetadataParser):
             'default_values': {},  # Could be extended to parse default values
             'complex_types': complex_types
         }
+        
         # Store in unified cache
         self.cache_manager.set('xsd', cache_key, result)
         if not self.quiet:
             print(f"📋 Parsed {len(elements)} elements, {len(complex_types)} complex types")
         return result
+
+    def _empty_schema(self) -> Dict[str, Any]:
+        """Return empty schema structure"""
+        return {
+            'elements': {},
+            'attributes': {},
+            'required_elements': {},
+            'default_values': {},
+            'complex_types': {}
+        }
+
+    def _generate_cache_key(self, xsd_path: Union[str, Path]) -> str:
+        """Generate cache key based on file path and modification time"""
+        xsd_path_resolved = str(Path(xsd_path).resolve())
+        mtime = os.path.getmtime(xsd_path)
+        return f"xsd_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
+
+
+class XSDSchemaParser:
+    """Parses XSD schema content into structured data"""
+    NS = {'xs': 'http://www.w3.org/2001/XMLSchema'}
+    
+    def parse_complex_types(self, root: ET.Element) -> Dict[str, List[Tuple[str, str]]]:
+        """Parse complexType definitions from XSD"""
+        complex_types = {}
+        for ctype in root.findall('xs:complexType', self.NS):
+            name = ctype.get('name')
+            if not name:
+                continue
+                
+            fields = []
+            fields.extend(self._parse_attributes(ctype))
+            fields.extend(self._parse_sequence_elements(ctype))
+            fields.extend(self._parse_direct_elements(ctype))
+            
+            complex_types[name] = fields
+        return complex_types
+
+    def parse_elements(self, root: ET.Element, complex_types: Dict) -> Dict[str, Any]:
+        """Parse top-level elements from XSD"""
+        elements = {}
+        for elem in root.findall('xs:element', self.NS):
+            table_name = elem.get('name')
+            type_name = elem.get('type')
+            if table_name and type_name:
+                # Remove namespace prefix if present
+                type_name = type_name.split(':')[-1] if ':' in type_name else type_name
+                
+                if type_name in complex_types:
+                    elements[table_name] = complex_types[type_name]
+                else:
+                    # Simple element
+                    elements[table_name] = [(table_name, type_name)]
+        
+        # Fallback for schemas without top-level elements
+        if not elements:
+            elements = self._create_elements_from_complex_types(complex_types)
+            
+        return elements
+
+    def _parse_attributes(self, parent: ET.Element) -> List[Tuple[str, str]]:
+        """Parse attribute definitions from complexType"""
+        attributes = []
+        for attr in parent.findall('.//xs:attribute', self.NS):
+            attr_name = attr.get('name')
+            attr_type = attr.get('type', 'xs:string')
+            if attr_name:
+                attributes.append((attr_name, attr_type))
+        return attributes
+
+    def _parse_sequence_elements(self, parent: ET.Element) -> List[Tuple[str, str]]:
+        """Parse sequence elements from complexType"""
+        elements = []
+        sequence = parent.find('.//xs:sequence', self.NS)
+        if sequence is not None:
+            for elem in sequence.findall('xs:element', self.NS):
+                col_name = elem.get('name')
+                col_type = self._get_element_type(elem)
+                if col_name:
+                    elements.append((col_name, col_type))
+        return elements
+
+    def _parse_direct_elements(self, parent: ET.Element) -> List[Tuple[str, str]]:
+        """Parse direct elements (choice/all) from complexType"""
+        elements = []
+        for elem in parent.findall('.//xs:element', self.NS):
+            col_name = elem.get('name')
+            col_type = self._get_element_type(elem)
+            if col_name:
+                elements.append((col_name, col_type))
+        return elements
+
+    def _get_element_type(self, elem: ET.Element) -> str:
+        """Determine element type handling inline restrictions"""
+        col_type = elem.get('type', 'xs:string')
+        # Handle inline simpleType with restriction
+        if col_type == 'xs:string':
+            simple_type = elem.find('.//xs:restriction', self.NS)
+            if simple_type is not None:
+                base_type = simple_type.get('base')
+                if base_type:
+                    col_type = base_type
+        return col_type
+
+    def _create_elements_from_complex_types(self, complex_types: Dict) -> Dict[str, Any]:
+        """Create elements from complex types when no top-level elements exist"""
+        elements = {}
+        for type_name, fields in complex_types.items():
+            # Convert type names to element names (remove 'Type' suffix)
+            elem_name = type_name
+            if elem_name.endswith('Type'):
+                elem_name = elem_name[:-4]
+            # Convert camelCase to snake_case for mmCIF compatibility
+            elem_name = self._camel_to_snake(elem_name)
+            elements[elem_name] = fields
+        return elements
+
+    def _camel_to_snake(self, name: str) -> str:
+        """Convert camelCase to snake_case"""
+        import re
+        return re.sub(r'([A-Z])', r'_\1', name).lower().strip('_')
 
 # ====================== Mapping Generator ======================
 class MappingGenerator:
