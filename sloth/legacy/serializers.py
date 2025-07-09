@@ -12,6 +12,7 @@ import json
 import hashlib
 import threading
 import traceback
+import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple
 from xml.etree import ElementTree as ET
@@ -20,7 +21,7 @@ from functools import lru_cache, wraps
 from ..models import MMCIFDataContainer, DataBlock, Category
 from ..parser import MMCIFParser
 from ..validators import XMLSchemaValidator
-from ..schemas import (
+from .schemas import (
     XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
     PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 
     is_null_value, PDBMLNamespace
@@ -1736,7 +1737,7 @@ class PDBMLConverter:
         return self._mapping_rules
         
     @property
-    def xml_validator(self) -> Optional:
+    def xml_validator(self) -> Optional[XMLSchemaValidator]:
         """Lazy-loaded XML validator property."""
         if self._xml_validator is None:
             self._xml_validator = self._initialize_xml_validator()

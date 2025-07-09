@@ -142,8 +142,8 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_enum_class_functionality(self):
         """Test that enum classes work correctly."""
-        from sloth.schemas import (
-            XMLLocation, NullValue, NumericDataType,
+        from sloth.defaults import (
+            XMLLocation, DataValue, DataType,
             get_numeric_fields, is_null_value
         )
         
@@ -152,18 +152,18 @@ class TestComponentFixes(unittest.TestCase):
         self.assertEqual(XMLLocation.ELEMENT_CONTENT.value, "element_content")
         self.assertEqual(XMLLocation.ELEMENT.value, "element")
         
-        # Test NullValue enum and its helper
-        self.assertTrue(NullValue.is_null("?"))
-        self.assertTrue(NullValue.is_null("."))
-        self.assertFalse(NullValue.is_null("actual_value"))
+        # Test DataValue enum and its helper
+        self.assertTrue(DataValue.is_null("?"))
+        self.assertTrue(DataValue.is_null("."))
+        self.assertFalse(DataValue.is_null("actual_value"))
         
         # Test helper functions
         numeric_fields = get_numeric_fields()
         self.assertIsInstance(numeric_fields, set)
         # Schema-driven approach returns empty set without mapping generator
         
-        # Test NumericDataType enum
-        numeric_types = NumericDataType.get_type_names()
+        # Test DataType enum
+        numeric_types = DataType.get_numeric_types()
         self.assertIsInstance(numeric_types, set)
         self.assertIn("int", numeric_types)
         self.assertIn("float", numeric_types)

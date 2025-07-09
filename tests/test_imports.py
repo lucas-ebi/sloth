@@ -25,8 +25,8 @@ class TestImports(unittest.TestCase):
     def test_enum_imports(self):
         """Test that remaining enum classes can be imported."""
         try:
-            from sloth.schemas import (
-                XMLLocation, NullValue, NumericDataType,
+            from sloth.defaults import (
+                XMLLocation, DataValue, DataType,
                 is_null_value, get_numeric_fields
             )
         except ImportError as e:
@@ -115,7 +115,7 @@ class TestImports(unittest.TestCase):
     
     def test_enum_functionality(self):
         """Test that enum functions work correctly."""
-        from sloth.schemas import XMLLocation, NullValue, NumericDataType, is_null_value, get_numeric_fields
+        from sloth.defaults import XMLLocation, DataValue, DataType, is_null_value, get_numeric_fields
         
         # Test XMLLocation enum
         self.assertEqual(XMLLocation.ATTRIBUTE.value, "attribute")
@@ -127,7 +127,7 @@ class TestImports(unittest.TestCase):
         self.assertFalse(is_null_value("valid_value"))
         
         # Test numeric data types
-        numeric_types = NumericDataType.get_type_names()
+        numeric_types = DataType.get_numeric_types()
         self.assertIsInstance(numeric_types, set)
         self.assertIn("int", numeric_types)
         self.assertIn("float", numeric_types)

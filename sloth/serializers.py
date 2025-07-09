@@ -3,9 +3,8 @@ PDBML Converter - Convert mmCIF to PDBX/PDBML XML format
 
 Optimized for performance with global caching strategy similar to legacy implementation.
 """
-
-import os
 import re
+import os
 import json
 import hashlib
 import threading
@@ -22,19 +21,24 @@ from abc import ABC, abstractmethod
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
 from .validators import XMLSchemaValidator, ValidationError
-from .schemas import (
+from .defaults import (
     XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
     PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 
-    is_null_value, PDBMLNamespace
+    is_null_value, CacheType, DictDataType, FrameMarker, LoopDataKey, 
+    TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
+    SchemaDataType, TypeSuffix, MappingDataKey,
+    # Consolidated classes
+    DataValue, DataType, XMLConstant, SemanticPattern, RelationshipTerm, FileOperation
 )
+
 
 # ====================== Unified High-Performance Caching ======================
 # Global caches for maximum performance (similar to legacy implementation)
 _GLOBAL_CACHES = {
-    'dictionary': {},
-    'xsd': {},
-    'mapping_rules': {},
-    'xsd_trees': {}
+    CacheType.DICTIONARY.value: {},
+    CacheType.XSD.value: {},
+    CacheType.MAPPING_RULES.value: {},
+    CacheType.XSD_TREES.value: {}
 }
 _CACHE_LOCK = threading.Lock()
 
@@ -77,12 +81,12 @@ class CacheManager:
     
     def _load_from_disk(self, cache_type: str, key: str) -> Optional[Any]:
         """Load from disk cache using pickle for speed"""
-        cache_file = self.cache_dir / f"{cache_type}_{key}.pkl"
+        cache_file = self.cache_dir / f"{cache_type}_{key}{FileOperation.PICKLE_EXT.value}"
         if not cache_file.exists():
             return None
         
         try:
-            with open(cache_file, 'rb') as f:
+            with open(cache_file, FileOperation.READ_BINARY.value) as f:
                 value = pickle.load(f)
                 # Also store in global cache for next access
                 with _CACHE_LOCK:
@@ -100,9 +104,9 @@ class CacheManager:
     
     def _save_to_disk(self, cache_type: str, key: str, value: Any) -> None:
         """Save to disk cache using pickle for speed"""
-        cache_file = self.cache_dir / f"{cache_type}_{key}.pkl"
+        cache_file = self.cache_dir / f"{cache_type}_{key}{FileOperation.PICKLE_EXT.value}"
         try:
-            with open(cache_file, 'wb') as f:
+            with open(cache_file, FileOperation.WRITE_BINARY.value) as f:
                 pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:
             pass  # Don't fail if we can't cache
@@ -149,7 +153,7 @@ class DictionaryParser(MetadataParser):
             return self._empty_dict()
         
         cache_key = self._generate_cache_key(dict_path)
-        cached = self.cache_manager.get('dictionary', cache_key)
+        cached = self.cache_manager.get(CacheType.DICTIONARY.value, cache_key)
         if cached:
             if not self.quiet:
                 print("📦 Using cached dictionary data")
@@ -158,7 +162,7 @@ class DictionaryParser(MetadataParser):
         if not self.quiet:
             print("📚 Parsing dictionary...")
         
-        with open(dict_path, 'r') as f:
+        with open(dict_path, FileOperation.READ.value) as f:
             content = f.read()
         
         return self._parse_content(content, dict_path, cache_key)
@@ -166,11 +170,11 @@ class DictionaryParser(MetadataParser):
     def _empty_dict(self) -> Dict[str, Any]:
         """Return empty dictionary structure"""
         return {
-            'categories': {},
-            'items': {},
-            'relationships': [],
-            'enumerations': {},
-            'item_types': {}
+            DictDataType.CATEGORIES.value: {},
+            DictDataType.ITEMS.value: {},
+            DictDataType.RELATIONSHIPS.value: [],
+            DictDataType.ENUMERATIONS.value: {},
+            DictDataType.ITEM_TYPES.value: {}
         }
 
     def _generate_cache_key(self, dict_path: Union[str, Path]) -> str:
@@ -200,12 +204,12 @@ class DictionaryParser(MetadataParser):
         primary_keys = PrimaryKeyExtractor.extract(processor.categories)
         
         result = {
-            "categories": processor.categories,
-            "items": processor.items,
-            "relationships": processor.relationships,
-            "enumerations": processor.enumerations,
-            "item_types": tabular_parser.item_types,
-            "primary_keys": primary_keys
+            DictDataType.CATEGORIES.value: processor.categories,
+            DictDataType.ITEMS.value: processor.items,
+            DictDataType.RELATIONSHIPS.value: processor.relationships,
+            DictDataType.ENUMERATIONS.value: processor.enumerations,
+            DictDataType.ITEM_TYPES.value: tabular_parser.item_types,
+            DictDataType.PRIMARY_KEYS.value: primary_keys
         }
         
         # Debug output
@@ -216,7 +220,7 @@ class DictionaryParser(MetadataParser):
                 print(f"  - {cat}: {key}")
         
         # Store in unified cache
-        self.cache_manager.set('dictionary', cache_key, result)
+        self.cache_manager.set(CacheType.DICTIONARY.value, cache_key, result)
         return result
 
 
@@ -238,26 +242,26 @@ class SaveFrameParser:
         while i < len(lines):
             line = lines[i].strip()
             
-            if not line or line.startswith('#'):
+            if not line or line.startswith(FrameMarker.HASH.value):
                 i += 1
                 continue
                 
-            if line == 'save_':
+            if line == FrameMarker.SAVE_END.value:
                 break
                 
-            if line.startswith('_') and i + 1 < len(lines) and lines[i + 1].strip() == ';':
+            if line.startswith(FrameMarker.UNDERSCORE.value) and i + 1 < len(lines) and lines[i + 1].strip() == FrameMarker.MULTILINE_DELIMITER.value:
                 frame_data.update(self._parse_multiline(lines, i))
-                i = frame_data.pop('_next_index')
+                i = frame_data.pop(LoopDataKey.NEXT_INDEX.value)
                 continue
                 
-            if line.startswith('_'):
+            if line.startswith(FrameMarker.UNDERSCORE.value):
                 frame_data.update(self._parse_key_value(line))
                 i += 1
                 continue
                 
-            if line == 'loop_':
+            if line == FrameMarker.LOOP_START.value:
                 loop_data, new_index = self._parse_loop(lines, i + 1)
-                frame_data['_loop_data'] = loop_data
+                frame_data[LoopDataKey.LOOP_DATA.value] = loop_data
                 i = new_index
                 continue
                 
@@ -267,26 +271,26 @@ class SaveFrameParser:
 
     def _parse_multiline(self, lines: List[str], index: int) -> Dict[str, Any]:
         """Parse multiline text blocks"""
-        key = lines[index].strip().strip('_')
+        key = lines[index].strip().strip(FrameMarker.UNDERSCORE.value)
         i = index + 2  # Skip key line and opening ';'
         multiline_content = []
         
         while i < len(lines):
-            if lines[i].strip() == ';':
+            if lines[i].strip() == FrameMarker.MULTILINE_DELIMITER.value:
                 break
             multiline_content.append(lines[i])
             i += 1
         
         return {
             key: '\n'.join(multiline_content).strip(),
-            '_next_index': i + 1
+            LoopDataKey.NEXT_INDEX.value: i + 1
         }
 
     def _parse_key_value(self, line: str) -> Dict[str, str]:
         """Parse simple key-value pairs"""
         parts = line.split(None, 1)
-        key = parts[0].strip('_')
-        value = parts[1].strip().strip('"\'') if len(parts) == 2 else ''
+        key = parts[0].strip(FrameMarker.UNDERSCORE.value)
+        value = parts[1].strip().strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}') if len(parts) == 2 else DataValue.EMPTY_STRING.value
         return {key: value}
 
     def _parse_loop(self, lines: List[str], start_index: int) -> Tuple[Dict[str, Any], int]:
@@ -295,15 +299,15 @@ class SaveFrameParser:
         loop_headers = []
         
         # Collect loop headers
-        while i < len(lines) and lines[i].strip().startswith('_'):
-            loop_headers.append(lines[i].strip().strip('_'))
+        while i < len(lines) and lines[i].strip().startswith(FrameMarker.UNDERSCORE.value):
+            loop_headers.append(lines[i].strip().strip(FrameMarker.UNDERSCORE.value))
             i += 1
         
         # Collect loop data
         loop_data = []
         while i < len(lines):
             line = lines[i].strip()
-            if not line or line.startswith('#') or line in ('save_', 'loop_') or line.startswith('_'):
+            if not line or line.startswith(FrameMarker.HASH.value) or line in (FrameMarker.SAVE_END.value, FrameMarker.LOOP_START.value) or line.startswith(FrameMarker.UNDERSCORE.value):
                 break
                 
             try:
@@ -321,12 +325,12 @@ class SaveFrameParser:
             row_data = {}
             for j, header in enumerate(loop_headers):
                 if j < len(row):
-                    row_data[header] = row[j].strip('"\'')
+                    row_data[header] = row[j].strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}')
             loop_items.append(row_data)
         
         return {
-            'headers': loop_headers,
-            'items': loop_items
+            LoopDataKey.HEADERS.value: loop_headers,
+            LoopDataKey.ITEMS.value: loop_items
         }, i
 
 
@@ -341,16 +345,16 @@ class FrameDataProcessor:
     
     def process_frame(self, frame_data: Dict[str, Any]):
         """Process a single frame's data"""
-        if '_loop_data' in frame_data:
+        if LoopDataKey.LOOP_DATA.value in frame_data:
             self._process_loop_frame(frame_data)
         else:
             self._process_non_loop_frame(frame_data)
     
     def _process_loop_frame(self, frame_data: Dict[str, Any]):
         """Process frames with loop data"""
-        loop_info = frame_data['_loop_data']
+        loop_info = frame_data[LoopDataKey.LOOP_DATA.value]
         
-        for loop_item in loop_info['items']:
+        for loop_item in loop_info[LoopDataKey.ITEMS.value]:
             combined_data = {**frame_data, **loop_item}
             self._classify_data(combined_data)
     
@@ -360,38 +364,38 @@ class FrameDataProcessor:
     
     def _classify_data(self, data: Dict[str, Any]):
         """Classify data into categories, items, or relationships"""
-        if 'category.id' in data:
-            self.categories[data['category.id']] = data
-        elif 'item.name' in data:
-            item_name = data['item.name'].strip('"\'')
+        if DictItemKey.CATEGORY_ID.value in data:
+            self.categories[data[DictItemKey.CATEGORY_ID.value]] = data
+        elif DictItemKey.ITEM_NAME.value in data:
+            item_name = data[DictItemKey.ITEM_NAME.value].strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}')
             self.items[item_name] = data
             self._process_enumeration(data, item_name)
-        elif 'item_linked.child_name' in data and 'item_linked.parent_name' in data:
+        elif RelationshipKey.ITEM_LINKED_CHILD_NAME.value in data and RelationshipKey.ITEM_LINKED_PARENT_NAME.value in data:
             self.relationships.append(data)
-        elif 'pdbx_item_linked_group_list.child_category_id' in data:
+        elif RelationshipKey.PDBX_CHILD_CATEGORY_ID.value in data:
             self._process_group_list(data)
 
     def _process_enumeration(self, data: Dict[str, Any], item_name: str):
         """Process enumeration values if present"""
-        if 'item_enumeration.value' in data:
-            values = data['item_enumeration.value']
+        if DictItemKey.ITEM_ENUMERATION_VALUE.value in data:
+            values = data[DictItemKey.ITEM_ENUMERATION_VALUE.value]
             if isinstance(values, str):
                 values = [values]
             self.enumerations[item_name] = values
 
     def _process_group_list(self, data: Dict[str, Any]):
         """Process pdbx_item_linked_group_list entries"""
-        child_cat = data.get('pdbx_item_linked_group_list.child_category_id')
-        child_name = data.get('pdbx_item_linked_group_list.child_name')
-        parent_name = data.get('pdbx_item_linked_group_list.parent_name')
-        parent_cat = data.get('pdbx_item_linked_group_list.parent_category_id')
+        child_cat = data.get(RelationshipKey.PDBX_CHILD_CATEGORY_ID.value)
+        child_name = data.get(RelationshipKey.PDBX_CHILD_NAME.value)
+        parent_name = data.get(RelationshipKey.PDBX_PARENT_NAME.value)
+        parent_cat = data.get(RelationshipKey.PDBX_PARENT_CATEGORY_ID.value)
         
         if child_cat and child_name and parent_name and parent_cat:
             self.relationships.append({
-                'child_category': child_cat,
-                'child_name': child_name,
-                'parent_category': parent_cat,
-                'parent_name': parent_name
+                RelationshipKey.CHILD_CATEGORY.value: child_cat,
+                RelationshipKey.CHILD_NAME.value: child_name,
+                RelationshipKey.PARENT_CATEGORY.value: parent_cat,
+                RelationshipKey.PARENT_NAME.value: parent_name
             })
 
 
@@ -419,33 +423,33 @@ class TabularDataParser:
     
     def _process_item_types(self, container):
         """Extract item type information"""
-        if "item_type_list" in container[0].data:
-            type_list = container[0].data["item_type_list"]
+        if TabularDataCategory.ITEM_TYPE_LIST.value in container[0].data:
+            type_list = container[0].data[TabularDataCategory.ITEM_TYPE_LIST.value]
             for i in range(type_list.row_count):
                 row = type_list[i].data
-                code = row.get("code")
+                code = row.get(TabularDataField.CODE.value)
                 if code:
                     self.item_types[code] = row
     
     def _process_linked_groups(self, container, processor):
         """Extract relationships from pdbx_item_linked_group_list"""
-        if "pdbx_item_linked_group_list" in container[0].data:
-            linked_list = container[0].data["pdbx_item_linked_group_list"]
+        if TabularDataCategory.PDBX_ITEM_LINKED_GROUP_LIST.value in container[0].data:
+            linked_list = container[0].data[TabularDataCategory.PDBX_ITEM_LINKED_GROUP_LIST.value]
             if not self.quiet:
                 print(f"📊 Found {linked_list.row_count} relationships in dictionary")
             for i in range(linked_list.row_count):
                 row = linked_list[i].data
-                child_cat = row.get("child_category_id")
-                child_name = row.get("child_name", "").strip('"')
-                parent_name = row.get("parent_name", "").strip('"')
-                parent_cat = row.get("parent_category_id")
+                child_cat = row.get(TabularDataField.CHILD_CATEGORY_ID.value)
+                child_name = row.get(TabularDataField.CHILD_NAME.value, DataValue.EMPTY_STRING.value).strip(FileOperation.DOUBLE_QUOTE.value)
+                parent_name = row.get(TabularDataField.PARENT_NAME.value, DataValue.EMPTY_STRING.value).strip(FileOperation.DOUBLE_QUOTE.value)
+                parent_cat = row.get(TabularDataField.PARENT_CATEGORY_ID.value)
                 
                 if child_cat and child_name and parent_name and parent_cat:
                     processor.relationships.append({
-                        'child_category': child_cat,
-                        'child_name': child_name,
-                        'parent_category': parent_cat,
-                        'parent_name': parent_name
+                        RelationshipKey.CHILD_CATEGORY.value: child_cat,
+                        RelationshipKey.CHILD_NAME.value: child_name,
+                        RelationshipKey.PARENT_CATEGORY.value: parent_cat,
+                        RelationshipKey.PARENT_NAME.value: parent_name
                     })
 
 
@@ -459,17 +463,17 @@ class PrimaryKeyExtractor:
             key_items = []
             
             # Check for direct key field
-            if 'category_key.name' in cat_data:
-                key_item = cat_data['category_key.name'].strip('"\'')
+            if DictItemKey.CATEGORY_KEY_NAME.value in cat_data:
+                key_item = cat_data[DictItemKey.CATEGORY_KEY_NAME.value].strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}')
                 if key_item:
                     key_items.append(key_item)
             
             # Check for composite keys in loop data
-            if '_loop_data' in cat_data:
-                loop_data = cat_data['_loop_data']
-                for item in loop_data['items']:
-                    if 'category_key.name' in item:
-                        key_item = item['category_key.name'].strip('"\'')
+            if LoopDataKey.LOOP_DATA.value in cat_data:
+                loop_data = cat_data[LoopDataKey.LOOP_DATA.value]
+                for item in loop_data[LoopDataKey.ITEMS.value]:
+                    if DictItemKey.CATEGORY_KEY_NAME.value in item:
+                        key_item = item[DictItemKey.CATEGORY_KEY_NAME.value].strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}')
                         if key_item and key_item not in key_items:
                             key_items.append(key_item)
             
@@ -477,8 +481,8 @@ class PrimaryKeyExtractor:
             if key_items:
                 fields = []
                 for key_item in key_items:
-                    if key_item.startswith('_') and '.' in key_item:
-                        field_name = key_item.split('.')[-1]
+                    if key_item.startswith(FrameMarker.UNDERSCORE.value) and DataValue.DOT.value in key_item:
+                        field_name = key_item.split(DataValue.DOT.value)[-1]
                         fields.append(field_name)
                 if fields:
                     primary_keys[cat_name] = fields[0] if len(fields) == 1 else fields
@@ -497,7 +501,7 @@ class XSDParser(MetadataParser):
             return self._empty_schema()
         
         cache_key = self._generate_cache_key(xsd_path)
-        cached = self.cache_manager.get('xsd', cache_key)
+        cached = self.cache_manager.get(CacheType.XSD.value, cache_key)
         if cached:
             if not self.quiet:
                 print("📦 Using cached XSD data")
@@ -515,15 +519,15 @@ class XSDParser(MetadataParser):
         elements = parser.parse_elements(root, complex_types)
         
         result = {
-            'elements': elements,
-            'attributes': {},  # Could be extended to parse attributes
-            'required_elements': {},  # Could be extended to parse required elements
-            'default_values': {},  # Could be extended to parse default values
-            'complex_types': complex_types
+            SchemaDataType.ELEMENTS.value: elements,
+            SchemaDataType.ATTRIBUTES.value: {},  # Could be extended to parse attributes
+            SchemaDataType.REQUIRED_ELEMENTS.value: {},  # Could be extended to parse required elements
+            SchemaDataType.DEFAULT_VALUES.value: {},  # Could be extended to parse default values
+            SchemaDataType.COMPLEX_TYPES.value: complex_types
         }
         
         # Store in unified cache
-        self.cache_manager.set('xsd', cache_key, result)
+        self.cache_manager.set(CacheType.XSD.value, cache_key, result)
         if not self.quiet:
             print(f"📋 Parsed {len(elements)} elements, {len(complex_types)} complex types")
         return result
@@ -531,11 +535,11 @@ class XSDParser(MetadataParser):
     def _empty_schema(self) -> Dict[str, Any]:
         """Return empty schema structure"""
         return {
-            'elements': {},
-            'attributes': {},
-            'required_elements': {},
-            'default_values': {},
-            'complex_types': {}
+            SchemaDataType.ELEMENTS.value: {},
+            SchemaDataType.ATTRIBUTES.value: {},
+            SchemaDataType.REQUIRED_ELEMENTS.value: {},
+            SchemaDataType.DEFAULT_VALUES.value: {},
+            SchemaDataType.COMPLEX_TYPES.value: {}
         }
 
     def _generate_cache_key(self, xsd_path: Union[str, Path]) -> str:
@@ -547,13 +551,13 @@ class XSDParser(MetadataParser):
 
 class XSDSchemaParser:
     """Parses XSD schema content into structured data"""
-    NS = {'xs': 'http://www.w3.org/2001/XMLSchema'}
+    NS = {XMLConstant.XS_PREFIX.value: XMLConstant.XS_URI.value}
     
     def parse_complex_types(self, root: ET.Element) -> Dict[str, List[Tuple[str, str]]]:
         """Parse complexType definitions from XSD"""
         complex_types = {}
-        for ctype in root.findall('xs:complexType', self.NS):
-            name = ctype.get('name')
+        for ctype in root.findall(XMLConstant.COMPLEX_TYPE.value, self.NS):
+            name = ctype.get(XMLConstant.NAME.value)
             if not name:
                 continue
                 
@@ -568,9 +572,9 @@ class XSDSchemaParser:
     def parse_elements(self, root: ET.Element, complex_types: Dict) -> Dict[str, Any]:
         """Parse top-level elements from XSD"""
         elements = {}
-        for elem in root.findall('xs:element', self.NS):
-            table_name = elem.get('name')
-            type_name = elem.get('type')
+        for elem in root.findall(XMLConstant.ELEMENT.value, self.NS):
+            table_name = elem.get(XMLConstant.NAME.value)
+            type_name = elem.get(XMLConstant.TYPE.value)
             if table_name and type_name:
                 # Remove namespace prefix if present
                 type_name = type_name.split(':')[-1] if ':' in type_name else type_name
@@ -590,9 +594,9 @@ class XSDSchemaParser:
     def _parse_attributes(self, parent: ET.Element) -> List[Tuple[str, str]]:
         """Parse attribute definitions from complexType"""
         attributes = []
-        for attr in parent.findall('.//xs:attribute', self.NS):
-            attr_name = attr.get('name')
-            attr_type = attr.get('type', 'xs:string')
+        for attr in parent.findall(f'.//{XMLConstant.ATTRIBUTE.value}', self.NS):
+            attr_name = attr.get(XMLConstant.NAME.value)
+            attr_type = attr.get(XMLConstant.TYPE.value, DataType.STRING.value)
             if attr_name:
                 attributes.append((attr_name, attr_type))
         return attributes
@@ -600,10 +604,10 @@ class XSDSchemaParser:
     def _parse_sequence_elements(self, parent: ET.Element) -> List[Tuple[str, str]]:
         """Parse sequence elements from complexType"""
         elements = []
-        sequence = parent.find('.//xs:sequence', self.NS)
+        sequence = parent.find(f'.//{XMLConstant.SEQUENCE.value}', self.NS)
         if sequence is not None:
-            for elem in sequence.findall('xs:element', self.NS):
-                col_name = elem.get('name')
+            for elem in sequence.findall(XMLConstant.ELEMENT.value, self.NS):
+                col_name = elem.get(XMLConstant.NAME.value)
                 col_type = self._get_element_type(elem)
                 if col_name:
                     elements.append((col_name, col_type))
@@ -612,8 +616,8 @@ class XSDSchemaParser:
     def _parse_direct_elements(self, parent: ET.Element) -> List[Tuple[str, str]]:
         """Parse direct elements (choice/all) from complexType"""
         elements = []
-        for elem in parent.findall('.//xs:element', self.NS):
-            col_name = elem.get('name')
+        for elem in parent.findall(f'.//{XMLConstant.ELEMENT.value}', self.NS):
+            col_name = elem.get(XMLConstant.NAME.value)
             col_type = self._get_element_type(elem)
             if col_name:
                 elements.append((col_name, col_type))
@@ -621,12 +625,12 @@ class XSDSchemaParser:
 
     def _get_element_type(self, elem: ET.Element) -> str:
         """Determine element type handling inline restrictions"""
-        col_type = elem.get('type', 'xs:string')
+        col_type = elem.get(XMLConstant.TYPE.value, DataType.STRING.value)
         # Handle inline simpleType with restriction
-        if col_type == 'xs:string':
-            simple_type = elem.find('.//xs:restriction', self.NS)
+        if col_type == DataType.STRING.value:
+            simple_type = elem.find(f'.//{XMLConstant.RESTRICTION.value}', self.NS)
             if simple_type is not None:
-                base_type = simple_type.get('base')
+                base_type = simple_type.get(XMLConstant.BASE.value)
                 if base_type:
                     col_type = base_type
         return col_type
@@ -637,7 +641,7 @@ class XSDSchemaParser:
         for type_name, fields in complex_types.items():
             # Convert type names to element names (remove 'Type' suffix)
             elem_name = type_name
-            if elem_name.endswith('Type'):
+            if elem_name.endswith(TypeSuffix.TYPE.value):
                 elem_name = elem_name[:-4]
             # Convert camelCase to snake_case for mmCIF compatibility
             elem_name = self._camel_to_snake(elem_name)
@@ -670,7 +674,7 @@ class MappingGenerator:
             return self._mapping_rules
         
         cache_key = self._generate_cache_key()
-        cached = self.cache_manager.get('mapping_rules', cache_key)
+        cached = self.cache_manager.get(CacheType.MAPPING_RULES.value, cache_key)
         if cached:
             self._mapping_rules = cached
             if not self.quiet:
@@ -684,7 +688,7 @@ class MappingGenerator:
         xsd_meta = self.xsd_parser.parse(self.xsd_parser.source)
         
         self._mapping_rules = self._generate_mapping(dict_meta, xsd_meta)
-        self.cache_manager.set('mapping_rules', cache_key, self._mapping_rules)
+        self.cache_manager.set(CacheType.MAPPING_RULES.value, cache_key, self._mapping_rules)
         return self._mapping_rules
 
     def _generate_cache_key(self) -> str:
@@ -713,10 +717,10 @@ class MappingGenerator:
         builder.build_foreign_key_map()
         
         return {
-            "category_mapping": builder.category_mapping,
-            "item_mapping": builder.item_mapping,
-            "fk_map": builder.fk_map,
-            "primary_keys": dict_meta.get("primary_keys", {})
+            MappingDataKey.CATEGORY_MAPPING.value: builder.category_mapping,
+            MappingDataKey.ITEM_MAPPING.value: builder.item_mapping,
+            MappingDataKey.FK_MAP.value: builder.fk_map,
+            DictDataType.PRIMARY_KEYS.value: dict_meta.get(DictDataType.PRIMARY_KEYS.value, {})
         }
 
 
@@ -731,14 +735,14 @@ class MappingBuilder:
     
     def build_primary_mappings(self):
         """Build primary category and item mappings"""
-        for cat_name, cat_data in self.dict_meta['categories'].items():
+        for cat_name, cat_data in self.dict_meta[DictDataType.CATEGORIES.value].items():
             self._process_category(cat_name, cat_data)
     
     def _process_category(self, cat_name: str, cat_data: Dict[str, Any]):
         """Process a single category from dictionary metadata"""
         # Find matching XSD type
-        xsd_type_name = f"{cat_name}Type"
-        xsd_fields = self.xsd_meta['complex_types'].get(xsd_type_name, [])
+        xsd_type_name = f"{cat_name}{TypeSuffix.TYPE.value}"
+        xsd_fields = self.xsd_meta[SchemaDataType.COMPLEX_TYPES.value].get(xsd_type_name, [])
         
         # Get all items for this category
         cat_items = self._get_category_items(cat_name)
@@ -747,7 +751,7 @@ class MappingBuilder:
         all_fields = self._combine_fields(xsd_fields, cat_items)
         
         # Create category mapping
-        self.category_mapping[cat_name] = {"fields": sorted(list(all_fields))}
+        self.category_mapping[cat_name] = {MappingDataKey.FIELDS.value: sorted(list(all_fields))}
         
         # Map individual items
         self.item_mapping[cat_name] = {}
@@ -757,9 +761,9 @@ class MappingBuilder:
     def _get_category_items(self, cat_name: str) -> Set[str]:
         """Get all item names for a category"""
         cat_items = set()
-        for item_name in self.dict_meta['items']:
-            if item_name.startswith(f"_{cat_name}."):
-                field_name = item_name[len(f"_{cat_name}."):]
+        for item_name in self.dict_meta[DictDataType.ITEMS.value]:
+            if item_name.startswith(f"{FrameMarker.UNDERSCORE.value}{cat_name}{DataValue.DOT.value}"):
+                field_name = item_name[len(f"{FrameMarker.UNDERSCORE.value}{cat_name}{DataValue.DOT.value}"):]
                 cat_items.add(field_name)
         return cat_items
     
@@ -874,7 +878,7 @@ class PDBMLConverter:
         self.mapping_generator = mapping_generator
         self.permissive = permissive
         self.quiet = quiet
-        self.namespace = PDBMLNamespace.get_default_namespace()
+        self.namespace = XMLConstant.get_default_namespace()
         self.field_resolver = FieldTypeResolver(mapping_generator, quiet)
         self.xml_generator = XMLGenerator(self.field_resolver, quiet)
 
@@ -950,24 +954,24 @@ class FieldTypeResolver:
 
     def get_field_type(self, cat_name: str, field_name: str) -> str:
         """Get the XSD type for a field"""
-        type_name = f"{cat_name}Type"
-        if type_name in self.xsd_meta['complex_types']:
-            for fn, ft in self.xsd_meta['complex_types'][type_name]:
+        type_name = f"{cat_name}{TypeSuffix.TYPE.value}"
+        if type_name in self.xsd_meta[SchemaDataType.COMPLEX_TYPES.value]:
+            for fn, ft in self.xsd_meta[SchemaDataType.COMPLEX_TYPES.value][type_name]:
                 if fn == field_name:
                     return ft
-        return "xs:string"  # Default to string
+        return DataType.STRING.value  # Default to string
 
     def is_typed_field(self, field_type: str) -> bool:
         """Check if a field has a specific non-string type"""
-        typed_fields = ['xsd:integer', 'xsd:int', 'xsd:decimal', 'xsd:double', 
-                       'xsd:float', 'xsd:boolean', 'xsd:date', 'xsd:dateTime']
+        typed_fields = [DataType.INTEGER.value, DataType.XSD_INT.value, DataType.DECIMAL.value, DataType.DOUBLE.value, 
+                       DataType.XSD_FLOAT.value, DataType.XSD_BOOLEAN.value, DataType.XSD_DATE.value, DataType.XSD_DATETIME.value]
         return field_type in typed_fields
 
     def is_attribute_field(self, cat_name: str, field_name: str) -> bool:
         """Determine if a field should be an XML attribute"""
         # Check if primary key
         mapping = self.mapping_generator.get_mapping_rules()
-        primary_keys = mapping.get("primary_keys", {})
+        primary_keys = mapping.get(DictDataType.PRIMARY_KEYS.value, {})
         if cat_name in primary_keys:
             pk = primary_keys[cat_name]
             if isinstance(pk, list):
@@ -979,17 +983,17 @@ class FieldTypeResolver:
         # Check pre-computed mappings
         if cat_name in self._attribute_fields_cache:
             cache_entry = self._attribute_fields_cache[cat_name]
-            if field_name in cache_entry['attributes']:
+            if field_name in cache_entry[SchemaDataType.ATTRIBUTES.value]:
                 return True
-            if field_name in cache_entry['elements']:
+            if field_name in cache_entry[SchemaDataType.ELEMENTS.value]:
                 return False
         
         # Fallback to pattern matching
-        attr_patterns = ['id', 'name', 'type', 'value', 'code']
+        attr_patterns = [SemanticPattern.ID.value, SemanticPattern.NAME.value, SemanticPattern.TYPE.value, SemanticPattern.VALUE.value, SemanticPattern.CODE.value]
         return (field_name in attr_patterns or 
-               field_name.endswith('_id') or 
-               field_name.endswith('_no') or 
-               field_name.endswith('_index'))
+               field_name.endswith(SemanticPattern.ID_SUFFIX.value) or 
+               field_name.endswith(SemanticPattern.NO_SUFFIX.value) or 
+               field_name.endswith(SemanticPattern.INDEX_SUFFIX.value))
 
 
 class XMLGenerator:
@@ -1004,31 +1008,31 @@ class XMLGenerator:
         block = next(iter(mmcif_container))
         
         root = ET.Element('datablock')
-        root.set('xmlns', 'http://pdbml.pdb.org/schema/pdbx-v50.xsd')
-        root.set('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation', 
-                'http://pdbml.pdb.org/schema/pdbx-v50.xsd pdbx-v50.xsd')
-        root.set('datablockName', block.name)
+        root.set(XMLConstant.XMLNS.value, XMLConstant.PDBX_V50.value)
+        root.set(f'{{{XMLConstant.XSI_URI.value}}}{XMLConstant.SCHEMA_LOCATION.value}', 
+                f'{XMLConstant.PDBX_V50.value} {XMLConstant.PDBX_V50_XSD.value}')
+        root.set(XMLConstant.DATABLOCK_NAME.value, block.name)
         
         for cat_name, category in block.data.items():
             cat_name_clean = cat_name.lstrip("_")
             if category.row_count == 0:
                 continue
                 
-            if cat_name_clean not in mapping["category_mapping"]:
+            if cat_name_clean not in mapping[MappingDataKey.CATEGORY_MAPPING.value]:
                 if not self.quiet:
                     print(f"Warning: No mapping found for category {cat_name_clean}")
                 continue
             
             category_elem = self._create_category_element(root, cat_name_clean, category, mapping)
         
-        xml_string = ET.tostring(root, encoding='utf-8').decode('utf-8')
-        return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string
+        xml_string = ET.tostring(root, encoding=XMLConstant.ENCODING.value).decode(XMLConstant.ENCODING.value)
+        return XMLConstant.XML_VERSION.value + xml_string
 
     def _create_category_element(self, parent: ET.Element, cat_name: str, 
                                category: Category, mapping: Dict[str, Any]) -> ET.Element:
         """Create XML elements for a category"""
-        category_elem = ET.SubElement(parent, f'{cat_name}Category')
-        mapped_fields = mapping["category_mapping"][cat_name]["fields"]
+        category_elem = ET.SubElement(parent, f'{cat_name}{TypeSuffix.CATEGORY.value}')
+        mapped_fields = mapping[MappingDataKey.CATEGORY_MAPPING.value][cat_name][MappingDataKey.FIELDS.value]
         
         for i in range(category.row_count):
             row = category[i]
@@ -1053,12 +1057,12 @@ class XMLGenerator:
 
     def _add_attribute(self, element: ET.Element, name: str, value: str):
         """Add an XML attribute if value is valid"""
-        if value and value not in ['', '.', '?']:
+        if value and value not in [DataValue.EMPTY_STRING.value, DataValue.DOT.value, DataValue.QUESTION_MARK.value]:
             element.set(name, value)
 
     def _add_element(self, parent: ET.Element, name: str, value: str, cat_name: str):
         """Add an XML element with proper value handling"""
-        if value in ['', '.', '?']:
+        if value in [DataValue.EMPTY_STRING.value, DataValue.DOT.value, DataValue.QUESTION_MARK.value]:
             self._handle_missing_value(parent, name, cat_name)
         else:
             field_elem = ET.SubElement(parent, name)
@@ -1071,23 +1075,23 @@ class XMLGenerator:
         
         if self.field_resolver.is_typed_field(field_type):
             if 'integer' in field_type.lower() or 'int' in field_type.lower():
-                field_elem.text = "1"
+                field_elem.text = DataValue.DEFAULT_INTEGER.value
             elif 'decimal' in field_type.lower() or 'double' in field_type.lower() or 'float' in field_type.lower():
-                field_elem.text = "0.0"
+                field_elem.text = DataValue.DEFAULT_DECIMAL.value
             else:
-                field_elem.text = ""
+                field_elem.text = DataValue.EMPTY_STRING.value
         else:
-            field_elem.text = ""
+            field_elem.text = DataValue.EMPTY_STRING.value
 
     def _clean_value(self, value: Any) -> str:
         """Clean and normalize values from mmCIF data"""
         if value is None:
-            return ""
+            return DataValue.EMPTY_STRING.value
         
         str_value = str(value)
         if len(str_value) >= 2:
-            if (str_value.startswith('"') and str_value.endswith('"')) or \
-               (str_value.startswith("'") and str_value.endswith("'")):
+            if (str_value.startswith(FileOperation.DOUBLE_QUOTE.value) and str_value.endswith(FileOperation.DOUBLE_QUOTE.value)) or \
+               (str_value.startswith(FileOperation.SINGLE_QUOTE.value) and str_value.endswith(FileOperation.SINGLE_QUOTE.value)):
                 return str_value[1:-1]
         return str_value
 
@@ -1250,8 +1254,10 @@ class OwnershipAnalyzer:
         
         # Check for lookup/reference table patterns
         lookup_table_patterns = [
-            'type', 'class', 'method', 'status', 'code', 'symbol',
-            'enum', 'dict', 'list', 'table', 'ref'
+            SemanticPattern.TYPE.value, SemanticPattern.CLASS.value, SemanticPattern.METHOD.value, 
+            SemanticPattern.STATUS.value, SemanticPattern.CODE.value, SemanticPattern.SYMBOL.value,
+            SemanticPattern.ENUM.value, SemanticPattern.DICT.value, SemanticPattern.LIST.value, 
+            SemanticPattern.TABLE.value, SemanticPattern.REF.value
         ]
         if (any(pattern in parent_cat.lower() for pattern in lookup_table_patterns) or
             any(pattern in child_field.lower() for pattern in lookup_table_patterns)):
@@ -1301,20 +1307,23 @@ class OwnershipAnalyzer:
         
         # Strong reference indicators
         strong_reference_patterns = [
-            'type_symbol', 'symbol', 'type', 'code', 'class', 'method', 
-            'status', 'enum', 'category', 'kind'
+            SemanticPattern.TYPE_SYMBOL.value, SemanticPattern.SYMBOL.value, SemanticPattern.TYPE.value, 
+            SemanticPattern.CODE.value, SemanticPattern.CLASS.value, SemanticPattern.METHOD.value, 
+            SemanticPattern.STATUS.value, SemanticPattern.ENUM.value, SemanticPattern.CATEGORY.value, 
+            SemanticPattern.KIND.value
         ]
         if any(pattern in child_field.lower() for pattern in strong_reference_patterns):
             semantic_score -= 40
         
         # Strong ownership indicators
-        ownership_patterns = [f'{parent_cat}_id', 'asym_id', 'entity_id', 'struct_id']
+        ownership_patterns = [f'{parent_cat}{SemanticPattern.ID_SUFFIX.value}', SemanticPattern.ASYM_ID.value, 
+                             SemanticPattern.ENTITY_ID.value, SemanticPattern.STRUCT_ID.value]
         if any(pattern in child_field.lower() for pattern in ownership_patterns):
             semantic_score += 30
         
         # Primary key references
-        if child_field == 'id' or child_field.endswith('_id'):
-            if parent_cat in child_field or child_field == f'{parent_cat}_id':
+        if child_field == SemanticPattern.ID.value or child_field.endswith(SemanticPattern.ID_SUFFIX.value):
+            if parent_cat in child_field or child_field == f'{parent_cat}{SemanticPattern.ID_SUFFIX.value}':
                 semantic_score += 30
         
         # Category name inclusion
