@@ -57,6 +57,30 @@ _atom_site.pdbx_PDB_model_num
 ATOM   1    N N   . MET A 1 1   ? 20.154  6.718   6.331   1.00 17.44 ? 1   MET A N   1
 ATOM   2    C CA  . MET A 1 1   ? 19.030  7.160   7.123   1.00 17.72 ? 1   MET A CA  1
 #
+loop_
+_atom_type.symbol
+_atom_type.atomic_number
+_atom_type.atomic_mass
+N  7  14.007
+C  6  12.011
+#
+loop_
+_chem_comp.id
+_chem_comp.type
+_chem_comp.name
+MET  'L-peptide linking'  METHIONINE
+#
+loop_
+_entity.id
+_entity.type
+_entity.src_method
+1  polymer  man
+#
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A  1
+#
 _citation.id                  primary
 _citation.title               "Test Structure"
 _citation.journal_abbrev      ?
