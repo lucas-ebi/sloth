@@ -1097,17 +1097,35 @@ class RelationshipResolver:
     """Resolves entity relationships for nested JSON output"""
     def __init__(self, mapping_generator: MappingGenerator):
         self.mapping_generator = mapping_generator
-        self._mapping_rules = None
+        self.ownership_analyzer = OwnershipAnalyzer(mapping_generator)
+        self.nesting_builder = NestingBuilder()
         
     @property
     def mapping_rules(self) -> Dict[str, Any]:
         """Cached access to mapping rules"""
-        if self._mapping_rules is None:
-            self._mapping_rules = self.mapping_generator.get_mapping_rules()
-        return self._mapping_rules
+        return self.mapping_generator.get_mapping_rules()
 
     def resolve_relationships(self, xml_content: str) -> Dict[str, Any]:
         # Parse XML to flat dict
+        flattener = XMLFlattener()
+        flat = flattener.flatten(xml_content)
+        
+        # Get mapping rules
+        mapping = self.mapping_rules
+        fk_map = mapping["fk_map"]
+        primary_keys = mapping.get("primary_keys", {})
+        
+        # Filter FK map to only include ownership relationships
+        ownership_fk_map = self.ownership_analyzer.filter_ownership_relationships(fk_map, flat)
+        
+        # Build nested structure
+        return self.nesting_builder.build_nested_structure(flat, ownership_fk_map, primary_keys)
+
+
+class XMLFlattener:
+    """Flattens XML content into a dictionary structure"""
+    def flatten(self, xml_content: str) -> Dict[str, Any]:
+        """Convert XML to flat dictionary of entities and rows"""
         tree = ET.ElementTree(ET.fromstring(xml_content))
         root = tree.getroot()
         flat = {}
@@ -1121,110 +1139,30 @@ class RelationshipResolver:
             
             # Process each item in the category
             for item_elem in elem:
-                # Create row data from both attributes and child elements
-                row_data = {}
-                # Add attributes
-                row_data.update(item_elem.attrib)
-                # Add child elements
-                for child in item_elem:
-                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                    row_data[child_tag] = child.text
-                
+                row_data = self._extract_row_data(item_elem)
                 flat.setdefault(entity_name, []).append(row_data)
         
-        # Use FK map to nest and convert lists to dictionaries using primary keys
-        mapping = self.mapping_rules
-        fk_map = mapping["fk_map"]
-        primary_keys = mapping.get("primary_keys", {})
-        
-        # Filter FK map to only include ownership relationships (not references)
-        ownership_fk_map = self._filter_ownership_relationships(fk_map, flat)
-        
-        # Identify categories that are ONLY children (never parents) and have duplicate primary keys
-        child_only_cats = set()
-        parent_cats = {p for (c, _), (p, _) in ownership_fk_map.items()}
-        child_cats = {c for (c, _) in ownership_fk_map.keys()}
-        
-        for cat in child_cats:
-            if cat not in parent_cats:  # Category is only a child, never a parent
-                # Check if it has duplicate primary key values (indicating it should be processed as arrays)
-                pk_field = primary_keys.get(cat, 'id')
-                pk_values = [row.get(pk_field) for row in flat.get(cat, [])]
-                if len(pk_values) != len(set(pk_values)):  # Duplicate primary keys found
-                    child_only_cats.add(cat)
-        
-        # Convert lists to dictionaries using primary keys (except for child-only categories)
-        indexed = {}
-        for entity_name, entity_list in flat.items():
-            if entity_name in child_only_cats:
-                # For child-only categories with duplicate keys, keep as list and use index as key
-                entity_dict = {}
-                for i, row in enumerate(entity_list):
-                    entity_dict[str(i)] = row
-                indexed[entity_name] = entity_dict
-            else:
-                # Normal indexing by primary key
-                pk_field = primary_keys.get(entity_name, 'id')  # Default to 'id' if not specified
-                entity_dict = {}
-                for row in entity_list:
-                    pk_value = row.get(pk_field)
-                    if pk_value is not None:
-                        entity_dict[str(pk_value)] = row
-                    else:
-                        # If no primary key value, use index as fallback
-                        entity_dict[str(len(entity_dict))] = row
-                indexed[entity_name] = entity_dict
-        
-        # Build parent lookup using indexed structure
-        parent_lookup = {}
-        for (child_cat, child_col), (parent_cat, parent_col) in ownership_fk_map.items():
-            parent_lookup.setdefault(parent_cat, {})
-            for pk, row in indexed.get(parent_cat, {}).items():
-                parent_lookup[parent_cat][pk] = row
-        
-        # Assign children using indexed structure
-        for (child_cat, child_col), (parent_cat, parent_col) in ownership_fk_map.items():
-            for child_pk, row in indexed.get(child_cat, {}).items():
-                fk = row.get(child_col)
-                if fk and str(fk) in indexed.get(parent_cat, {}):
-                    parent = indexed[parent_cat][str(fk)]
-                    if child_cat not in parent:
-                        parent[child_cat] = []
-                    # Handle multiple children as array - more intuitive than object with ID keys
-                    parent[child_cat].append(row)
-        
-        # Return top-level categories
-        # A category is top-level if it's not actually nested as a child in the current data
-        
-        # Find which categories are actually nested as children in the current data
-        actually_nested_cats = set()
-        for entity_name, entity_dict in indexed.items():
-            for pk, entity_data in entity_dict.items():
-                # Check if this entity has any nested children (categories as keys)
-                for key in entity_data.keys():
-                    if key in indexed and isinstance(entity_data.get(key), list):
-                        # This key represents a nested category that's actually populated
-                        actually_nested_cats.add(key)
-        
-        top = {}
-        for k, v in indexed.items():
-            # Only include if it's NOT actually nested as a child in the current data
-            # This prevents duplication where nested children also appear at top level
-            if k not in actually_nested_cats:
-                # Convert top-level category dictionaries to arrays for consistency
-                # This makes all collections uniform (arrays instead of objects with ID keys)
-                if isinstance(v, dict) and len(v) > 0:
-                    # Convert dictionary to array, preserving order by sorting keys
-                    top[k] = [item for key, item in sorted(v.items())]
-                else:
-                    top[k] = v
-        return top
+        return flat
 
-    def _filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> Dict:
-        """
-        Filter FK map to include only ownership relationships (not references).
-        Uses data-driven analysis based on dictionary metadata and relationship cardinality.
-        """
+    def _extract_row_data(self, elem: ET.Element) -> Dict[str, Any]:
+        """Extract row data from XML element"""
+        row_data = {}
+        # Add attributes
+        row_data.update(elem.attrib)
+        # Add child elements
+        for child in elem:
+            child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            row_data[child_tag] = child.text
+        return row_data
+
+
+class OwnershipAnalyzer:
+    """Analyzes relationships to determine ownership"""
+    def __init__(self, mapping_generator: MappingGenerator):
+        self.mapping_generator = mapping_generator
+
+    def filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> Dict:
+        """Filter FK map to include only ownership relationships"""
         # Get dictionary metadata for relationship analysis
         dict_meta = self.mapping_generator.dict_parser.parse(
             self.mapping_generator.dict_parser.source
@@ -1233,7 +1171,6 @@ class RelationshipResolver:
         ownership_fk_map = {}
         
         for (child_cat, child_field), (parent_cat, parent_field) in fk_map.items():
-            # Analyze if this is an ownership relationship or a reference relationship
             if self._is_ownership_relationship(
                 child_cat, child_field, parent_cat, parent_field, 
                 dict_meta, data
@@ -1251,58 +1188,44 @@ class RelationshipResolver:
         dict_meta: Dict,
         data: Dict
     ) -> bool:
-        """
-        Determine if a relationship represents ownership (parent owns child) 
-        rather than reference (child references parent).
-        
-        Uses data-driven analysis from dictionary metadata and relationship patterns.
-        """
-        # 1. Check dictionary relationship metadata for explicit ownership indicators
+        """Determine if a relationship represents ownership"""
+        # Check for explicit indicators in dictionary metadata
         for rel in dict_meta.get('relationships', []):
-            rel_child_name = rel.get('child_name', '').strip('_')
-            rel_parent_name = rel.get('parent_name', '').strip('_')
-            
-            # Match this relationship in the dictionary
-            if (rel_child_name.endswith(f'{child_cat}.{child_field}') and 
-                rel_parent_name.endswith(f'{parent_cat}.{parent_field}')):
-                
-                # Check for explicit ownership indicators in the relationship metadata
+            if self._matches_relationship(rel, child_cat, child_field, parent_cat, parent_field):
                 if self._has_ownership_indicators(rel):
                     return True
                 if self._has_reference_indicators(rel):
                     return False
         
-        # 2. Analyze cardinality from actual data
+        # Analyze relationship characteristics
         cardinality_score = self._analyze_cardinality(
             child_cat, child_field, parent_cat, parent_field, data
         )
-        
-        # 3. Analyze semantic naming patterns from dictionary item definitions
         semantic_score = self._analyze_semantic_patterns(
             child_cat, child_field, parent_cat, dict_meta
         )
-        
-        # 4. Analyze category hierarchy from dictionary metadata
         hierarchy_score = self._analyze_category_hierarchy(
             child_cat, parent_cat, dict_meta
         )
         
-        # Combine scores to determine ownership vs reference
-        total_score = cardinality_score + semantic_score + hierarchy_score
-        
-        # Threshold for ownership (positive scores indicate ownership)
-        return total_score > 0
+        return cardinality_score + semantic_score + hierarchy_score > 0
+    
+    def _matches_relationship(self, rel: Dict, child_cat: str, child_field: str, 
+                            parent_cat: str, parent_field: str) -> bool:
+        """Check if relationship metadata matches current relationship"""
+        rel_child_name = rel.get('child_name', '').strip('_')
+        rel_parent_name = rel.get('parent_name', '').strip('_')
+        return (rel_child_name.endswith(f'{child_cat}.{child_field}') and 
+               rel_parent_name.endswith(f'{parent_cat}.{parent_field}'))
     
     def _has_ownership_indicators(self, rel: Dict) -> bool:
-        """Check for explicit ownership indicators in relationship metadata"""
-        # Look for ownership-related terms in relationship descriptions
+        """Check for ownership indicators in relationship metadata"""
         description = rel.get('description', '').lower()
         ownership_terms = ['belongs to', 'owned by', 'part of', 'contained in', 'member of']
         return any(term in description for term in ownership_terms)
     
     def _has_reference_indicators(self, rel: Dict) -> bool:
-        """Check for explicit reference indicators in relationship metadata"""
-        # Look for reference-related terms in relationship descriptions
+        """Check for reference indicators in relationship metadata"""
         description = rel.get('description', '').lower()
         reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for']
         return any(term in description for term in reference_terms)
@@ -1315,18 +1238,7 @@ class RelationshipResolver:
         parent_field: str, 
         data: Dict
     ) -> float:
-        """
-        Analyze relationship cardinality from actual data.
-        
-        Key insight: We need to look at the DIRECTION of the relationship:
-        - True ownership: Parent category naturally contains/owns children 
-          (e.g., struct_asym owns atom_site records within that asymmetric unit)
-        - Reference: Child references a lookup/type table 
-          (e.g., atom_site.type_symbol references atom_type.symbol for type info)
-        
-        For references to lookup/type tables, even if many children reference 
-        the same parent, this indicates REFERENCE, not ownership.
-        """
+        """Analyze relationship cardinality from actual data"""
         if child_cat not in data or parent_cat not in data:
             return 0.0
         
@@ -1336,57 +1248,42 @@ class RelationshipResolver:
         if not child_data or not parent_data:
             return 0.0
         
-        # First, detect if parent category is a lookup/reference table
-        # These patterns strongly indicate reference relationships
+        # Check for lookup/reference table patterns
         lookup_table_patterns = [
             'type', 'class', 'method', 'status', 'code', 'symbol',
             'enum', 'dict', 'list', 'table', 'ref'
         ]
-        
-        is_lookup_table = any(pattern in parent_cat.lower() for pattern in lookup_table_patterns)
-        is_reference_field = any(pattern in child_field.lower() for pattern in lookup_table_patterns)
-        
-        # Special handling for known reference patterns
-        if is_lookup_table or is_reference_field:
-            # This is very likely a reference relationship, not ownership
+        if (any(pattern in parent_cat.lower() for pattern in lookup_table_patterns) or
+            any(pattern in child_field.lower() for pattern in lookup_table_patterns)):
             return -30.0
         
-        # For non-lookup relationships, analyze cardinality patterns
+        # Analyze parent-child relationships
         parent_to_children = {}
         for child_row in child_data:
-            fk_value = child_row.get(child_field)
-            if fk_value:
+            if fk_value := child_row.get(child_field):
                 parent_to_children.setdefault(fk_value, 0)
                 parent_to_children[fk_value] += 1
         
         if not parent_to_children:
             return 0.0
         
-        # Check if this looks like a natural hierarchy vs reference
-        # For ownership, we expect:
-        # 1. Most or all parents have children
-        # 2. Reasonable distribution of children per parent
+        # Calculate coverage ratio
         parent_count = len(parent_data)
         referenced_parent_count = len(parent_to_children)
         coverage_ratio = referenced_parent_count / parent_count if parent_count > 0 else 0
-        
-        # If only a small fraction of parents are referenced, likely reference table
         if coverage_ratio < 0.3:
             return -20.0
         
         # Calculate average children per parent
         avg_children = sum(parent_to_children.values()) / len(parent_to_children)
-        
-        # For true ownership relationships, we expect moderate child counts
-        # Very high child counts per parent often indicate reference relationships
-        if avg_children > 10:  # Many children per parent = likely reference
+        if avg_children > 10:
             return -15.0
         elif avg_children > 5:
             return -5.0
         elif avg_children > 2:
             return 10.0
         else:
-            return 20.0  # 1:1 or 1:2 relationships often indicate ownership
+            return 20.0
     
     def _analyze_semantic_patterns(
         self, 
@@ -1395,56 +1292,42 @@ class RelationshipResolver:
         parent_cat: str, 
         dict_meta: Dict
     ) -> float:
-        """
-        Analyze semantic naming patterns from dictionary item definitions.
-        """
-        # Get item definition for the child field
+        """Analyze semantic naming patterns from dictionary item definitions"""
         child_item_name = f'_{child_cat}.{child_field}'
         child_item = dict_meta.get('items', {}).get(child_item_name, {})
-        
         description = child_item.get('item.description', '').lower()
-        name = child_item.get('item.name', '').lower()
         
-        # Analyze field naming patterns
         semantic_score = 0.0
         
-        # Strong reference indicators in field names
+        # Strong reference indicators
         strong_reference_patterns = [
             'type_symbol', 'symbol', 'type', 'code', 'class', 'method', 
             'status', 'enum', 'category', 'kind'
         ]
-        
         if any(pattern in child_field.lower() for pattern in strong_reference_patterns):
-            semantic_score -= 40  # Strong reference indicator
+            semantic_score -= 40
         
         # Strong ownership indicators
-        ownership_patterns = [
-            f'{parent_cat}_id', 'asym_id', 'entity_id', 'struct_id'
-        ]
-        
+        ownership_patterns = [f'{parent_cat}_id', 'asym_id', 'entity_id', 'struct_id']
         if any(pattern in child_field.lower() for pattern in ownership_patterns):
-            semantic_score += 30  # Strong ownership indicator
+            semantic_score += 30
         
-        # Primary key references often indicate ownership
+        # Primary key references
         if child_field == 'id' or child_field.endswith('_id'):
-            # Check if this ID field references the parent's primary key
             if parent_cat in child_field or child_field == f'{parent_cat}_id':
-                semantic_score += 30  # Strong ownership indicator
+                semantic_score += 30
         
-        # Category name inclusion patterns
+        # Category name inclusion
         if parent_cat in child_cat:
-            # Child category name contains parent name (e.g., atom_site -> struct_asym)
             semantic_score += 20
         
         # Field description analysis
         if description:
             ownership_terms = ['identifier', 'key', 'belongs', 'member', 'part']
             reference_terms = ['type', 'code', 'symbol', 'class', 'method', 'lookup', 'refers to']
-            
             for term in ownership_terms:
                 if term in description:
                     semantic_score += 10
-            
             for term in reference_terms:
                 if term in description:
                     semantic_score -= 15
@@ -1457,44 +1340,134 @@ class RelationshipResolver:
         parent_cat: str, 
         dict_meta: Dict
     ) -> float:
-        """
-        Analyze category hierarchy patterns from dictionary metadata.
-        """
-        # Get category definitions
+        """Analyze category hierarchy patterns from dictionary metadata"""
         child_category = dict_meta.get('categories', {}).get(child_cat, {})
         parent_category = dict_meta.get('categories', {}).get(parent_cat, {})
-        
         hierarchy_score = 0.0
         
-        # Check category descriptions for hierarchy indicators
+        # Category descriptions
         child_desc = child_category.get('category.description', '').lower()
         parent_desc = parent_category.get('category.description', '').lower()
         
-        # Analyze naming patterns
+        # Naming patterns
         if child_cat.startswith(parent_cat):
-            # Child category name starts with parent name
             hierarchy_score += 25
         
-        # Look for hierarchical terms in descriptions
+        # Description terms
         if child_desc and parent_desc:
             if 'detail' in child_desc or 'specific' in child_desc:
                 hierarchy_score += 15
             if 'general' in parent_desc or 'summary' in parent_desc:
                 hierarchy_score += 10
         
-        # Special patterns for structural relationships
+        # Structural patterns
         structural_patterns = [
-            (child_cat.endswith('_site'), parent_cat.endswith('_asym')),  # Sites belong to asymmetric units
-            (child_cat.endswith('_atom'), parent_cat.endswith('_residue')),  # Atoms belong to residues
-            ('author' in child_cat, 'label' in parent_cat),  # Author fields reference label fields
+            (child_cat.endswith('_site'), parent_cat.endswith('_asym')),
+            (child_cat.endswith('_atom'), parent_cat.endswith('_residue')),
+            ('author' in child_cat, 'label' in parent_cat),
         ]
-        
         for child_pattern, parent_pattern in structural_patterns:
             if child_pattern and parent_pattern:
                 hierarchy_score += 20
                 break
         
         return hierarchy_score
+
+
+class NestingBuilder:
+    """Builds nested structure from flat data using relationships"""
+    def build_nested_structure(
+        self, 
+        flat: Dict[str, Any], 
+        fk_map: Dict, 
+        primary_keys: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build nested structure from flat data"""
+        # Identify child-only categories
+        child_only_cats = self._identify_child_only_categories(fk_map, flat, primary_keys)
+        
+        # Create indexed structure
+        indexed = self._create_indexed_structure(flat, primary_keys, child_only_cats)
+        
+        # Assign children to parents
+        self._assign_children(indexed, fk_map)
+        
+        # Build top-level structure
+        return self._build_top_level(indexed)
+
+    def _identify_child_only_categories(
+        self, 
+        fk_map: Dict, 
+        flat: Dict[str, Any], 
+        primary_keys: Dict[str, Any]
+    ) -> Set[str]:
+        """Identify categories that are only children with duplicate keys"""
+        child_only_cats = set()
+        parent_cats = {p for (c, _), (p, _) in fk_map.items()}
+        child_cats = {c for (c, _) in fk_map.keys()}
+        
+        for cat in child_cats:
+            if cat not in parent_cats:
+                pk_field = primary_keys.get(cat, 'id')
+                pk_values = [row.get(pk_field) for row in flat.get(cat, [])]
+                if len(pk_values) != len(set(pk_values)):
+                    child_only_cats.add(cat)
+        return child_only_cats
+
+    def _create_indexed_structure(
+        self, 
+        flat: Dict[str, Any], 
+        primary_keys: Dict[str, Any],
+        child_only_cats: Set[str]
+    ) -> Dict[str, Any]:
+        """Create indexed structure from flat data"""
+        indexed = {}
+        for entity_name, entity_list in flat.items():
+            if entity_name in child_only_cats:
+                # Use index as key for child-only categories
+                indexed[entity_name] = {str(i): row for i, row in enumerate(entity_list)}
+            else:
+                # Use primary key for indexing
+                pk_field = primary_keys.get(entity_name, 'id')
+                entity_dict = {}
+                for row in entity_list:
+                    pk_value = row.get(pk_field)
+                    key = str(pk_value) if pk_value is not None else str(len(entity_dict))
+                    entity_dict[key] = row
+                indexed[entity_name] = entity_dict
+        return indexed
+
+    def _assign_children(
+        self, 
+        indexed: Dict[str, Any], 
+        fk_map: Dict
+    ):
+        """Assign children to parents using foreign key relationships"""
+        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+            for child_pk, row in indexed.get(child_cat, {}).items():
+                if fk := row.get(child_col):
+                    if parent := indexed.get(parent_cat, {}).get(str(fk)):
+                        parent.setdefault(child_cat, []).append(row)
+
+    def _build_top_level(self, indexed: Dict[str, Any]) -> Dict[str, Any]:
+        """Build top-level structure from indexed data"""
+        actually_nested_cats = self._find_actually_nested_categories(indexed)
+        top = {}
+        for k, v in indexed.items():
+            if k not in actually_nested_cats:
+                top[k] = [item for _, item in sorted(v.items())] if isinstance(v, dict) else v
+        return top
+
+    def _find_actually_nested_categories(self, indexed: Dict[str, Any]) -> Set[str]:
+        """Find categories that are actually nested as children"""
+        actually_nested_cats = set()
+        for entity_dict in indexed.values():
+            for entity_data in entity_dict.values():
+                for key in entity_data.keys():
+                    if key in indexed and isinstance(entity_data.get(key), list):
+                        actually_nested_cats.add(key)
+        return actually_nested_cats
+
 
 # ====================== Main Pipeline ======================
 class MMCIFToPDBMLPipeline:
