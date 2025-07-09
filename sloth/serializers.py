@@ -467,6 +467,18 @@ class XSDParser(MetadataParser):
         tree = ET.parse(xsd_path)
         root = tree.getroot()
         
+        def _get_element_type(elem, ns):
+            """Helper function to extract type from an element, handling inline restrictions"""
+            col_type = elem.get('type', 'xs:string')
+            # If no direct type, check for inline simpleType with restriction
+            if col_type == 'xs:string':
+                simple_type = elem.find('.//xs:restriction', ns)
+                if simple_type is not None:
+                    base_type = simple_type.get('base')
+                    if base_type:
+                        col_type = base_type
+            return col_type
+
         # Parse complexTypes
         complex_types = {}
         for ctype in root.findall('xs:complexType', ns):
@@ -487,14 +499,14 @@ class XSDParser(MetadataParser):
             if sequence is not None:
                 for elem in sequence.findall('xs:element', ns):
                     col_name = elem.get('name')
-                    col_type = elem.get('type', 'xs:string')
+                    col_type = _get_element_type(elem, ns)
                     if col_name:
                         fields.append((col_name, col_type))
             
             # Look for direct elements (choice/all)
             for elem in ctype.findall('.//xs:element', ns):
                 col_name = elem.get('name')
-                col_type = elem.get('type', 'xs:string')
+                col_type = _get_element_type(elem, ns)
                 if col_name and (col_name, col_type) not in fields:
                     fields.append((col_name, col_type))
             
@@ -770,7 +782,7 @@ class PDBMLConverter:
         
         # Generate XML manually to avoid namespace prefix issues
         xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>']
-        xml_lines.append('<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" datablockName="{}">'.format(block.name))
+        xml_lines.append('<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" datablockName="{}">'.format(block.name))
         
         for cat_name in block.data:
             # cat_name is already a string (category name), remove leading underscore
