@@ -21,7 +21,7 @@ from functools import lru_cache, wraps
 from ..models import MMCIFDataContainer, DataBlock, Category
 from ..parser import MMCIFParser
 from ..validators import XMLSchemaValidator
-from .schemas import (
+from .defaults import (
     XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
     PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 
     is_null_value, PDBMLNamespace
