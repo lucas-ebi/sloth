@@ -13,7 +13,7 @@ import traceback
 import pickle
 import shlex
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, Tuple
+from typing import Dict, List, Optional, Any, Union, Tuple, Set
 from xml.etree import ElementTree
 from xml.etree import ElementTree as ET
 from functools import lru_cache, wraps
@@ -669,7 +669,26 @@ class MappingGenerator:
         if self._mapping_rules is not None:
             return self._mapping_rules
         
-        # Generate cache key based on both source files and their modification times
+        cache_key = self._generate_cache_key()
+        cached = self.cache_manager.get('mapping_rules', cache_key)
+        if cached:
+            self._mapping_rules = cached
+            if not self.quiet:
+                print("📦 Using cached mapping rules")
+            return cached
+        
+        if not self.quiet:
+            print("🧩 Generating mapping rules...")
+            
+        dict_meta = self.dict_parser.parse(self.dict_parser.source)
+        xsd_meta = self.xsd_parser.parse(self.xsd_parser.source)
+        
+        self._mapping_rules = self._generate_mapping(dict_meta, xsd_meta)
+        self.cache_manager.set('mapping_rules', cache_key, self._mapping_rules)
+        return self._mapping_rules
+
+    def _generate_cache_key(self) -> str:
+        """Generate cache key based on source files and modification times"""
         cache_key_parts = []
         if self.dict_parser.source and Path(self.dict_parser.source).exists():
             dict_path = str(Path(self.dict_parser.source).resolve())
@@ -680,130 +699,168 @@ class MappingGenerator:
             xsd_mtime = os.path.getmtime(self.xsd_parser.source)
             cache_key_parts.append(f"xsd_{xsd_path}_{xsd_mtime}")
         
-        cache_key = f"mapping_{hashlib.md5('|'.join(cache_key_parts).encode()).hexdigest()}"
-        
-        # Check unified cache
-        cached = self.cache_manager.get('mapping_rules', cache_key)
-        if cached:
-            self._mapping_rules = cached
-            if not self.quiet:
-                print("📦 Using cached mapping rules")
-            return cached
-        if not self.quiet:
-            print("🧩 Generating mapping rules...")
-        dict_meta = self.dict_parser.parse(self.dict_parser.source)
-        xsd_meta = self.xsd_parser.parse(self.xsd_parser.source)
-        self._mapping_rules = self._generate_mapping(dict_meta, xsd_meta)
-        # Store in unified cache
-        self.cache_manager.set('mapping_rules', cache_key, self._mapping_rules)
-        return self._mapping_rules
+        return f"mapping_{hashlib.md5('|'.join(cache_key_parts).encode()).hexdigest()}"
 
     def _generate_mapping(
         self, 
         dict_meta: Dict[str, Any], 
         xsd_meta: Dict[str, Any]
     ) -> Dict[str, Any]:
-        # Merge XSD structure with dictionary semantics
-        category_mapping = {}
-        item_mapping = {}
-        
-        # Use dictionary categories as the primary source
-        for cat_name, cat_data in dict_meta['categories'].items():
-            # Find matching XSD type
-            xsd_type_name = f"{cat_name}Type"
-            xsd_fields = xsd_meta['complex_types'].get(xsd_type_name, [])
-            
-            # Get all items for this category from dictionary
-            cat_items = []
-            for item_name, item_data in dict_meta['items'].items():
-                if item_name.startswith(f"_{cat_name}."):
-                    field_name = item_name[len(f"_{cat_name}."):]
-                    cat_items.append(field_name)
-            
-            # Combine XSD fields and dictionary items - prioritize XSD fields
-            all_fields = set()
-            # First add all XSD fields (these are authoritative for XML structure)
-            for field_name, field_type in xsd_fields:
-                all_fields.add(field_name)
-            # Then add dictionary items
-            for field_name in cat_items:
-                all_fields.add(field_name)
-            
-            category_mapping[cat_name] = {
-                "fields": sorted(list(all_fields))
-            }
-            
-            # Map individual items
-            item_mapping[cat_name] = {}
-            for field_name in all_fields:
-                item_name = f"_{cat_name}.{field_name}"
-                item_data = dict_meta['items'].get(item_name, {})
-                
-                # Get type from XSD or dictionary
-                field_type = next(
-                    (ft for fn, ft in xsd_fields if fn == field_name), 
-                    item_data.get("item_type.code", "xs:string")
-                )
-                
-                item_mapping[cat_name][field_name] = {
-                    "type": field_type,
-                    "enum": dict_meta['enumerations'].get(item_name),
-                    "description": item_data.get("item_description.description", "")
-                }
-        
-        # Also add any XSD-only categories
-        for xsd_type_name, xsd_fields in xsd_meta['complex_types'].items():
-            if xsd_type_name.endswith('Type'):
-                cat_name = xsd_type_name[:-4]  # Remove 'Type' suffix
-                
-                # Convert camelCase to snake_case if needed
-                import re
-                cat_name_snake = re.sub(r'([A-Z])', r'_\1', cat_name).lower().strip('_')
-                
-                # Check both original and snake_case versions
-                for possible_name in [cat_name, cat_name_snake]:
-                    if possible_name not in category_mapping and possible_name not in dict_meta['categories']:
-                        category_mapping[possible_name] = {
-                            "fields": [fn for fn, ft in xsd_fields]
-                        }
-                        item_mapping[possible_name] = {}
-                        for field_name, field_type in xsd_fields:
-                            item_mapping[possible_name][field_name] = {
-                                "type": field_type,
-                                "enum": None,
-                                "description": ""
-                            }
-                        break
-        
-        # Foreign keys from dictionary relationships
-        fk_map = {}
-        for rel in dict_meta['relationships']:
-            # Handle different relationship types
-            child_name = rel.get("item_linked.child_name") or rel.get("child_name")
-            parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
-            child_cat = rel.get("child_category")
-            parent_cat = rel.get("parent_category")
-            
-            if child_name and parent_name:
-                if child_cat and parent_cat:
-                    # New format with explicit categories
-                    child_field = child_name.strip("_").split(".")[-1] if "." in child_name else child_name
-                    parent_field = parent_name.strip("_").split(".")[-1] if "." in parent_name else parent_name
-                    fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
-                else:
-                    # Legacy format - extract from field names
-                    child_parts = child_name.strip("_").split(".")
-                    parent_parts = parent_name.strip("_").split(".")
-                    
-                    if len(child_parts) == 2 and len(parent_parts) == 2:
-                        fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
+        """Generate complete mapping rules"""
+        builder = MappingBuilder(dict_meta, xsd_meta)
+        builder.build_primary_mappings()
+        builder.add_xsd_only_categories()
+        builder.build_foreign_key_map()
         
         return {
-            "category_mapping": category_mapping,
-            "item_mapping": item_mapping,
-            "fk_map": fk_map,
+            "category_mapping": builder.category_mapping,
+            "item_mapping": builder.item_mapping,
+            "fk_map": builder.fk_map,
             "primary_keys": dict_meta.get("primary_keys", {})
         }
+
+
+class MappingBuilder:
+    """Builds mapping rules from dictionary and XSD metadata"""
+    def __init__(self, dict_meta: Dict[str, Any], xsd_meta: Dict[str, Any]):
+        self.dict_meta = dict_meta
+        self.xsd_meta = xsd_meta
+        self.category_mapping = {}
+        self.item_mapping = {}
+        self.fk_map = {}
+    
+    def build_primary_mappings(self):
+        """Build primary category and item mappings"""
+        for cat_name, cat_data in self.dict_meta['categories'].items():
+            self._process_category(cat_name, cat_data)
+    
+    def _process_category(self, cat_name: str, cat_data: Dict[str, Any]):
+        """Process a single category from dictionary metadata"""
+        # Find matching XSD type
+        xsd_type_name = f"{cat_name}Type"
+        xsd_fields = self.xsd_meta['complex_types'].get(xsd_type_name, [])
+        
+        # Get all items for this category
+        cat_items = self._get_category_items(cat_name)
+        
+        # Combine XSD fields and dictionary items
+        all_fields = self._combine_fields(xsd_fields, cat_items)
+        
+        # Create category mapping
+        self.category_mapping[cat_name] = {"fields": sorted(list(all_fields))}
+        
+        # Map individual items
+        self.item_mapping[cat_name] = {}
+        for field_name in all_fields:
+            self._map_item(cat_name, field_name, xsd_fields)
+    
+    def _get_category_items(self, cat_name: str) -> Set[str]:
+        """Get all item names for a category"""
+        cat_items = set()
+        for item_name in self.dict_meta['items']:
+            if item_name.startswith(f"_{cat_name}."):
+                field_name = item_name[len(f"_{cat_name}."):]
+                cat_items.add(field_name)
+        return cat_items
+    
+    def _combine_fields(self, xsd_fields: List[Tuple[str, str]], cat_items: Set[str]) -> Set[str]:
+        """Combine XSD fields and dictionary items"""
+        all_fields = set(field_name for field_name, _ in xsd_fields)
+        all_fields.update(cat_items)
+        return all_fields
+    
+    def _map_item(self, cat_name: str, field_name: str, xsd_fields: List[Tuple[str, str]]):
+        """Map a single item from dictionary and XSD metadata"""
+        item_name = f"_{cat_name}.{field_name}"
+        item_data = self.dict_meta['items'].get(item_name, {})
+        
+        # Determine field type
+        field_type = next(
+            (ft for fn, ft in xsd_fields if fn == field_name), 
+            item_data.get("item_type.code", "xs:string")
+        )
+        
+        # Create item mapping
+        self.item_mapping[cat_name][field_name] = {
+            "type": field_type,
+            "enum": self.dict_meta['enumerations'].get(item_name),
+            "description": item_data.get("item_description.description", "")
+        }
+    
+    def add_xsd_only_categories(self):
+        """Add categories that only exist in XSD schema"""
+        for xsd_type_name, xsd_fields in self.xsd_meta['complex_types'].items():
+            if not xsd_type_name.endswith('Type'):
+                continue
+                
+            cat_name = xsd_type_name[:-4]  # Remove 'Type' suffix
+            snake_name = self._camel_to_snake(cat_name)
+            
+            # Check if category already exists
+            for possible_name in [cat_name, snake_name]:
+                if possible_name in self.category_mapping:
+                    break
+                if possible_name not in self.dict_meta['categories']:
+                    self._add_xsd_category(possible_name, xsd_fields)
+                    break
+    
+    def _add_xsd_category(self, cat_name: str, xsd_fields: List[Tuple[str, str]]):
+        """Add an XSD-only category to mappings"""
+        self.category_mapping[cat_name] = {
+            "fields": [field_name for field_name, _ in xsd_fields]
+        }
+        self.item_mapping[cat_name] = {}
+        for field_name, field_type in xsd_fields:
+            self.item_mapping[cat_name][field_name] = {
+                "type": field_type,
+                "enum": None,
+                "description": ""
+            }
+    
+    def _camel_to_snake(self, name: str) -> str:
+        """Convert camelCase to snake_case"""
+        import re
+        return re.sub(r'([A-Z])', r'_\1', name).lower().strip('_')
+    
+    def build_foreign_key_map(self):
+        """Build foreign key mapping from relationships"""
+        for rel in self.dict_meta['relationships']:
+            self._process_relationship(rel)
+    
+    def _process_relationship(self, rel: Dict[str, Any]):
+        """Process a single relationship entry"""
+        # Extract relationship data
+        child_name = rel.get("item_linked.child_name") or rel.get("child_name")
+        parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
+        child_cat = rel.get("child_category")
+        parent_cat = rel.get("parent_category")
+        
+        # Skip if missing required data
+        if not child_name or not parent_name:
+            return
+        
+        # Handle different relationship formats
+        if child_cat and parent_cat:
+            # New format with explicit categories
+            child_field = self._extract_field_name(child_name)
+            parent_field = self._extract_field_name(parent_name)
+            self.fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+        else:
+            # Legacy format - extract from field names
+            self._process_legacy_relationship(child_name, parent_name)
+    
+    def _extract_field_name(self, name: str) -> str:
+        """Extract field name from full item name"""
+        return name.strip("_").split(".")[-1] if "." in name else name
+    
+    def _process_legacy_relationship(self, child_name: str, parent_name: str):
+        """Process legacy relationship format"""
+        child_parts = child_name.strip("_").split(".")
+        parent_parts = parent_name.strip("_").split(".")
+        
+        if len(child_parts) == 2 and len(parent_parts) == 2:
+            self.fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
+
 
 # ====================== PDBML Converter ======================
 class PDBMLConverter:
