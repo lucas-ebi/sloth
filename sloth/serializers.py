@@ -146,20 +146,9 @@ class DictionaryParser(MetadataParser):
     def parse(self, dict_path: Union[str, Path]) -> Dict[str, Any]:
         self.source = dict_path
         if not dict_path or not Path(dict_path).exists():
-            return {
-                'categories': {},
-                'items': {},
-                'relationships': [],
-                'enumerations': {},
-                'item_types': {}
-            }
+            return self._empty_dict()
         
-        # Generate cache key with path and modification time for auto-invalidation
-        dict_path_resolved = str(Path(dict_path).resolve())
-        mtime = os.path.getmtime(dict_path)
-        cache_key = f"dict_{hashlib.md5(f'{dict_path_resolved}_{mtime}'.encode()).hexdigest()}"
-        
-        # Check unified cache
+        cache_key = self._generate_cache_key(dict_path)
         cached = self.cache_manager.get('dictionary', cache_key)
         if cached:
             if not self.quiet:
@@ -169,253 +158,313 @@ class DictionaryParser(MetadataParser):
         if not self.quiet:
             print("📚 Parsing dictionary...")
         
-        # Parse the mmCIF dictionary using save frames
-        categories = {}
-        items = {}
-        relationships = []
-        enumerations = {}
-        item_types = {}
-        
-        # Read file and parse save frames
         with open(dict_path, 'r') as f:
             content = f.read()
         
-        # Split into save frames
+        return self._parse_content(content, dict_path, cache_key)
+
+    def _empty_dict(self) -> Dict[str, Any]:
+        """Return empty dictionary structure"""
+        return {
+            'categories': {},
+            'items': {},
+            'relationships': [],
+            'enumerations': {},
+            'item_types': {}
+        }
+
+    def _generate_cache_key(self, dict_path: Union[str, Path]) -> str:
+        """Generate cache key based on file path and modification time"""
+        dict_path_resolved = str(Path(dict_path).resolve())
+        mtime = os.path.getmtime(dict_path)
+        return f"dict_{hashlib.md5(f'{dict_path_resolved}_{mtime}'.encode()).hexdigest()}"
+
+    def _parse_content(self, content: str, dict_path: str, cache_key: str) -> Dict[str, Any]:
+        """Parse dictionary content and process frames"""
         import re
         frames = re.split(r'\nsave_', content)
         
-        for frame_content in frames[1:]:  # Skip first part (global data)
-            lines = frame_content.strip().split('\n')
-            if not lines:
+        parser = SaveFrameParser(self.quiet)
+        processor = FrameDataProcessor(self.quiet)
+        
+        # Process each save frame
+        for frame_content in frames[1:]:
+            frame_data = parser.parse_save_frame(frame_content)
+            processor.process_frame(frame_data)
+        
+        # Parse tabular data using MMCIF parser
+        tabular_parser = TabularDataParser(self.quiet)
+        tabular_parser.parse_tabular_data(dict_path, processor)
+        
+        # Extract primary keys
+        primary_keys = PrimaryKeyExtractor.extract(processor.categories)
+        
+        result = {
+            "categories": processor.categories,
+            "items": processor.items,
+            "relationships": processor.relationships,
+            "enumerations": processor.enumerations,
+            "item_types": tabular_parser.item_types,
+            "primary_keys": primary_keys
+        }
+        
+        # Debug output
+        if not self.quiet:
+            print(f"📚 Parsed {len(processor.categories)} categories, {len(processor.items)} items")
+            print(f"📝 Found {len(primary_keys)} primary keys:")
+            for cat, key in primary_keys.items():
+                print(f"  - {cat}: {key}")
+        
+        # Store in unified cache
+        self.cache_manager.set('dictionary', cache_key, result)
+        return result
+
+
+class SaveFrameParser:
+    """Parses individual save frames from dictionary files"""
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
+    
+    def parse_save_frame(self, frame_content: str) -> Dict[str, Any]:
+        """Parse a single save frame into structured data"""
+        lines = frame_content.strip().split('\n')
+        if not lines:
+            return {}
+            
+        frame_name = lines[0].strip()
+        frame_data = {}
+        i = 1
+        
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            if not line or line.startswith('#'):
+                i += 1
                 continue
                 
-            frame_name = lines[0].strip()
-            frame_data = {}
-            
-            # Simple state machine for parsing
-            i = 1
-            while i < len(lines):
-                line = lines[i].strip()
+            if line == 'save_':
+                break
                 
-                # Skip empty lines and comments
-                if not line or line.startswith('#'):
-                    i += 1
-                    continue
+            if line.startswith('_') and i + 1 < len(lines) and lines[i + 1].strip() == ';':
+                frame_data.update(self._parse_multiline(lines, i))
+                i = frame_data.pop('_next_index')
+                continue
                 
-                # End of save frame
-                if line == 'save_':
-                    break
-                
-                # Handle multiline text blocks
-                if line.startswith('_') and i + 1 < len(lines) and lines[i + 1].strip() == ';':
-                    # This is a key followed by multiline content
-                    key = line.strip('_')
-                    i += 2  # Skip the key line and the opening ';'
-                    
-                    # Collect multiline content until closing ';'
-                    multiline_content = []
-                    while i < len(lines):
-                        if lines[i].strip() == ';':
-                            break
-                        multiline_content.append(lines[i])
-                        i += 1
-                    
-                    frame_data[key] = '\n'.join(multiline_content).strip()
-                    i += 1  # Skip the closing ';'
-                    continue
-                
-                # Handle simple key-value pairs
-                if line.startswith('_'):
-                    parts = line.split(None, 1)
-                    key = parts[0].strip('_')
-                    if len(parts) == 2:
-                        value = parts[1].strip().strip('"\'')
-                        frame_data[key] = value
-                    else:
-                        frame_data[key] = ''
-                    i += 1
-                    continue
-                
-                # Handle loops
-                if line == 'loop_':
-                    i += 1
-                    # Collect loop headers
-                    loop_headers = []
-                    while i < len(lines) and lines[i].strip().startswith('_'):
-                        loop_headers.append(lines[i].strip())
-                        i += 1
-                    
-                    # Collect loop data
-                    loop_data = []
-                    while i < len(lines):
-                        line = lines[i].strip()
-                        if not line or line.startswith('#') or line == 'save_' or line.startswith('_') or line == 'loop_':
-                            break
-                        
-                        # Parse the data line
-                        import shlex
-                        try:
-                            row_data = shlex.split(line)
-                            loop_data.append(row_data)
-                        except ValueError:
-                            row_data = line.split()
-                            loop_data.append(row_data)
-                        i += 1
-                    
-                    # Process loop data - handle multiple rows properly
-                    if loop_data:
-                        # For loops, we need to handle multiple items being defined
-                        # Each row in the loop defines a separate item/entity
-                        loop_items = []
-                        for row in loop_data:
-                            if len(row) >= len(loop_headers):
-                                row_data = {}
-                                for j, header in enumerate(loop_headers):
-                                    key = header.strip('_')
-                                    row_data[key] = row[j].strip('"\'')
-                                loop_items.append(row_data)
-                        
-                        # Store loop data for later processing
-                        frame_data['_loop_data'] = {
-                            'headers': [h.strip('_') for h in loop_headers],
-                            'items': loop_items
-                        }
-                        
-                        # Also set first item's data as direct attributes for compatibility
-                        if loop_items:
-                            first_item = loop_items[0]
-                            for key, value in first_item.items():
-                                if key not in frame_data:
-                                    frame_data[key] = value
-                    continue
-                
-                # Skip unrecognized lines
+            if line.startswith('_'):
+                frame_data.update(self._parse_key_value(line))
                 i += 1
-            
-            # Process loop data first if present
-            if '_loop_data' in frame_data:
-                loop_info = frame_data['_loop_data']
-                headers = loop_info['headers']
+                continue
                 
-                # Process each item in the loop
-                for loop_item in loop_info['items']:
-                    # Create a combined data structure for each loop item
-                    combined_data = {**frame_data}  # Start with frame data
-                    combined_data.update(loop_item)  # Add loop item data
-                    
-                    # Classify each loop item
-                    if 'category.id' in combined_data:
-                        categories[combined_data['category.id']] = combined_data
-                    elif 'item.name' in combined_data:
-                        item_name = combined_data['item.name'].strip('"\'')
-                        items[item_name] = combined_data
-                        
-                        # Check for enumerations in loop items
-                        if 'item_enumeration.value' in combined_data:
-                            values = combined_data['item_enumeration.value']
-                            if isinstance(values, str):
-                                values = [values]
-                            enumerations[item_name] = values
-                    elif 'item_linked.child_name' in combined_data and 'item_linked.parent_name' in combined_data:
-                        relationships.append(combined_data)
-                    elif 'pdbx_item_linked_group_list.child_category_id' in combined_data:
-                        # Handle pdbx_item_linked_group_list entries
-                        child_cat = combined_data.get('pdbx_item_linked_group_list.child_category_id')
-                        child_name = combined_data.get('pdbx_item_linked_group_list.child_name')
-                        parent_name = combined_data.get('pdbx_item_linked_group_list.parent_name')
-                        parent_cat = combined_data.get('pdbx_item_linked_group_list.parent_category_id')
-                        
-                        if child_cat and child_name and parent_name and parent_cat:
-                            relationships.append({
-                                'child_category': child_cat,
-                                'child_name': child_name,
-                                'parent_category': parent_cat,
-                                'parent_name': parent_name
-                            })
-            else:
-                # Classify frame by type (non-loop items)
-                if 'category.id' in frame_data:
-                    categories[frame_data['category.id']] = frame_data
-                elif 'item.name' in frame_data:
-                    item_name = frame_data['item.name'].strip('"\'')
-                    items[item_name] = frame_data
-                    
-                    # Check for enumerations
-                    if 'item_enumeration.value' in frame_data:
-                        values = frame_data['item_enumeration.value']
-                        if isinstance(values, str):
-                            values = [values]
-                        enumerations[item_name] = values
-                elif 'item_linked.child_name' in frame_data and 'item_linked.parent_name' in frame_data:
-                    relationships.append(frame_data)
-                elif 'pdbx_item_linked_group_list.child_category_id' in frame_data:
-                    # Handle pdbx_item_linked_group_list entries
-                    child_cat = frame_data.get('pdbx_item_linked_group_list.child_category_id')
-                    child_name = frame_data.get('pdbx_item_linked_group_list.child_name')
-                    parent_name = frame_data.get('pdbx_item_linked_group_list.parent_name')
-                    parent_cat = frame_data.get('pdbx_item_linked_group_list.parent_category_id')
-                    
-                    if child_cat and child_name and parent_name and parent_cat:
-                        relationships.append({
-                            'child_category': child_cat,
-                            'child_name': child_name,
-                            'parent_category': parent_cat,
-                            'parent_name': parent_name
-                        })
+            if line == 'loop_':
+                loop_data, new_index = self._parse_loop(lines, i + 1)
+                frame_data['_loop_data'] = loop_data
+                i = new_index
+                continue
+                
+            i += 1
+            
+        return frame_data
+
+    def _parse_multiline(self, lines: List[str], index: int) -> Dict[str, Any]:
+        """Parse multiline text blocks"""
+        key = lines[index].strip().strip('_')
+        i = index + 2  # Skip key line and opening ';'
+        multiline_content = []
         
-        # Also parse any tabular data from the main parser
+        while i < len(lines):
+            if lines[i].strip() == ';':
+                break
+            multiline_content.append(lines[i])
+            i += 1
+        
+        return {
+            key: '\n'.join(multiline_content).strip(),
+            '_next_index': i + 1
+        }
+
+    def _parse_key_value(self, line: str) -> Dict[str, str]:
+        """Parse simple key-value pairs"""
+        parts = line.split(None, 1)
+        key = parts[0].strip('_')
+        value = parts[1].strip().strip('"\'') if len(parts) == 2 else ''
+        return {key: value}
+
+    def _parse_loop(self, lines: List[str], start_index: int) -> Tuple[Dict[str, Any], int]:
+        """Parse loop structures"""
+        i = start_index
+        loop_headers = []
+        
+        # Collect loop headers
+        while i < len(lines) and lines[i].strip().startswith('_'):
+            loop_headers.append(lines[i].strip().strip('_'))
+            i += 1
+        
+        # Collect loop data
+        loop_data = []
+        while i < len(lines):
+            line = lines[i].strip()
+            if not line or line.startswith('#') or line in ('save_', 'loop_') or line.startswith('_'):
+                break
+                
+            try:
+                row_data = shlex.split(line)
+            except ValueError:
+                row_data = line.split()
+                
+            if len(row_data) >= len(loop_headers):
+                loop_data.append(row_data)
+            i += 1
+        
+        # Format loop data
+        loop_items = []
+        for row in loop_data:
+            row_data = {}
+            for j, header in enumerate(loop_headers):
+                if j < len(row):
+                    row_data[header] = row[j].strip('"\'')
+            loop_items.append(row_data)
+        
+        return {
+            'headers': loop_headers,
+            'items': loop_items
+        }, i
+
+
+class FrameDataProcessor:
+    """Processes parsed frame data into dictionary structures"""
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
+        self.categories = {}
+        self.items = {}
+        self.relationships = []
+        self.enumerations = {}
+    
+    def process_frame(self, frame_data: Dict[str, Any]):
+        """Process a single frame's data"""
+        if '_loop_data' in frame_data:
+            self._process_loop_frame(frame_data)
+        else:
+            self._process_non_loop_frame(frame_data)
+    
+    def _process_loop_frame(self, frame_data: Dict[str, Any]):
+        """Process frames with loop data"""
+        loop_info = frame_data['_loop_data']
+        
+        for loop_item in loop_info['items']:
+            combined_data = {**frame_data, **loop_item}
+            self._classify_data(combined_data)
+    
+    def _process_non_loop_frame(self, frame_data: Dict[str, Any]):
+        """Process frames without loop data"""
+        self._classify_data(frame_data)
+    
+    def _classify_data(self, data: Dict[str, Any]):
+        """Classify data into categories, items, or relationships"""
+        if 'category.id' in data:
+            self.categories[data['category.id']] = data
+        elif 'item.name' in data:
+            item_name = data['item.name'].strip('"\'')
+            self.items[item_name] = data
+            self._process_enumeration(data, item_name)
+        elif 'item_linked.child_name' in data and 'item_linked.parent_name' in data:
+            self.relationships.append(data)
+        elif 'pdbx_item_linked_group_list.child_category_id' in data:
+            self._process_group_list(data)
+
+    def _process_enumeration(self, data: Dict[str, Any], item_name: str):
+        """Process enumeration values if present"""
+        if 'item_enumeration.value' in data:
+            values = data['item_enumeration.value']
+            if isinstance(values, str):
+                values = [values]
+            self.enumerations[item_name] = values
+
+    def _process_group_list(self, data: Dict[str, Any]):
+        """Process pdbx_item_linked_group_list entries"""
+        child_cat = data.get('pdbx_item_linked_group_list.child_category_id')
+        child_name = data.get('pdbx_item_linked_group_list.child_name')
+        parent_name = data.get('pdbx_item_linked_group_list.parent_name')
+        parent_cat = data.get('pdbx_item_linked_group_list.parent_category_id')
+        
+        if child_cat and child_name and parent_name and parent_cat:
+            self.relationships.append({
+                'child_category': child_cat,
+                'child_name': child_name,
+                'parent_category': parent_cat,
+                'parent_name': parent_name
+            })
+
+
+class TabularDataParser:
+    """Parses tabular data from dictionary files"""
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
+        self.item_types = {}
+    
+    def parse_tabular_data(self, dict_path: str, processor: FrameDataProcessor):
+        """Parse tabular data using MMCIFParser"""
         try:
-            from .parser import MMCIFParser  # Explicit import
+            from .parser import MMCIFParser
             parser = MMCIFParser()
             container = parser.parse_file(dict_path)
             
-            # Add item type information from tables
-            if "item_type_list" in container[0].data:
-                type_list = container[0].data["item_type_list"]
-                for i in range(type_list.row_count):
-                    row = type_list[i].data
-                    code = row.get("code")
-                    if code:
-                        item_types[code] = row
+            self._process_item_types(container)
+            self._process_linked_groups(container, processor)
             
-            # Extract relationships from pdbx_item_linked_group_list
-            if "pdbx_item_linked_group_list" in container[0].data:
-                linked_list = container[0].data["pdbx_item_linked_group_list"]
-                if not self.quiet:
-                    print(f"📊 Found {linked_list.row_count} relationships in dictionary")
-                for i in range(linked_list.row_count):
-                    row = linked_list[i].data
-                    child_cat = row.get("child_category_id")
-                    child_name = row.get("child_name", "").strip('"')
-                    parent_name = row.get("parent_name", "").strip('"')
-                    parent_cat = row.get("parent_category_id")
-                    
-                    if child_cat and child_name and parent_name and parent_cat:
-                        relationships.append({
-                            'child_category': child_cat,
-                            'child_name': child_name,
-                            'parent_category': parent_cat,
-                            'parent_name': parent_name
-                        })
         except Exception as e:
             if not self.quiet:
                 print(f"Warning: Could not parse tabular data: {e}")
                 import traceback
                 traceback.print_exc()
-        
-        # Extract primary key information
+    
+    def _process_item_types(self, container):
+        """Extract item type information"""
+        if "item_type_list" in container[0].data:
+            type_list = container[0].data["item_type_list"]
+            for i in range(type_list.row_count):
+                row = type_list[i].data
+                code = row.get("code")
+                if code:
+                    self.item_types[code] = row
+    
+    def _process_linked_groups(self, container, processor):
+        """Extract relationships from pdbx_item_linked_group_list"""
+        if "pdbx_item_linked_group_list" in container[0].data:
+            linked_list = container[0].data["pdbx_item_linked_group_list"]
+            if not self.quiet:
+                print(f"📊 Found {linked_list.row_count} relationships in dictionary")
+            for i in range(linked_list.row_count):
+                row = linked_list[i].data
+                child_cat = row.get("child_category_id")
+                child_name = row.get("child_name", "").strip('"')
+                parent_name = row.get("parent_name", "").strip('"')
+                parent_cat = row.get("parent_category_id")
+                
+                if child_cat and child_name and parent_name and parent_cat:
+                    processor.relationships.append({
+                        'child_category': child_cat,
+                        'child_name': child_name,
+                        'parent_category': parent_cat,
+                        'parent_name': parent_name
+                    })
+
+
+class PrimaryKeyExtractor:
+    """Extracts primary key information from categories"""
+    @staticmethod
+    def extract(categories: Dict[str, Any]) -> Dict[str, Union[str, List[str]]]:
+        """Extract primary keys from category data"""
         primary_keys = {}
         for cat_name, cat_data in categories.items():
-            # Handle both single and composite keys
             key_items = []
             
-            # Check if we have a direct key field
+            # Check for direct key field
             if 'category_key.name' in cat_data:
                 key_item = cat_data['category_key.name'].strip('"\'')
                 if key_item:
                     key_items.append(key_item)
             
-            # Check for composite keys in _loop_data
+            # Check for composite keys in loop data
             if '_loop_data' in cat_data:
                 loop_data = cat_data['_loop_data']
                 for item in loop_data['items']:
@@ -424,36 +473,17 @@ class DictionaryParser(MetadataParser):
                         if key_item and key_item not in key_items:
                             key_items.append(key_item)
             
-            # Process all found key items
+            # Process found key items
             if key_items:
                 fields = []
                 for key_item in key_items:
                     if key_item.startswith('_') and '.' in key_item:
-                        # Extract field name from "_category.field" format
                         field_name = key_item.split('.')[-1]
                         fields.append(field_name)
                 if fields:
                     primary_keys[cat_name] = fields[0] if len(fields) == 1 else fields
-
-        result = {
-            "categories": categories,
-            "items": items,
-            "relationships": relationships,
-            "enumerations": enumerations,
-            "item_types": item_types,
-            "primary_keys": primary_keys
-        }
         
-        # Debug output
-        if not self.quiet:
-            print(f"📚 Parsed {len(categories)} categories, {len(items)} items")
-            print(f"📝 Found {len(primary_keys)} primary keys:")
-            for cat, key in primary_keys.items():
-                print(f"  - {cat}: {key}")
-        
-        # Store in unified cache
-        self.cache_manager.set('dictionary', cache_key, result)
-        return result
+        return primary_keys
 
 class XSDParser(MetadataParser):
     """Parses XSD schema files"""
