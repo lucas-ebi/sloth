@@ -23,6 +23,7 @@ exported_data.*
 csv_files/
 csv_output_dir/
 *.txt
+*output*
 
 # Backup and debug files
 *_backup.py

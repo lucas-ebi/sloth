@@ -14,7 +14,7 @@ from typing import Dict, Any
 
 from sloth.serializers import (
     PDBMLConverter, MappingGenerator, DictionaryParser, 
-    XSDParser, HybridCache
+    XSDParser, CacheManager, get_cache_manager
 )
 
 # Global converter cache
@@ -29,7 +29,7 @@ CACHE_DIR = os.path.join(tempfile.gettempdir(), "sloth_test_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Global caching instance
-GLOBAL_CACHE = HybridCache(CACHE_DIR)
+GLOBAL_CACHE = get_cache_manager(CACHE_DIR)
 
 
 @lru_cache(maxsize=2)

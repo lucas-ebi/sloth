@@ -78,7 +78,8 @@ from .serializers import (
     MappingGenerator,
     DictionaryParser,
     XSDParser,
-    HybridCache,
+    CacheManager,
+    get_cache_manager,
     RelationshipResolver,
     MMCIFToPDBMLPipeline,
 )
@@ -118,7 +119,8 @@ __all__ = [
     "MappingGenerator", 
     "DictionaryParser",
     "XSDParser",
-    "HybridCache", 
+    "CacheManager", 
+    "get_cache_manager",
     "RelationshipResolver",
     "MMCIFToPDBMLPipeline",
     # Version information

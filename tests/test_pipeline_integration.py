@@ -15,7 +15,7 @@ from pathlib import Path
 from sloth.parser import MMCIFParser
 from sloth.serializers import (
     PDBMLConverter, MappingGenerator,
-    DictionaryParser, XSDParser, HybridCache
+    DictionaryParser, XSDParser, get_cache_manager
 )
 from sloth import MMCIFHandler
 from tests.test_utils import get_shared_converter
@@ -175,8 +175,8 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_xml_mapping_generator_properties(self):
         """Test MappingGenerator properties."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser
-        cache = HybridCache("/tmp/test_cache")
+        from sloth.serializers import DictionaryParser, XSDParser
+        cache = get_cache_manager("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)
         xsd_parser = XSDParser(cache)
         mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
@@ -191,7 +191,7 @@ class TestComponentFixes(unittest.TestCase):
         
         try:
             # Set up caching manually
-            cache = HybridCache(cache_dir)
+            cache = get_cache_manager(cache_dir)
             
             # Set up metadata parsers with default paths
             from pathlib import Path
@@ -221,7 +221,7 @@ class TestComponentFixes(unittest.TestCase):
         from sloth.serializers import DictionaryParser
         
         # Create with cache
-        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
+        cache = get_cache_manager(os.path.join(self.temp_dir, ".cache"))
         parser = DictionaryParser(cache, quiet=True)
         self.assertIsNotNone(parser)
         

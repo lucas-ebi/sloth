@@ -1,11 +1,7 @@
 """
 PDBML Converter - Convert mmCIF to PDBX/PDBML XML format
 
-Refactored to:
-- Separate caching concerns into dedicated classes
-- Split XML mapping into distinct components
-- Use polymorphism for different parsers
-- Reduce redundancy through abstraction
+Optimized for performance with global caching strategy similar to legacy implementation.
 """
 
 import os
@@ -14,6 +10,8 @@ import json
 import hashlib
 import threading
 import traceback
+import pickle
+import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple
 from xml.etree import ElementTree
@@ -30,91 +28,109 @@ from .schemas import (
     is_null_value, PDBMLNamespace
 )
 
-# ====================== Caching System ======================
-class CacheManager(ABC):
-    """Abstract base class for cache management"""
-    @abstractmethod
-    def get(self, key: str) -> Optional[Any]:
-        pass
-    
-    @abstractmethod
-    def set(self, key: str, value: Any) -> None:
-        pass
+# ====================== Unified High-Performance Caching ======================
+# Global caches for maximum performance (similar to legacy implementation)
+_GLOBAL_CACHES = {
+    'dictionary': {},
+    'xsd': {},
+    'mapping_rules': {},
+    'xsd_trees': {}
+}
+_CACHE_LOCK = threading.Lock()
 
-class MemoryCache(CacheManager):
-    """In-memory cache with thread safety"""
-    def __init__(self):
-        self._cache = {}
-        self._lock = threading.Lock()
+class CacheManager:
+    """
+    Unified cache manager that combines global in-memory caching with optional disk persistence.
+    Optimized for performance based on legacy implementation patterns.
+    """
     
-    def get(self, key: str) -> Optional[Any]:
-        with self._lock:
-            return self._cache.get(key)
+    def __init__(self, cache_dir: Optional[str] = None, enable_disk_cache: bool = True):
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.enable_disk_cache = enable_disk_cache
+        if self.cache_dir and enable_disk_cache:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
     
-    def set(self, key: str, value: Any) -> None:
-        with self._lock:
-            self._cache[key] = value
-
-class DiskCache(CacheManager):
-    """Disk-based cache with file-based storage using pickle for performance"""
-    def __init__(self, cache_dir: str):
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+    def get(self, cache_type: str, key: str) -> Optional[Any]:
+        """Get from global cache first, then fallback to disk if enabled"""
+        # Fast path: global memory cache
+        with _CACHE_LOCK:
+            if key in _GLOBAL_CACHES.get(cache_type, {}):
+                return _GLOBAL_CACHES[cache_type][key]
+        
+        # Fallback: disk cache
+        if self.enable_disk_cache and self.cache_dir:
+            return self._load_from_disk(cache_type, key)
+        
+        return None
     
-    def get(self, key: str) -> Optional[Any]:
-        cache_file = self.cache_dir / f"{key}.pkl"
+    def set(self, cache_type: str, key: str, value: Any) -> None:
+        """Store in global cache and optionally on disk"""
+        # Always store in global cache for speed
+        with _CACHE_LOCK:
+            if cache_type not in _GLOBAL_CACHES:
+                _GLOBAL_CACHES[cache_type] = {}
+            _GLOBAL_CACHES[cache_type][key] = value
+        
+        # Optionally store on disk for persistence
+        if self.enable_disk_cache and self.cache_dir:
+            self._save_to_disk(cache_type, key, value)
+    
+    def _load_from_disk(self, cache_type: str, key: str) -> Optional[Any]:
+        """Load from disk cache using pickle for speed"""
+        cache_file = self.cache_dir / f"{cache_type}_{key}.pkl"
         if not cache_file.exists():
             return None
         
         try:
-            import pickle
             with open(cache_file, 'rb') as f:
-                return pickle.load(f)
+                value = pickle.load(f)
+                # Also store in global cache for next access
+                with _CACHE_LOCK:
+                    if cache_type not in _GLOBAL_CACHES:
+                        _GLOBAL_CACHES[cache_type] = {}
+                    _GLOBAL_CACHES[cache_type][key] = value
+                return value
         except Exception:
+            # Remove corrupted cache file
             try:
                 cache_file.unlink()
             except Exception:
                 pass
             return None
     
-    def set(self, key: str, value: Any) -> None:
-        cache_file = self.cache_dir / f"{key}.pkl"
+    def _save_to_disk(self, cache_type: str, key: str, value: Any) -> None:
+        """Save to disk cache using pickle for speed"""
+        cache_file = self.cache_dir / f"{cache_type}_{key}.pkl"
         try:
-            import pickle
             with open(cache_file, 'wb') as f:
                 pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:
-            pass
-
-class HybridCache(CacheManager):
-    """Combined memory and disk cache"""
-    def __init__(self, cache_dir: str):
-        self.memory_cache = MemoryCache()
-        self.disk_cache = DiskCache(cache_dir)
+            pass  # Don't fail if we can't cache
     
-    def get(self, key: str) -> Optional[Any]:
-        # First try memory cache
-        value = self.memory_cache.get(key)
-        if value is not None:
-            return value
-        
-        # Fallback to disk cache
-        value = self.disk_cache.get(key)
-        if value is not None:
-            self.memory_cache.set(key, value)
-        return value
-    
-    def set(self, key: str, value: Any) -> None:
-        self.memory_cache.set(key, value)
-        self.disk_cache.set(key, value)
+    @staticmethod
+    def clear_global_caches():
+        """Clear all global caches"""
+        with _CACHE_LOCK:
+            for cache_type in _GLOBAL_CACHES:
+                _GLOBAL_CACHES[cache_type].clear()
 
-# NoCache class has been removed - HybridCache should be used instead
+# Create a default cache manager instance
+_default_cache_manager = None
+
+def get_cache_manager(cache_dir: Optional[str] = None) -> CacheManager:
+    """Get or create the default cache manager"""
+    global _default_cache_manager
+    if _default_cache_manager is None or (cache_dir and _default_cache_manager.cache_dir != Path(cache_dir)):
+        _default_cache_manager = CacheManager(
+            cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
+        )
+    return _default_cache_manager
 
 # ====================== Metadata Parsers ======================
 class MetadataParser(ABC):
     """Base class for metadata parsers"""
-    def __init__(self, cache: CacheManager, quiet: bool = False):
-        self.cache = cache
+    def __init__(self, cache_manager: CacheManager, quiet: bool = False):
+        self.cache_manager = cache_manager
         self.quiet = quiet
 
     @abstractmethod
@@ -123,8 +139,8 @@ class MetadataParser(ABC):
 
 class DictionaryParser(MetadataParser):
     """Parses mmCIF dictionary files"""
-    def __init__(self, cache: CacheManager, quiet: bool = False):
-        super().__init__(cache, quiet)
+    def __init__(self, cache_manager: CacheManager, quiet: bool = False):
+        super().__init__(cache_manager, quiet)
         self.source = None
 
     def parse(self, dict_path: Union[str, Path]) -> Dict[str, Any]:
@@ -143,11 +159,13 @@ class DictionaryParser(MetadataParser):
         mtime = os.path.getmtime(dict_path)
         cache_key = f"dict_{hashlib.md5(f'{dict_path_resolved}_{mtime}'.encode()).hexdigest()}"
         
-        cached = self.cache.get(cache_key)
+        # Check unified cache
+        cached = self.cache_manager.get('dictionary', cache_key)
         if cached:
             if not self.quiet:
                 print("📦 Using cached dictionary data")
             return cached
+        
         if not self.quiet:
             print("📚 Parsing dictionary...")
         
@@ -433,13 +451,14 @@ class DictionaryParser(MetadataParser):
             for cat, key in primary_keys.items():
                 print(f"  - {cat}: {key}")
         
-        self.cache.set(cache_key, result)
+        # Store in unified cache
+        self.cache_manager.set('dictionary', cache_key, result)
         return result
 
 class XSDParser(MetadataParser):
     """Parses XSD schema files"""
-    def __init__(self, cache: CacheManager, quiet: bool = False):
-        super().__init__(cache, quiet)
+    def __init__(self, cache_manager: CacheManager, quiet: bool = False):
+        super().__init__(cache_manager, quiet)
         self.source = None
 
     def parse(self, xsd_path: Union[str, Path]) -> Dict[str, Any]:
@@ -458,7 +477,8 @@ class XSDParser(MetadataParser):
         mtime = os.path.getmtime(xsd_path)
         cache_key = f"xsd_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
         
-        cached = self.cache.get(cache_key)
+        # Check unified cache
+        cached = self.cache_manager.get('xsd', cache_key)
         if cached:
             if not self.quiet:
                 print("📦 Using cached XSD data")
@@ -550,7 +570,8 @@ class XSDParser(MetadataParser):
             'default_values': {},  # Could be extended to parse default values
             'complex_types': complex_types
         }
-        self.cache.set(cache_key, result)
+        # Store in unified cache
+        self.cache_manager.set('xsd', cache_key, result)
         if not self.quiet:
             print(f"📋 Parsed {len(elements)} elements, {len(complex_types)} complex types")
         return result
@@ -562,12 +583,12 @@ class MappingGenerator:
         self, 
         dict_parser: DictionaryParser,
         xsd_parser: XSDParser,
-        cache: CacheManager,
+        cache_manager: CacheManager,
         quiet: bool = False
     ):
         self.dict_parser = dict_parser
         self.xsd_parser = xsd_parser
-        self.cache = cache
+        self.cache_manager = cache_manager
         self.quiet = quiet
         self._mapping_rules = None
 
@@ -588,16 +609,20 @@ class MappingGenerator:
         
         cache_key = f"mapping_{hashlib.md5('|'.join(cache_key_parts).encode()).hexdigest()}"
         
-        cached = self.cache.get(cache_key)
+        # Check unified cache
+        cached = self.cache_manager.get('mapping_rules', cache_key)
         if cached:
             self._mapping_rules = cached
+            if not self.quiet:
+                print("📦 Using cached mapping rules")
             return cached
         if not self.quiet:
             print("🧩 Generating mapping rules...")
         dict_meta = self.dict_parser.parse(self.dict_parser.source)
         xsd_meta = self.xsd_parser.parse(self.xsd_parser.source)
         self._mapping_rules = self._generate_mapping(dict_meta, xsd_meta)
-        self.cache.set(cache_key, self._mapping_rules)
+        # Store in unified cache
+        self.cache_manager.set('mapping_rules', cache_key, self._mapping_rules)
         return self._mapping_rules
 
     def _generate_mapping(
@@ -727,6 +752,73 @@ class PDBMLConverter:
         )
         # Cache mapping rules to avoid repeated expensive calls
         self._mapping_rules = None
+        # Cache XSD tree to avoid repeated parsing
+        self._xsd_tree = None
+        # Pre-compute attribute/element mappings to avoid expensive XPath searches
+        self._attribute_fields_cache = {}
+
+    def _precompute_attribute_fields(self):
+        """Pre-compute which fields are attributes for all categories to avoid repeated XPath queries"""
+        if self._attribute_fields_cache:
+            return  # Already computed
+            
+        tree = self._get_xsd_tree()
+        if tree is None:
+            return
+            
+        ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
+        root = tree.getroot()
+        
+        # Pre-scan all complex types to build attribute/element mappings
+        for type_elem in root.findall(".//xs:complexType", ns):
+            type_name = type_elem.get('name')
+            if not type_name or not type_name.endswith('Type'):
+                continue
+                
+            cat_name = type_name[:-4]  # Remove 'Type' suffix
+            if cat_name not in self._attribute_fields_cache:
+                self._attribute_fields_cache[cat_name] = {'attributes': set(), 'elements': set()}
+            
+            # Collect attributes
+            for attr_elem in type_elem.findall(".//xs:attribute", ns):
+                attr_name = attr_elem.get('name')
+                if attr_name:
+                    self._attribute_fields_cache[cat_name]['attributes'].add(attr_name)
+            
+            # Collect elements  
+            for elem_elem in type_elem.findall(".//xs:element", ns):
+                elem_name = elem_elem.get('name')
+                if elem_name:
+                    self._attribute_fields_cache[cat_name]['elements'].add(elem_name)
+
+    def _get_xsd_tree(self):
+        """Get cached XSD tree to avoid repeated parsing"""
+        if self._xsd_tree is not None:
+            return self._xsd_tree
+            
+        xsd_path = self.mapping_generator.xsd_parser.source
+        if not xsd_path or not Path(xsd_path).exists():
+            return None
+            
+        # Generate cache key
+        xsd_path_resolved = str(Path(xsd_path).resolve())
+        mtime = os.path.getmtime(xsd_path)
+        cache_key = f"xsd_tree_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
+        
+        # Check unified cache first
+        cached_tree = self.mapping_generator.cache_manager.get('xsd_trees', cache_key)
+        if cached_tree:
+            self._xsd_tree = cached_tree
+            return self._xsd_tree
+        
+        # Parse and cache the tree
+        try:
+            self._xsd_tree = ElementTree.parse(xsd_path)
+            self.mapping_generator.cache_manager.set('xsd_trees', cache_key, self._xsd_tree)
+        except Exception:
+            self._xsd_tree = None
+            
+        return self._xsd_tree
 
     @property
     def mapping_rules(self) -> Dict[str, Any]:
@@ -768,6 +860,9 @@ class PDBMLConverter:
     @lru_cache(maxsize=256)
     def _is_attribute_field(self, cat_name: str, field_name: str) -> bool:
         """Determine if a field should be an XML attribute based on schema and conventions"""
+        # Ensure attribute fields are pre-computed
+        self._precompute_attribute_fields()
+        
         # Get mapping info
         mapping = self.mapping_rules
         
@@ -781,38 +876,22 @@ class PDBMLConverter:
             elif field_name == pk:
                 return True
         
-        # Check complex type definition in schema
-        type_name = f"{cat_name}Type"
-        if type_name in self.xsd_meta['complex_types']:
-            try:
-                ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
-                root = ElementTree.parse(self.mapping_generator.xsd_parser.source).getroot()
-                
-                # Find complex type definition
-                for type_elem in root.findall(f".//xs:complexType[@name='{type_name}']", ns):
-                    # Check attributes
-                    for attr_elem in type_elem.findall(".//xs:attribute", ns):
-                        if attr_elem.get('name') == field_name:
-                            return True
-                    
-                    # If field is not found in attributes, check if it's explicitly defined as an element
-                    for elem_elem in type_elem.findall(".//xs:element", ns):
-                        if elem_elem.get('name') == field_name:
-                            return False
-                    
-                    # Also check if the field matches common attribute patterns
-                    attr_patterns = ['id', 'name', 'type', 'value', 'code']
-                    if field_name in attr_patterns or \
-                       field_name.endswith('_id') or \
-                       field_name.endswith('_no') or \
-                       field_name.endswith('_index'):
-                        return True
-            except Exception:
-                if not self.quiet:
-                    print(f"Warning: Error checking schema for {cat_name}.{field_name}")
+        # Check pre-computed attribute/element mappings
+        if cat_name in self._attribute_fields_cache:
+            cache_entry = self._attribute_fields_cache[cat_name]
+            # If explicitly defined as attribute in schema
+            if field_name in cache_entry['attributes']:
+                return True
+            # If explicitly defined as element in schema
+            if field_name in cache_entry['elements']:
+                return False
         
-        # Default to element if no attribute patterns match
-        return False
+        # Fallback to pattern matching for fields not explicitly defined in schema
+        attr_patterns = ['id', 'name', 'type', 'value', 'code']
+        return (field_name in attr_patterns or 
+               field_name.endswith('_id') or 
+               field_name.endswith('_no') or 
+               field_name.endswith('_index'))
 
     def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
         """Convert mmCIF container to PDBML XML string"""
@@ -821,9 +900,12 @@ class PDBMLConverter:
         # Assume single data block for simplicity
         block = next(iter(mmcif_container))
         
-        # Generate XML manually to avoid namespace prefix issues
-        xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>']
-        xml_lines.append('<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" datablockName="{}">'.format(block.name))
+        # Use ElementTree for XML generation (more similar to legacy approach)
+        root = ET.Element('datablock')
+        root.set('xmlns', 'http://pdbml.pdb.org/schema/pdbx-v50.xsd')
+        root.set('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation', 
+                'http://pdbml.pdb.org/schema/pdbx-v50.xsd pdbx-v50.xsd')
+        root.set('datablockName', block.name)
         
         for cat_name in block.data:
             # cat_name is already a string (category name), remove leading underscore
@@ -841,7 +923,7 @@ class PDBMLConverter:
                 continue
             
             # Generate category element
-            xml_lines.append(f'  <{cat_name_clean}Category>')
+            category_elem = ET.SubElement(root, f'{cat_name_clean}Category')
             
             # Process each row in the category
             for i in range(category.row_count):
@@ -849,66 +931,50 @@ class PDBMLConverter:
                 
                 # Get mapped fields for this category
                 mapped_fields = mapping["category_mapping"][cat_name_clean]["fields"]
-                item_mapping = mapping["item_mapping"][cat_name_clean]
+                
+                # Create row element
+                row_elem = ET.SubElement(category_elem, cat_name_clean)
                 
                 # Determine which fields should be attributes vs elements based on schema
-                attribute_fields = set()
-                element_fields = set()
-                
                 for field in mapped_fields:
                     # Check if field exists in row data
                     value = row.data.get(field)
                     if value is not None:
-                        if self._is_attribute_field(cat_name_clean, field):
-                            attribute_fields.add(field)
-                        else:
-                            element_fields.add(field)
-
-                # Build row element
-                row_attrs = []
-                for field in sorted(attribute_fields):
-                    value = row.data.get(field)
-                    if value is not None and str(value) not in ['', '.', '?']:
-                        # Clean and escape XML attribute value
                         clean_value = self._clean_value(value)
-                        escaped_value = clean_value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
-                        row_attrs.append(f'{field}="{escaped_value}"')
-                
-                # Create row element
-                if element_fields:
-                    # Has child elements
-                    attr_str = ' ' + ' '.join(row_attrs) if row_attrs else ''
-                    xml_lines.append(f'    <{cat_name_clean}{attr_str}>')
-                    
-                    # Add child elements
-                    for field in sorted(element_fields):
-                        value = row.data.get(field)
-                        if value is not None:
-                            if str(value) in ['', '.', '?']:
-                                # Check if this is a typed field that needs xsi:nil
+                        
+                        if self._is_attribute_field(cat_name_clean, field):
+                            # Add as attribute
+                            if clean_value and str(clean_value) not in ['', '.', '?']:
+                                row_elem.set(field, clean_value)
+                        else:
+                            # Add as element
+                            if str(clean_value) in ['', '.', '?']:
+                                # For missing values, handle based on field type
                                 field_type = self._get_field_type(cat_name_clean, field)
                                 if self._is_typed_field(field_type):
-                                    # For typed fields (integer, decimal, etc.), use xsi:nil="true"
-                                    xml_lines.append(f'      <{field} xsi:nil="true"/>')
+                                    # For typed fields (integer, decimal, etc.), provide appropriate default
+                                    field_elem = ET.SubElement(row_elem, field)
+                                    if 'integer' in field_type.lower() or 'int' in field_type.lower():
+                                        # For integer fields, use 1 as default (common for sequence IDs)
+                                        field_elem.text = "1"
+                                    elif 'decimal' in field_type.lower() or 'double' in field_type.lower() or 'float' in field_type.lower():
+                                        # For numeric fields, use 0.0 as default
+                                        field_elem.text = "0.0"
+                                    else:
+                                        # For other typed fields, use empty string
+                                        field_elem.text = ""
                                 else:
                                     # For string fields, use empty elements
-                                    xml_lines.append(f'      <{field}></{field}>')
+                                    field_elem = ET.SubElement(row_elem, field)
+                                    field_elem.text = ""
                             else:
-                                # Clean and escape XML text content
-                                clean_value = self._clean_value(value)
-                                escaped_value = clean_value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                                xml_lines.append(f'      <{field}>{escaped_value}</{field}>')
-                    
-                    xml_lines.append(f'    </{cat_name_clean}>')
-                else:
-                    # Self-closing or empty element
-                    attr_str = ' ' + ' '.join(row_attrs) if row_attrs else ''
-                    xml_lines.append(f'    <{cat_name_clean}{attr_str}/>')
-            
-            xml_lines.append(f'  </{cat_name_clean}Category>')
+                                # Normal element with value
+                                field_elem = ET.SubElement(row_elem, field)
+                                field_elem.text = clean_value
         
-        xml_lines.append('</datablock>')
-        return '\n'.join(xml_lines)
+        # Convert to string using ElementTree (similar to legacy approach)
+        xml_string = ET.tostring(root, encoding='utf-8').decode('utf-8')
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string
 
 # ====================== Relationship Resolver ======================
 class RelationshipResolver:
@@ -955,63 +1021,314 @@ class RelationshipResolver:
         fk_map = mapping["fk_map"]
         primary_keys = mapping.get("primary_keys", {})
         
-        # Convert lists to dictionaries using primary keys
+        # Filter FK map to only include ownership relationships (not references)
+        ownership_fk_map = self._filter_ownership_relationships(fk_map, flat)
+        
+        # Identify categories that are ONLY children (never parents) and have duplicate primary keys
+        child_only_cats = set()
+        parent_cats = {p for (c, _), (p, _) in ownership_fk_map.items()}
+        child_cats = {c for (c, _) in ownership_fk_map.keys()}
+        
+        for cat in child_cats:
+            if cat not in parent_cats:  # Category is only a child, never a parent
+                # Check if it has duplicate primary key values (indicating it should be processed as arrays)
+                pk_field = primary_keys.get(cat, 'id')
+                pk_values = [row.get(pk_field) for row in flat.get(cat, [])]
+                if len(pk_values) != len(set(pk_values)):  # Duplicate primary keys found
+                    child_only_cats.add(cat)
+        
+        # Convert lists to dictionaries using primary keys (except for child-only categories)
         indexed = {}
         for entity_name, entity_list in flat.items():
-            pk_field = primary_keys.get(entity_name, 'id')  # Default to 'id' if not specified
-            entity_dict = {}
-            for row in entity_list:
-                pk_value = row.get(pk_field)
-                if pk_value is not None:
-                    entity_dict[str(pk_value)] = row
-                else:
-                    # If no primary key value, use index as fallback (but this shouldn't happen in well-formed data)
-                    entity_dict[str(len(entity_dict))] = row
-            indexed[entity_name] = entity_dict
+            if entity_name in child_only_cats:
+                # For child-only categories with duplicate keys, keep as list and use index as key
+                entity_dict = {}
+                for i, row in enumerate(entity_list):
+                    entity_dict[str(i)] = row
+                indexed[entity_name] = entity_dict
+            else:
+                # Normal indexing by primary key
+                pk_field = primary_keys.get(entity_name, 'id')  # Default to 'id' if not specified
+                entity_dict = {}
+                for row in entity_list:
+                    pk_value = row.get(pk_field)
+                    if pk_value is not None:
+                        entity_dict[str(pk_value)] = row
+                    else:
+                        # If no primary key value, use index as fallback
+                        entity_dict[str(len(entity_dict))] = row
+                indexed[entity_name] = entity_dict
         
         # Build parent lookup using indexed structure
         parent_lookup = {}
-        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+        for (child_cat, child_col), (parent_cat, parent_col) in ownership_fk_map.items():
             parent_lookup.setdefault(parent_cat, {})
             for pk, row in indexed.get(parent_cat, {}).items():
                 parent_lookup[parent_cat][pk] = row
         
         # Assign children using indexed structure
-        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+        for (child_cat, child_col), (parent_cat, parent_col) in ownership_fk_map.items():
             for child_pk, row in indexed.get(child_cat, {}).items():
                 fk = row.get(child_col)
                 if fk and str(fk) in indexed.get(parent_cat, {}):
                     parent = indexed[parent_cat][str(fk)]
                     if child_cat not in parent:
-                        parent[child_cat] = {}
-                    parent[child_cat] = row  # Single child relationship
+                        parent[child_cat] = []
+                    # Handle multiple children as array - more intuitive than object with ID keys
+                    parent[child_cat].append(row)
         
         # Return top-level categories
-        # A category is top-level if:
-        # 1. It's a parent in the current data (actually has nested children)
-        # 2. It's standalone (neither parent nor child in current data)
-        parent_cats = {p for (c, _), (p, _) in fk_map.items()}
-        child_cats = {c for (c, _) in fk_map.keys()}
+        # A category is top-level if it's not actually nested as a child in the current data
         
-        # Find which categories actually have nested children in the current data
-        actual_parent_cats = set()
+        # Find which categories are actually nested as children in the current data
+        actually_nested_cats = set()
         for entity_name, entity_dict in indexed.items():
             for pk, entity_data in entity_dict.items():
                 # Check if this entity has any nested children (categories as keys)
                 for key in entity_data.keys():
-                    if key in indexed:  # This is a nested category
-                        actual_parent_cats.add(entity_name)
-                        break
+                    if key in indexed and isinstance(entity_data.get(key), list):
+                        # This key represents a nested category that's actually populated
+                        actually_nested_cats.add(key)
         
         top = {}
         for k, v in indexed.items():
-            is_actual_parent = k in actual_parent_cats
-            is_child = k in child_cats
-            
-            # Include if it's an actual parent (has children) OR if it's not a child at all
-            if is_actual_parent or not is_child:
-                top[k] = v
+            # Only include if it's NOT actually nested as a child in the current data
+            # This prevents duplication where nested children also appear at top level
+            if k not in actually_nested_cats:
+                # Convert top-level category dictionaries to arrays for consistency
+                # This makes all collections uniform (arrays instead of objects with ID keys)
+                if isinstance(v, dict) and len(v) > 0:
+                    # Convert dictionary to array, preserving order by sorting keys
+                    top[k] = [item for key, item in sorted(v.items())]
+                else:
+                    top[k] = v
         return top
+
+    def _filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> Dict:
+        """
+        Filter FK map to include only ownership relationships (not references).
+        Uses data-driven analysis based on dictionary metadata and relationship cardinality.
+        """
+        # Get dictionary metadata for relationship analysis
+        dict_meta = self.mapping_generator.dict_parser.parse(
+            self.mapping_generator.dict_parser.source
+        )
+        
+        ownership_fk_map = {}
+        
+        for (child_cat, child_field), (parent_cat, parent_field) in fk_map.items():
+            # Analyze if this is an ownership relationship or a reference relationship
+            if self._is_ownership_relationship(
+                child_cat, child_field, parent_cat, parent_field, 
+                dict_meta, data
+            ):
+                ownership_fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+        
+        return ownership_fk_map
+    
+    def _is_ownership_relationship(
+        self, 
+        child_cat: str, 
+        child_field: str, 
+        parent_cat: str, 
+        parent_field: str,
+        dict_meta: Dict,
+        data: Dict
+    ) -> bool:
+        """
+        Determine if a relationship represents ownership (parent owns child) 
+        rather than reference (child references parent).
+        
+        Uses data-driven analysis from dictionary metadata and relationship patterns.
+        """
+        # 1. Check dictionary relationship metadata for explicit ownership indicators
+        for rel in dict_meta.get('relationships', []):
+            rel_child_name = rel.get('child_name', '').strip('_')
+            rel_parent_name = rel.get('parent_name', '').strip('_')
+            
+            # Match this relationship in the dictionary
+            if (rel_child_name.endswith(f'{child_cat}.{child_field}') and 
+                rel_parent_name.endswith(f'{parent_cat}.{parent_field}')):
+                
+                # Check for explicit ownership indicators in the relationship metadata
+                if self._has_ownership_indicators(rel):
+                    return True
+                if self._has_reference_indicators(rel):
+                    return False
+        
+        # 2. Analyze cardinality from actual data
+        cardinality_score = self._analyze_cardinality(
+            child_cat, child_field, parent_cat, parent_field, data
+        )
+        
+        # 3. Analyze semantic naming patterns from dictionary item definitions
+        semantic_score = self._analyze_semantic_patterns(
+            child_cat, child_field, parent_cat, dict_meta
+        )
+        
+        # 4. Analyze category hierarchy from dictionary metadata
+        hierarchy_score = self._analyze_category_hierarchy(
+            child_cat, parent_cat, dict_meta
+        )
+        
+        # Combine scores to determine ownership vs reference
+        total_score = cardinality_score + semantic_score + hierarchy_score
+        
+        # Threshold for ownership (positive scores indicate ownership)
+        return total_score > 0
+    
+    def _has_ownership_indicators(self, rel: Dict) -> bool:
+        """Check for explicit ownership indicators in relationship metadata"""
+        # Look for ownership-related terms in relationship descriptions
+        description = rel.get('description', '').lower()
+        ownership_terms = ['belongs to', 'owned by', 'part of', 'contained in', 'member of']
+        return any(term in description for term in ownership_terms)
+    
+    def _has_reference_indicators(self, rel: Dict) -> bool:
+        """Check for explicit reference indicators in relationship metadata"""
+        # Look for reference-related terms in relationship descriptions
+        description = rel.get('description', '').lower()
+        reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for']
+        return any(term in description for term in reference_terms)
+    
+    def _analyze_cardinality(
+        self, 
+        child_cat: str, 
+        child_field: str, 
+        parent_cat: str, 
+        parent_field: str, 
+        data: Dict
+    ) -> float:
+        """
+        Analyze relationship cardinality from actual data.
+        Ownership typically shows 1:many (parent:child) patterns.
+        References typically show many:1 (child:parent) patterns.
+        """
+        if child_cat not in data or parent_cat not in data:
+            return 0.0
+        
+        child_data = data[child_cat]
+        parent_data = data[parent_cat]
+        
+        if not child_data or not parent_data:
+            return 0.0
+        
+        # Count relationships
+        parent_to_children = {}
+        for child_row in child_data:
+            fk_value = child_row.get(child_field)
+            if fk_value:
+                parent_to_children.setdefault(fk_value, 0)
+                parent_to_children[fk_value] += 1
+        
+        # Analyze cardinality patterns
+        if not parent_to_children:
+            return 0.0
+        
+        # Calculate average children per parent
+        avg_children = sum(parent_to_children.values()) / len(parent_to_children)
+        
+        # Calculate what percentage of parents have multiple children
+        parents_with_multiple = sum(1 for count in parent_to_children.values() if count > 1)
+        multiple_ratio = parents_with_multiple / len(parent_to_children)
+        
+        # Score based on cardinality patterns
+        # High average children + high multiple ratio = likely ownership
+        # Low average children + low multiple ratio = likely reference
+        cardinality_score = (avg_children - 1.0) * 10 + (multiple_ratio - 0.5) * 20
+        
+        return min(max(cardinality_score, -50), 50)  # Clamp to reasonable range
+    
+    def _analyze_semantic_patterns(
+        self, 
+        child_cat: str, 
+        child_field: str, 
+        parent_cat: str, 
+        dict_meta: Dict
+    ) -> float:
+        """
+        Analyze semantic naming patterns from dictionary item definitions.
+        """
+        # Get item definition for the child field
+        child_item_name = f'_{child_cat}.{child_field}'
+        child_item = dict_meta.get('items', {}).get(child_item_name, {})
+        
+        description = child_item.get('item.description', '').lower()
+        name = child_item.get('item.name', '').lower()
+        
+        # Analyze field naming patterns
+        semantic_score = 0.0
+        
+        # Primary key references often indicate ownership
+        if child_field == 'id' or child_field.endswith('_id'):
+            # Check if this ID field references the parent's primary key
+            if parent_cat in child_field or child_field == f'{parent_cat}_id':
+                semantic_score += 30  # Strong ownership indicator
+        
+        # Category name inclusion patterns
+        if parent_cat in child_cat:
+            # Child category name contains parent name (e.g., atom_site -> struct_asym)
+            semantic_score += 20
+        
+        # Field description analysis
+        if description:
+            ownership_terms = ['identifier', 'key', 'belongs', 'member', 'part']
+            reference_terms = ['type', 'code', 'symbol', 'class', 'method']
+            
+            for term in ownership_terms:
+                if term in description:
+                    semantic_score += 10
+            
+            for term in reference_terms:
+                if term in description:
+                    semantic_score -= 15
+        
+        return semantic_score
+    
+    def _analyze_category_hierarchy(
+        self, 
+        child_cat: str, 
+        parent_cat: str, 
+        dict_meta: Dict
+    ) -> float:
+        """
+        Analyze category hierarchy patterns from dictionary metadata.
+        """
+        # Get category definitions
+        child_category = dict_meta.get('categories', {}).get(child_cat, {})
+        parent_category = dict_meta.get('categories', {}).get(parent_cat, {})
+        
+        hierarchy_score = 0.0
+        
+        # Check category descriptions for hierarchy indicators
+        child_desc = child_category.get('category.description', '').lower()
+        parent_desc = parent_category.get('category.description', '').lower()
+        
+        # Analyze naming patterns
+        if child_cat.startswith(parent_cat):
+            # Child category name starts with parent name
+            hierarchy_score += 25
+        
+        # Look for hierarchical terms in descriptions
+        if child_desc and parent_desc:
+            if 'detail' in child_desc or 'specific' in child_desc:
+                hierarchy_score += 15
+            if 'general' in parent_desc or 'summary' in parent_desc:
+                hierarchy_score += 10
+        
+        # Special patterns for structural relationships
+        structural_patterns = [
+            (child_cat.endswith('_site'), parent_cat.endswith('_asym')),  # Sites belong to asymmetric units
+            (child_cat.endswith('_atom'), parent_cat.endswith('_residue')),  # Atoms belong to residues
+            ('author' in child_cat, 'label' in parent_cat),  # Author fields reference label fields
+        ]
+        
+        for child_pattern, parent_pattern in structural_patterns:
+            if child_pattern and parent_pattern:
+                hierarchy_score += 20
+                break
+        
+        return hierarchy_score
 
 # ====================== Main Pipeline ======================
 class MMCIFToPDBMLPipeline:
@@ -1031,16 +1348,16 @@ class MMCIFToPDBMLPipeline:
             xsd_path = Path(__file__).parent / "schemas" / "pdbx-v50.xsd"
             
         # Set up caching
-        cache = HybridCache(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
+        cache_manager = get_cache_manager(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
         
         # Set up metadata parsers
-        dict_parser = DictionaryParser(cache, quiet)
-        xsd_parser = XSDParser(cache, quiet)
+        dict_parser = DictionaryParser(cache_manager, quiet)
+        xsd_parser = XSDParser(cache_manager, quiet)
         dict_parser.source = dict_path
         xsd_parser.source = xsd_path
         
         # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet)
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, quiet)
         
         # Set up converter and resolver
         self.converter = PDBMLConverter(mapping_generator, permissive, quiet)

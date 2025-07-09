@@ -29,7 +29,7 @@ from sloth import (
     XMLSchemaValidator,
     DictionaryParser
 )
-from sloth.serializers import HybridCache, XSDParser, MappingGenerator
+from sloth.serializers import get_cache_manager, XSDParser, MappingGenerator
 from sloth.models import MMCIFDataContainer, DataBlock, Category
 from sloth.validators import ValidationError
 from tests.test_utils import get_shared_converter
@@ -445,8 +445,8 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
         
         self.handler = MMCIFHandler(validator_factory=None)
         # Set up converter and resolver with new API
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import DictionaryParser, XSDParser, MappingGenerator
+        cache = get_cache_manager(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         # Set source paths for parsers
@@ -472,8 +472,8 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import DictionaryParser, XSDParser, MappingGenerator
+        cache = get_cache_manager(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -783,8 +783,8 @@ _atom_site.pdbx_PDB_model_num 1
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
-        cache = HybridCache(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
+        from sloth.serializers import DictionaryParser, XSDParser, MappingGenerator
+        cache = get_cache_manager(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -985,9 +985,17 @@ _atom_site.pdbx_PDB_model_num 1
         
         # Verify the nested structure exists
         self.assertIn('entity', nested_json)
-        self.assertIn('1', nested_json['entity'])
+        self.assertIsInstance(nested_json['entity'], list)
+        self.assertGreater(len(nested_json['entity']), 0)
         
-        entity_1 = nested_json['entity']['1']
+        # Find entity with id '1'
+        entity_1 = None
+        for entity in nested_json['entity']:
+            if entity.get('id') == '1':
+                entity_1 = entity
+                break
+        
+        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
         
         # Level 1: Entity data
         self.assertEqual(entity_1['type'], 'polymer')
@@ -995,24 +1003,32 @@ _atom_site.pdbx_PDB_model_num 1
         
         # Level 2: Entity has entity_poly nested
         self.assertIn('entity_poly', entity_1)
-        entity_poly = entity_1['entity_poly']
+        self.assertIsInstance(entity_1['entity_poly'], list)
+        self.assertGreater(len(entity_1['entity_poly']), 0)
+        entity_poly = entity_1['entity_poly'][0]  # Get first (and likely only) entity_poly
         self.assertEqual(entity_poly['type'], 'polypeptide(L)')
         self.assertEqual(entity_poly['nstd_chirality'], 'no')
         
         # Level 3: Entity_poly has entity_poly_seq nested
         self.assertIn('entity_poly_seq', entity_poly)
-        entity_poly_seq = entity_poly['entity_poly_seq']
+        self.assertIsInstance(entity_poly['entity_poly_seq'], list)
+        self.assertGreater(len(entity_poly['entity_poly_seq']), 0)
+        entity_poly_seq = entity_poly['entity_poly_seq'][0]  # Get first sequence entry
         self.assertEqual(entity_poly_seq['num'], '1')
         self.assertEqual(entity_poly_seq['mon_id'], 'VAL')
         
         # Parallel branch: Entity has struct_asym nested
         self.assertIn('struct_asym', entity_1)
-        struct_asym = entity_1['struct_asym']
+        self.assertIsInstance(entity_1['struct_asym'], list)
+        self.assertGreater(len(entity_1['struct_asym']), 0)
+        struct_asym = entity_1['struct_asym'][0]  # Get first struct_asym
         self.assertEqual(struct_asym['id'], 'A')
         
         # Level 4: Struct_asym has atom_site nested
         self.assertIn('atom_site', struct_asym)
-        atom_site = struct_asym['atom_site']
+        self.assertIsInstance(struct_asym['atom_site'], list)
+        self.assertGreater(len(struct_asym['atom_site']), 0)
+        atom_site = struct_asym['atom_site'][0]  # Get first atom_site
         self.assertEqual(atom_site['label_atom_id'], 'CA')
         self.assertEqual(atom_site['label_comp_id'], 'VAL')
         self.assertEqual(atom_site['Cartn_x'], '12.345')
@@ -1051,17 +1067,30 @@ _atom_site.pdbx_PDB_model_num 1
         
         # Verify basic nesting works
         self.assertIn('entity', nested_json)
-        self.assertIn('1', nested_json['entity'])
+        self.assertIsInstance(nested_json['entity'], list)
+        self.assertGreater(len(nested_json['entity']), 0)
         
-        entity_1 = nested_json['entity']['1']
+        # Find entity with id '1'
+        entity_1 = None
+        for entity in nested_json['entity']:
+            if entity.get('id') == '1':
+                entity_1 = entity
+                break
+        
+        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
         self.assertEqual(entity_1['type'], 'polymer')
         
         # Check that related items are nested
         self.assertIn('entity_poly', entity_1)
         self.assertIn('struct_asym', entity_1)
         
-        struct_asym = entity_1['struct_asym']
+        self.assertIsInstance(entity_1['struct_asym'], list)
+        self.assertGreater(len(entity_1['struct_asym']), 0)
+        struct_asym = entity_1['struct_asym'][0]
+        
         self.assertIn('atom_site', struct_asym)
+        self.assertIsInstance(struct_asym['atom_site'], list)
+        self.assertGreater(len(struct_asym['atom_site']), 0)
     
     def test_complete_pipeline_integration(self):
         """Test the complete pipeline from mmCIF to nested JSON."""
@@ -1081,15 +1110,26 @@ _atom_site.pdbx_PDB_model_num 1
                 nested_json = result['nested_json']
                 self.assertIn('entity', nested_json)
                 
-                entity_1 = nested_json['entity']['1']
+                # Find entity with id '1'
+                entity_1 = None
+                for entity in nested_json['entity']:
+                    if entity.get('id') == '1':
+                        entity_1 = entity
+                        break
+                
+                self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
                 self.assertIn('entity_poly', entity_1)
                 self.assertIn('struct_asym', entity_1)
                 
                 # Verify 4-level nesting
-                entity_poly_seq = entity_1['entity_poly']['entity_poly_seq']
+                self.assertIsInstance(entity_1['entity_poly'], list)
+                self.assertGreater(len(entity_1['entity_poly']), 0)
+                entity_poly_seq = entity_1['entity_poly'][0]['entity_poly_seq'][0]
                 self.assertEqual(entity_poly_seq['mon_id'], 'VAL')
                 
-                atom_site = entity_1['struct_asym']['atom_site']
+                self.assertIsInstance(entity_1['struct_asym'], list)
+                self.assertGreater(len(entity_1['struct_asym']), 0)
+                atom_site = entity_1['struct_asym'][0]['atom_site'][0]
                 self.assertEqual(atom_site['label_atom_id'], 'CA')
             else:
                 # Fall back to component testing
@@ -1112,14 +1152,26 @@ _atom_site.pdbx_PDB_model_num 1
         
         # Verify 4-level nesting works
         self.assertIn('entity', nested_json)
-        entity_1 = nested_json['entity']['1']
+        
+        # Find entity with id '1'
+        entity_1 = None
+        for entity in nested_json['entity']:
+            if entity.get('id') == '1':
+                entity_1 = entity
+                break
+        
+        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
         self.assertIn('entity_poly', entity_1)
         self.assertIn('struct_asym', entity_1)
         
-        entity_poly_seq = entity_1['entity_poly']['entity_poly_seq']
+        self.assertIsInstance(entity_1['entity_poly'], list)
+        self.assertGreater(len(entity_1['entity_poly']), 0)
+        entity_poly_seq = entity_1['entity_poly'][0]['entity_poly_seq'][0]
         self.assertEqual(entity_poly_seq['mon_id'], 'VAL')
         
-        atom_site = entity_1['struct_asym']['atom_site']
+        self.assertIsInstance(entity_1['struct_asym'], list)
+        self.assertGreater(len(entity_1['struct_asym']), 0)
+        atom_site = entity_1['struct_asym'][0]['atom_site'][0]
         self.assertEqual(atom_site['label_atom_id'], 'CA')
     
     def test_multiple_entities_nesting(self):
@@ -1174,24 +1226,39 @@ _atom_site.Cartn_x
         
         # Verify both entities are present and correctly nested
         self.assertIn('entity', nested_json)
-        self.assertIn('1', nested_json['entity'])
-        self.assertIn('2', nested_json['entity'])
+        self.assertIsInstance(nested_json['entity'], list)
+        self.assertEqual(len(nested_json['entity']), 2)
+        
+        # Find entities by id
+        entity_1 = None
+        entity_2 = None
+        for entity in nested_json['entity']:
+            if entity.get('id') == '1':
+                entity_1 = entity
+            elif entity.get('id') == '2':
+                entity_2 = entity
+        
+        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
+        self.assertIsNotNone(entity_2, "Entity with id '2' should be found")
         
         # Check entity 1
-        entity_1 = nested_json['entity']['1']
         self.assertEqual(entity_1['pdbx_description'], 'Chain A')
         self.assertIn('entity_poly', entity_1)
         self.assertIn('struct_asym', entity_1)
         
         # Check entity 2
-        entity_2 = nested_json['entity']['2']
         self.assertEqual(entity_2['pdbx_description'], 'Chain B')
         self.assertIn('entity_poly', entity_2)
         self.assertIn('struct_asym', entity_2)
         
         # Verify atoms are correctly associated
-        atom_1 = entity_1['struct_asym']['atom_site']
-        atom_2 = entity_2['struct_asym']['atom_site']
+        self.assertIsInstance(entity_1['struct_asym'], list)
+        self.assertIsInstance(entity_2['struct_asym'], list)
+        self.assertGreater(len(entity_1['struct_asym']), 0)
+        self.assertGreater(len(entity_2['struct_asym']), 0)
+        
+        atom_1 = entity_1['struct_asym'][0]['atom_site'][0]
+        atom_2 = entity_2['struct_asym'][0]['atom_site'][0]
         
         self.assertEqual(atom_1['Cartn_x'], '10.0')
         self.assertEqual(atom_2['Cartn_x'], '20.0')
