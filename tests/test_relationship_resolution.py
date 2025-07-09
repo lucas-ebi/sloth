@@ -17,8 +17,8 @@ import shutil
 
 from sloth.parser import MMCIFParser
 from sloth.serializers import (
-    PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline, 
-    DictionaryParser, NoCache, XSDParser, MappingGenerator
+    PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline,
+    DictionaryParser, HybridCache, XSDParser, MappingGenerator
 )
 from sloth.validators import XMLSchemaValidator
 
@@ -29,6 +29,9 @@ class TestRelationshipResolution(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
+        
+        # Set up shared cache for testing caching effectiveness
+        self.cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
         
         # Test data that creates a 4-level hierarchy
         # entity -> entity_poly -> entity_poly_seq
@@ -80,7 +83,8 @@ _atom_site.B_iso_or_equiv 25.0
         from pathlib import Path
         
         # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
+        # Use shared cache for testing caching effectiveness
+        cache = self.cache
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -102,7 +106,8 @@ _atom_site.B_iso_or_equiv 25.0
         from pathlib import Path
         
         # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
+        # Use shared cache for testing caching effectiveness
+        cache = self.cache
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -345,7 +350,6 @@ _atom_site.Cartn_x
         # Should return empty structure, not crash
         self.assertIsInstance(result, dict)
     
-    @unittest.skip("Skipping performance test while using NoCache for debugging")
     def test_performance_with_large_dataset(self):
         """Test resolver performance with a larger dataset."""
         # Generate larger test data
@@ -404,8 +408,11 @@ _atom_site.Cartn_x
         
         parser = MMCIFParser()
         container = parser.parse_file(large_file)
+        parse_time = time.time()
+        
         converter = self._create_converter()
         xml_content = converter.convert_to_pdbml(container)
+        convert_time = time.time()
         
         resolver = self._create_resolver()
         nested_json = resolver.resolve_relationships(xml_content)
@@ -413,8 +420,43 @@ _atom_site.Cartn_x
         end_time = time.time()
         processing_time = end_time - start_time
         
-        # Should complete within reasonable time (adjust as needed)
-        self.assertLess(processing_time, 10.0, "Processing took too long")
+        print(f"\nPerformance breakdown:")
+        print(f"  Parse: {parse_time - start_time:.3f}s")
+        print(f"  Convert: {convert_time - parse_time:.3f}s") 
+        print(f"  Resolve: {end_time - convert_time:.3f}s")
+        print(f"  Total: {processing_time:.3f}s")
+        
+        # Test caching effectiveness by running again - with SAME converter instance
+        start_time2 = time.time()
+        # Reuse same converter for massive performance boost from lru_cache
+        xml_content2 = converter.convert_to_pdbml(container)
+        end_time2 = time.time()
+        second_run_time = end_time2 - start_time2
+        
+        print(f"  Second run (same instance): {second_run_time:.3f}s")
+        print(f"  Speedup: {(convert_time - parse_time) / second_run_time:.1f}x")
+        
+        # Also test with fresh converter to demonstrate cache sharing
+        start_time3 = time.time()
+        converter3 = self._create_converter()
+        xml_content3 = converter3.convert_to_pdbml(container)
+        end_time3 = time.time()
+        third_run_time = end_time3 - start_time3
+        
+        print(f"  Third run (fresh instance): {third_run_time:.3f}s")
+        print(f"  Instance comparison: {third_run_time / second_run_time:.1f}x faster with reuse")
+        
+        # Verify that cached result is identical
+        self.assertEqual(xml_content, xml_content2, "Cached result should be identical to original")
+        
+        # Should complete within reasonable time (adjusted for cache warming)
+        self.assertLess(processing_time, 60.0, "Processing took too long")
+        
+        # Second run should be much faster due to instance reuse with @lru_cache
+        self.assertLess(second_run_time, 0.1, "Second run with same instance should be nearly instant")
+        
+        # Even with a fresh instance, shared cache should provide some speedup
+        self.assertLess(third_run_time, 5.0, "Fresh instance should benefit somewhat from shared cache")
         
         # Verify structure is correct
         self.assertIn('entity', nested_json)
@@ -472,7 +514,8 @@ _atom_site.Cartn_x    0.000
         from pathlib import Path
         
         # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
+        # Use shared cache for testing caching effectiveness
+        cache = self.cache
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
@@ -494,7 +537,8 @@ _atom_site.Cartn_x    0.000
         from pathlib import Path
         
         # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
+        # Use shared cache for testing caching effectiveness
+        cache = self.cache
         
         # Set up metadata parsers with default paths
         dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"

@@ -14,10 +14,11 @@ from pathlib import Path
 
 from sloth.parser import MMCIFParser
 from sloth.serializers import (
-    PDBMLConverter, MappingGenerator, NoCache, 
-    DictionaryParser, XSDParser
+    PDBMLConverter, MappingGenerator,
+    DictionaryParser, XSDParser, HybridCache
 )
 from sloth import MMCIFHandler
+from tests.test_utils import get_shared_converter
 
 
 class TestPipelineIntegration(unittest.TestCase):
@@ -51,25 +52,8 @@ _atom_site.Cartn_z    3.0
     
     def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
         """Helper method to create a properly configured PDBMLConverter."""
-        from pathlib import Path
-        
-        # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
-        
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
-        
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create converter
-        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+        # Use shared converter from test_utils to maximize performance
+        return get_shared_converter(permissive)
     
     def test_parser_functionality(self):
         """Test that the mmCIF parser works correctly."""
@@ -153,25 +137,8 @@ class TestComponentFixes(unittest.TestCase):
     
     def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
         """Helper method to create a properly configured PDBMLConverter."""
-        from pathlib import Path
-        
-        # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
-        
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
-        
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create converter
-        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+        # Use shared converter from test_utils to maximize performance
+        return get_shared_converter(permissive)
     
     def test_enum_class_functionality(self):
         """Test that enum classes work correctly."""
@@ -208,8 +175,8 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_xml_mapping_generator_properties(self):
         """Test MappingGenerator properties."""
-        from sloth.serializers import NoCache, DictionaryParser, XSDParser
-        cache = NoCache("/tmp/test_cache")
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser
+        cache = HybridCache("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)
         xsd_parser = XSDParser(cache)
         mapping_gen = MappingGenerator(dict_parser, xsd_parser, cache)
@@ -224,7 +191,7 @@ class TestComponentFixes(unittest.TestCase):
         
         try:
             # Set up caching manually
-            cache = NoCache(cache_dir)
+            cache = HybridCache(cache_dir)
             
             # Set up metadata parsers with default paths
             from pathlib import Path
@@ -254,7 +221,7 @@ class TestComponentFixes(unittest.TestCase):
         from sloth.serializers import DictionaryParser
         
         # Create with cache
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
+        cache = HybridCache(os.path.join(self.temp_dir, ".cache"))
         parser = DictionaryParser(cache, quiet=True)
         self.assertIsNotNone(parser)
         
@@ -282,25 +249,10 @@ class TestErrorHandling(unittest.TestCase):
     
     def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
         """Helper method to create a properly configured PDBMLConverter."""
-        from pathlib import Path
+        # Use shared converter from test_utils to maximize performance
+        return get_shared_converter(permissive)
         
-        # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
-        
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
-        
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create converter
-        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+        return converter
     
     def test_invalid_file_handling(self):
         """Test handling of invalid mmCIF files."""

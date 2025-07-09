@@ -56,19 +56,20 @@ class MemoryCache(CacheManager):
             self._cache[key] = value
 
 class DiskCache(CacheManager):
-    """Disk-based cache with file-based storage"""
+    """Disk-based cache with file-based storage using pickle for performance"""
     def __init__(self, cache_dir: str):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
     
     def get(self, key: str) -> Optional[Any]:
-        cache_file = self.cache_dir / f"{key}.json"
+        cache_file = self.cache_dir / f"{key}.pkl"
         if not cache_file.exists():
             return None
         
         try:
-            with open(cache_file, 'r') as f:
-                return json.load(f)
+            import pickle
+            with open(cache_file, 'rb') as f:
+                return pickle.load(f)
         except Exception:
             try:
                 cache_file.unlink()
@@ -77,10 +78,11 @@ class DiskCache(CacheManager):
             return None
     
     def set(self, key: str, value: Any) -> None:
-        cache_file = self.cache_dir / f"{key}.json"
+        cache_file = self.cache_dir / f"{key}.pkl"
         try:
-            with open(cache_file, 'w') as f:
-                json.dump(value, f)
+            import pickle
+            with open(cache_file, 'wb') as f:
+                pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:
             pass
 
@@ -106,16 +108,7 @@ class HybridCache(CacheManager):
         self.memory_cache.set(key, value)
         self.disk_cache.set(key, value)
 
-class NoCache(CacheManager):
-    """Disabled cache for debugging - always returns None and ignores sets"""
-    def __init__(self, cache_dir: str = None):
-        pass
-    
-    def get(self, key: str) -> Optional[Any]:
-        return None
-    
-    def set(self, key: str, value: Any) -> None:
-        pass
+# NoCache class has been removed - HybridCache should be used instead
 
 # ====================== Metadata Parsers ======================
 class MetadataParser(ABC):
@@ -144,7 +137,12 @@ class DictionaryParser(MetadataParser):
                 'enumerations': {},
                 'item_types': {}
             }
-        cache_key = f"dict_{Path(dict_path).name}"
+        
+        # Generate cache key with path and modification time for auto-invalidation
+        dict_path_resolved = str(Path(dict_path).resolve())
+        mtime = os.path.getmtime(dict_path)
+        cache_key = f"dict_{hashlib.md5(f'{dict_path_resolved}_{mtime}'.encode()).hexdigest()}"
+        
         cached = self.cache.get(cache_key)
         if cached:
             if not self.quiet:
@@ -454,7 +452,12 @@ class XSDParser(MetadataParser):
                 'default_values': {},
                 'complex_types': {}
             }
-        cache_key = f"xsd_{Path(xsd_path).name}"
+        
+        # Generate cache key with path and modification time for auto-invalidation
+        xsd_path_resolved = str(Path(xsd_path).resolve())
+        mtime = os.path.getmtime(xsd_path)
+        cache_key = f"xsd_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
+        
         cached = self.cache.get(cache_key)
         if cached:
             if not self.quiet:
@@ -571,7 +574,20 @@ class MappingGenerator:
     def get_mapping_rules(self) -> Dict[str, Any]:
         if self._mapping_rules is not None:
             return self._mapping_rules
-        cache_key = "mapping_rules"
+        
+        # Generate cache key based on both source files and their modification times
+        cache_key_parts = []
+        if self.dict_parser.source and Path(self.dict_parser.source).exists():
+            dict_path = str(Path(self.dict_parser.source).resolve())
+            dict_mtime = os.path.getmtime(self.dict_parser.source)
+            cache_key_parts.append(f"dict_{dict_path}_{dict_mtime}")
+        if self.xsd_parser.source and Path(self.xsd_parser.source).exists():
+            xsd_path = str(Path(self.xsd_parser.source).resolve())
+            xsd_mtime = os.path.getmtime(self.xsd_parser.source)
+            cache_key_parts.append(f"xsd_{xsd_path}_{xsd_mtime}")
+        
+        cache_key = f"mapping_{hashlib.md5('|'.join(cache_key_parts).encode()).hexdigest()}"
+        
         cached = self.cache.get(cache_key)
         if cached:
             self._mapping_rules = cached
@@ -709,6 +725,15 @@ class PDBMLConverter:
         self.xsd_meta = self.mapping_generator.xsd_parser.parse(
             self.mapping_generator.xsd_parser.source
         )
+        # Cache mapping rules to avoid repeated expensive calls
+        self._mapping_rules = None
+
+    @property
+    def mapping_rules(self) -> Dict[str, Any]:
+        """Cached access to mapping rules"""
+        if self._mapping_rules is None:
+            self._mapping_rules = self.mapping_generator.get_mapping_rules()
+        return self._mapping_rules
 
     def _clean_value(self, value: Any) -> str:
         """Clean and normalize values from mmCIF data."""
@@ -725,6 +750,7 @@ class PDBMLConverter:
         
         return str_value
 
+    @lru_cache(maxsize=256)
     def _get_field_type(self, cat_name: str, field_name: str) -> str:
         """Get the XSD type for a field"""
         type_name = f"{cat_name}Type"
@@ -739,10 +765,11 @@ class PDBMLConverter:
         typed_fields = ['xsd:integer', 'xsd:int', 'xsd:decimal', 'xsd:double', 'xsd:float', 'xsd:boolean', 'xsd:date', 'xsd:dateTime']
         return field_type in typed_fields
 
+    @lru_cache(maxsize=256)
     def _is_attribute_field(self, cat_name: str, field_name: str) -> bool:
         """Determine if a field should be an XML attribute based on schema and conventions"""
         # Get mapping info
-        mapping = self.mapping_generator.get_mapping_rules()
+        mapping = self.mapping_rules
         
         # Check if field is a primary key - primary keys are typically attributes
         primary_keys = mapping.get("primary_keys", {})
@@ -789,7 +816,7 @@ class PDBMLConverter:
 
     def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
         """Convert mmCIF container to PDBML XML string"""
-        mapping = self.mapping_generator.get_mapping_rules()
+        mapping = self.mapping_rules
         
         # Assume single data block for simplicity
         block = next(iter(mmcif_container))
@@ -888,6 +915,14 @@ class RelationshipResolver:
     """Resolves entity relationships for nested JSON output"""
     def __init__(self, mapping_generator: MappingGenerator):
         self.mapping_generator = mapping_generator
+        self._mapping_rules = None
+        
+    @property
+    def mapping_rules(self) -> Dict[str, Any]:
+        """Cached access to mapping rules"""
+        if self._mapping_rules is None:
+            self._mapping_rules = self.mapping_generator.get_mapping_rules()
+        return self._mapping_rules
 
     def resolve_relationships(self, xml_content: str) -> Dict[str, Any]:
         # Parse XML to flat dict
@@ -916,7 +951,7 @@ class RelationshipResolver:
                 flat.setdefault(entity_name, []).append(row_data)
         
         # Use FK map to nest and convert lists to dictionaries using primary keys
-        mapping = self.mapping_generator.get_mapping_rules()
+        mapping = self.mapping_rules
         fk_map = mapping["fk_map"]
         primary_keys = mapping.get("primary_keys", {})
         
@@ -995,8 +1030,8 @@ class MMCIFToPDBMLPipeline:
         if xsd_path == "default":
             xsd_path = Path(__file__).parent / "schemas" / "pdbx-v50.xsd"
             
-        # Set up caching (temporarily disabled for debugging)
-        cache = NoCache(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
+        # Set up caching
+        cache = HybridCache(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
         
         # Set up metadata parsers
         dict_parser = DictionaryParser(cache, quiet)

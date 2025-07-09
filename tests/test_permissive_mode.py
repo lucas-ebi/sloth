@@ -15,9 +15,10 @@ import os
 from pathlib import Path
 from sloth import MMCIFHandler, PDBMLConverter, XMLSchemaValidator
 from sloth.serializers import (
-    NoCache, DictionaryParser, XSDParser, MappingGenerator
+    DictionaryParser, XSDParser, MappingGenerator, HybridCache
 )
 from sloth.serializers import MMCIFToPDBMLPipeline
+from tests.test_utils import get_shared_converter
 
 
 class TestPermissiveMode(unittest.TestCase):
@@ -107,20 +108,8 @@ _citation.page_last           ?
     
     def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
         """Helper method to create a properly configured PDBMLConverter."""
-        # Set up caching
-        cache = NoCache(os.path.join(self.temp_dir, ".cache"))
-        
-        # Set up metadata parsers
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = self.dict_path
-        xsd_parser.source = self.schema_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create converter
-        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+        # Use shared converter from test_utils to maximize performance
+        return get_shared_converter(permissive)
     
     def test_permissive_false_default_behavior(self):
         """Test that permissive=False (default) lets validation fail transparently."""
