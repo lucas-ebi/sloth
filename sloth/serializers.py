@@ -875,23 +875,29 @@ class PDBMLConverter:
         self.permissive = permissive
         self.quiet = quiet
         self.namespace = PDBMLNamespace.get_default_namespace()
-        self._category_keys_cache = {}
+        self.field_resolver = FieldTypeResolver(mapping_generator, quiet)
+        self.xml_generator = XMLGenerator(self.field_resolver, quiet)
+
+    def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
+        """Convert mmCIF container to PDBML XML string"""
+        return self.xml_generator.convert(mmcif_container)
+
+
+class FieldTypeResolver:
+    """Resolves field types and XML representation types"""
+    def __init__(self, mapping_generator: MappingGenerator, quiet: bool = False):
+        self.mapping_generator = mapping_generator
+        self.quiet = quiet
         # Get schema info once at init
         self.xsd_meta = self.mapping_generator.xsd_parser.parse(
             self.mapping_generator.xsd_parser.source
         )
-        # Cache mapping rules to avoid repeated expensive calls
-        self._mapping_rules = None
-        # Cache XSD tree to avoid repeated parsing
-        self._xsd_tree = None
-        # Pre-compute attribute/element mappings to avoid expensive XPath searches
+        # Pre-compute attribute/element mappings
         self._attribute_fields_cache = {}
+        self._precompute_attribute_fields()
 
     def _precompute_attribute_fields(self):
-        """Pre-compute which fields are attributes for all categories to avoid repeated XPath queries"""
-        if self._attribute_fields_cache:
-            return  # Already computed
-            
+        """Pre-compute attribute/element mappings for all categories"""
         tree = self._get_xsd_tree()
         if tree is None:
             return
@@ -899,33 +905,27 @@ class PDBMLConverter:
         ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
         root = tree.getroot()
         
-        # Pre-scan all complex types to build attribute/element mappings
         for type_elem in root.findall(".//xs:complexType", ns):
             type_name = type_elem.get('name')
             if not type_name or not type_name.endswith('Type'):
                 continue
                 
-            cat_name = type_name[:-4]  # Remove 'Type' suffix
+            cat_name = type_name[:-4]
             if cat_name not in self._attribute_fields_cache:
                 self._attribute_fields_cache[cat_name] = {'attributes': set(), 'elements': set()}
             
             # Collect attributes
             for attr_elem in type_elem.findall(".//xs:attribute", ns):
-                attr_name = attr_elem.get('name')
-                if attr_name:
+                if attr_name := attr_elem.get('name'):
                     self._attribute_fields_cache[cat_name]['attributes'].add(attr_name)
             
             # Collect elements  
             for elem_elem in type_elem.findall(".//xs:element", ns):
-                elem_name = elem_elem.get('name')
-                if elem_name:
+                if elem_name := elem_elem.get('name'):
                     self._attribute_fields_cache[cat_name]['elements'].add(elem_name)
 
     def _get_xsd_tree(self):
-        """Get cached XSD tree to avoid repeated parsing"""
-        if self._xsd_tree is not None:
-            return self._xsd_tree
-            
+        """Get cached XSD tree"""
         xsd_path = self.mapping_generator.xsd_parser.source
         if not xsd_path or not Path(xsd_path).exists():
             return None
@@ -935,68 +935,38 @@ class PDBMLConverter:
         mtime = os.path.getmtime(xsd_path)
         cache_key = f"xsd_tree_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
         
-        # Check unified cache first
+        # Check cache
         cached_tree = self.mapping_generator.cache_manager.get('xsd_trees', cache_key)
         if cached_tree:
-            self._xsd_tree = cached_tree
-            return self._xsd_tree
+            return cached_tree
         
-        # Parse and cache the tree
+        # Parse and cache
         try:
-            self._xsd_tree = ElementTree.parse(xsd_path)
-            self.mapping_generator.cache_manager.set('xsd_trees', cache_key, self._xsd_tree)
+            tree = ElementTree.parse(xsd_path)
+            self.mapping_generator.cache_manager.set('xsd_trees', cache_key, tree)
+            return tree
         except Exception:
-            self._xsd_tree = None
-            
-        return self._xsd_tree
+            return None
 
-    @property
-    def mapping_rules(self) -> Dict[str, Any]:
-        """Cached access to mapping rules"""
-        if self._mapping_rules is None:
-            self._mapping_rules = self.mapping_generator.get_mapping_rules()
-        return self._mapping_rules
-
-    def _clean_value(self, value: Any) -> str:
-        """Clean and normalize values from mmCIF data."""
-        if value is None:
-            return ""
-        
-        str_value = str(value)
-        
-        # Remove surrounding quotes if they exist
-        if len(str_value) >= 2:
-            if (str_value.startswith('"') and str_value.endswith('"')) or \
-               (str_value.startswith("'") and str_value.endswith("'")):
-                str_value = str_value[1:-1]
-        
-        return str_value
-
-    @lru_cache(maxsize=256)
-    def _get_field_type(self, cat_name: str, field_name: str) -> str:
+    def get_field_type(self, cat_name: str, field_name: str) -> str:
         """Get the XSD type for a field"""
         type_name = f"{cat_name}Type"
         if type_name in self.xsd_meta['complex_types']:
             for fn, ft in self.xsd_meta['complex_types'][type_name]:
                 if fn == field_name:
                     return ft
-        return "xs:string"  # Default to string if type not found
+        return "xs:string"  # Default to string
 
-    def _is_typed_field(self, field_type: str) -> bool:
-        """Check if a field has a specific non-string type that requires proper formatting"""
-        typed_fields = ['xsd:integer', 'xsd:int', 'xsd:decimal', 'xsd:double', 'xsd:float', 'xsd:boolean', 'xsd:date', 'xsd:dateTime']
+    def is_typed_field(self, field_type: str) -> bool:
+        """Check if a field has a specific non-string type"""
+        typed_fields = ['xsd:integer', 'xsd:int', 'xsd:decimal', 'xsd:double', 
+                       'xsd:float', 'xsd:boolean', 'xsd:date', 'xsd:dateTime']
         return field_type in typed_fields
 
-    @lru_cache(maxsize=256)
-    def _is_attribute_field(self, cat_name: str, field_name: str) -> bool:
-        """Determine if a field should be an XML attribute based on schema and conventions"""
-        # Ensure attribute fields are pre-computed
-        self._precompute_attribute_fields()
-        
-        # Get mapping info
-        mapping = self.mapping_rules
-        
-        # Check if field is a primary key - primary keys are typically attributes
+    def is_attribute_field(self, cat_name: str, field_name: str) -> bool:
+        """Determine if a field should be an XML attribute"""
+        # Check if primary key
+        mapping = self.mapping_generator.get_mapping_rules()
         primary_keys = mapping.get("primary_keys", {})
         if cat_name in primary_keys:
             pk = primary_keys[cat_name]
@@ -1006,105 +976,121 @@ class PDBMLConverter:
             elif field_name == pk:
                 return True
         
-        # Check pre-computed attribute/element mappings
+        # Check pre-computed mappings
         if cat_name in self._attribute_fields_cache:
             cache_entry = self._attribute_fields_cache[cat_name]
-            # If explicitly defined as attribute in schema
             if field_name in cache_entry['attributes']:
                 return True
-            # If explicitly defined as element in schema
             if field_name in cache_entry['elements']:
                 return False
         
-        # Fallback to pattern matching for fields not explicitly defined in schema
+        # Fallback to pattern matching
         attr_patterns = ['id', 'name', 'type', 'value', 'code']
         return (field_name in attr_patterns or 
                field_name.endswith('_id') or 
                field_name.endswith('_no') or 
                field_name.endswith('_index'))
 
-    def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
+
+class XMLGenerator:
+    """Generates PDBML XML from mmCIF data"""
+    def __init__(self, field_resolver: FieldTypeResolver, quiet: bool = False):
+        self.field_resolver = field_resolver
+        self.quiet = quiet
+
+    def convert(self, mmcif_container: MMCIFDataContainer) -> str:
         """Convert mmCIF container to PDBML XML string"""
-        mapping = self.mapping_rules
-        
-        # Assume single data block for simplicity
+        mapping = self.field_resolver.mapping_generator.get_mapping_rules()
         block = next(iter(mmcif_container))
         
-        # Use ElementTree for XML generation (more similar to legacy approach)
         root = ET.Element('datablock')
         root.set('xmlns', 'http://pdbml.pdb.org/schema/pdbx-v50.xsd')
         root.set('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation', 
                 'http://pdbml.pdb.org/schema/pdbx-v50.xsd pdbx-v50.xsd')
         root.set('datablockName', block.name)
         
-        for cat_name in block.data:
-            # cat_name is already a string (category name), remove leading underscore
+        for cat_name, category in block.data.items():
             cat_name_clean = cat_name.lstrip("_")
-            
-            # Check if we have mapping for this category
+            if category.row_count == 0:
+                continue
+                
             if cat_name_clean not in mapping["category_mapping"]:
                 if not self.quiet:
                     print(f"Warning: No mapping found for category {cat_name_clean}")
                 continue
             
-            # Get the actual category object
-            category = block.data[cat_name]
-            if category.row_count == 0:
-                continue
-            
-            # Generate category element
-            category_elem = ET.SubElement(root, f'{cat_name_clean}Category')
-            
-            # Process each row in the category
-            for i in range(category.row_count):
-                row = category[i]
-                
-                # Get mapped fields for this category
-                mapped_fields = mapping["category_mapping"][cat_name_clean]["fields"]
-                
-                # Create row element
-                row_elem = ET.SubElement(category_elem, cat_name_clean)
-                
-                # Determine which fields should be attributes vs elements based on schema
-                for field in mapped_fields:
-                    # Check if field exists in row data
-                    value = row.data.get(field)
-                    if value is not None:
-                        clean_value = self._clean_value(value)
-                        
-                        if self._is_attribute_field(cat_name_clean, field):
-                            # Add as attribute
-                            if clean_value and str(clean_value) not in ['', '.', '?']:
-                                row_elem.set(field, clean_value)
-                        else:
-                            # Add as element
-                            if str(clean_value) in ['', '.', '?']:
-                                # For missing values, handle based on field type
-                                field_type = self._get_field_type(cat_name_clean, field)
-                                if self._is_typed_field(field_type):
-                                    # For typed fields (integer, decimal, etc.), provide appropriate default
-                                    field_elem = ET.SubElement(row_elem, field)
-                                    if 'integer' in field_type.lower() or 'int' in field_type.lower():
-                                        # For integer fields, use 1 as default (common for sequence IDs)
-                                        field_elem.text = "1"
-                                    elif 'decimal' in field_type.lower() or 'double' in field_type.lower() or 'float' in field_type.lower():
-                                        # For numeric fields, use 0.0 as default
-                                        field_elem.text = "0.0"
-                                    else:
-                                        # For other typed fields, use empty string
-                                        field_elem.text = ""
-                                else:
-                                    # For string fields, use empty elements
-                                    field_elem = ET.SubElement(row_elem, field)
-                                    field_elem.text = ""
-                            else:
-                                # Normal element with value
-                                field_elem = ET.SubElement(row_elem, field)
-                                field_elem.text = clean_value
+            category_elem = self._create_category_element(root, cat_name_clean, category, mapping)
         
-        # Convert to string using ElementTree (similar to legacy approach)
         xml_string = ET.tostring(root, encoding='utf-8').decode('utf-8')
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string
+
+    def _create_category_element(self, parent: ET.Element, cat_name: str, 
+                               category: Category, mapping: Dict[str, Any]) -> ET.Element:
+        """Create XML elements for a category"""
+        category_elem = ET.SubElement(parent, f'{cat_name}Category')
+        mapped_fields = mapping["category_mapping"][cat_name]["fields"]
+        
+        for i in range(category.row_count):
+            row = category[i]
+            row_elem = ET.SubElement(category_elem, cat_name)
+            self._add_row_data(row_elem, row, cat_name, mapped_fields)
+        
+        return category_elem
+
+    def _add_row_data(self, row_elem: ET.Element, row: Any, cat_name: str, mapped_fields: List[str]):
+        """Add data from a single row to XML elements"""
+        for field in mapped_fields:
+            value = row.data.get(field)
+            if value is None:
+                continue
+                
+            clean_value = self._clean_value(value)
+            
+            if self.field_resolver.is_attribute_field(cat_name, field):
+                self._add_attribute(row_elem, field, clean_value)
+            else:
+                self._add_element(row_elem, field, clean_value, cat_name)
+
+    def _add_attribute(self, element: ET.Element, name: str, value: str):
+        """Add an XML attribute if value is valid"""
+        if value and value not in ['', '.', '?']:
+            element.set(name, value)
+
+    def _add_element(self, parent: ET.Element, name: str, value: str, cat_name: str):
+        """Add an XML element with proper value handling"""
+        if value in ['', '.', '?']:
+            self._handle_missing_value(parent, name, cat_name)
+        else:
+            field_elem = ET.SubElement(parent, name)
+            field_elem.text = value
+
+    def _handle_missing_value(self, parent: ET.Element, name: str, cat_name: str):
+        """Handle missing values based on field type"""
+        field_type = self.field_resolver.get_field_type(cat_name, name)
+        field_elem = ET.SubElement(parent, name)
+        
+        if self.field_resolver.is_typed_field(field_type):
+            if 'integer' in field_type.lower() or 'int' in field_type.lower():
+                field_elem.text = "1"
+            elif 'decimal' in field_type.lower() or 'double' in field_type.lower() or 'float' in field_type.lower():
+                field_elem.text = "0.0"
+            else:
+                field_elem.text = ""
+        else:
+            field_elem.text = ""
+
+    def _clean_value(self, value: Any) -> str:
+        """Clean and normalize values from mmCIF data"""
+        if value is None:
+            return ""
+        
+        str_value = str(value)
+        if len(str_value) >= 2:
+            if (str_value.startswith('"') and str_value.endswith('"')) or \
+               (str_value.startswith("'") and str_value.endswith("'")):
+                return str_value[1:-1]
+        return str_value
+
 
 # ====================== Relationship Resolver ======================
 class RelationshipResolver:
