@@ -3,32 +3,25 @@ PDBML Converter - Convert mmCIF to PDBX/PDBML XML format
 
 Optimized for performance with global caching strategy similar to legacy implementation.
 """
-import re
 import os
-import json
 import hashlib
 import threading
-import traceback
 import pickle
 import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple, Set
-from xml.etree import ElementTree
 from xml.etree import ElementTree as ET
-from functools import lru_cache, wraps
 from abc import ABC, abstractmethod
 
-from .models import MMCIFDataContainer, DataBlock, Category
+from .models import MMCIFDataContainer, Category
 from .parser import MMCIFParser
 from .validators import XMLSchemaValidator, ValidationError
 from .defaults import (
-    XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
-    PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 
-    is_null_value, CacheType, DictDataType, FrameMarker, LoopDataKey, 
+    CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
     SchemaDataType, TypeSuffix, MappingDataKey,
     # Consolidated classes
-    DataValue, DataType, XMLConstant, SemanticPattern, RelationshipTerm, FileOperation
+    DataValue, DataType, XMLConstant, SemanticPattern, FileOperation
 )
 
 
@@ -235,7 +228,6 @@ class SaveFrameParser:
         if not lines:
             return {}
             
-        frame_name = lines[0].strip()
         frame_data = {}
         i = 1
         
@@ -738,7 +730,7 @@ class MappingBuilder:
         for cat_name, cat_data in self.dict_meta[DictDataType.CATEGORIES.value].items():
             self._process_category(cat_name, cat_data)
     
-    def _process_category(self, cat_name: str, cat_data: Dict[str, Any]):
+    def _process_category(self, cat_name: str, _cat_data: Dict[str, Any]):
         """Process a single category from dictionary metadata"""
         # Find matching XSD type
         xsd_type_name = f"{cat_name}{TypeSuffix.TYPE.value}"
@@ -946,7 +938,7 @@ class FieldTypeResolver:
         
         # Parse and cache
         try:
-            tree = ElementTree.parse(xsd_path)
+            tree = ET.parse(xsd_path)
             self.mapping_generator.cache_manager.set('xsd_trees', cache_key, tree)
             return tree
         except Exception:
@@ -1023,7 +1015,7 @@ class XMLGenerator:
                     print(f"Warning: No mapping found for category {cat_name_clean}")
                 continue
             
-            category_elem = self._create_category_element(root, cat_name_clean, category, mapping)
+            self._create_category_element(root, cat_name_clean, category, mapping)
         
         xml_string = ET.tostring(root, encoding=XMLConstant.ENCODING.value).decode(XMLConstant.ENCODING.value)
         return XMLConstant.XML_VERSION.value + xml_string
@@ -1239,7 +1231,7 @@ class OwnershipAnalyzer:
         child_cat: str, 
         child_field: str, 
         parent_cat: str, 
-        parent_field: str, 
+        _parent_field: str, 
         data: Dict
     ) -> float:
         """Analyze relationship cardinality from actual data"""
@@ -1452,8 +1444,8 @@ class NestingBuilder:
         fk_map: Dict
     ):
         """Assign children to parents using foreign key relationships"""
-        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
-            for child_pk, row in indexed.get(child_cat, {}).items():
+        for (child_cat, child_col), (parent_cat, _parent_col) in fk_map.items():
+            for _child_pk, row in indexed.get(child_cat, {}).items():
                 if fk := row.get(child_col):
                     if parent := indexed.get(parent_cat, {}).get(str(fk)):
                         parent.setdefault(child_cat, []).append(row)
