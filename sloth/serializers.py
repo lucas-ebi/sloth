@@ -725,6 +725,20 @@ class PDBMLConverter:
         
         return str_value
 
+    def _get_field_type(self, cat_name: str, field_name: str) -> str:
+        """Get the XSD type for a field"""
+        type_name = f"{cat_name}Type"
+        if type_name in self.xsd_meta['complex_types']:
+            for fn, ft in self.xsd_meta['complex_types'][type_name]:
+                if fn == field_name:
+                    return ft
+        return "xs:string"  # Default to string if type not found
+
+    def _is_typed_field(self, field_type: str) -> bool:
+        """Check if a field has a specific non-string type that requires proper formatting"""
+        typed_fields = ['xsd:integer', 'xsd:int', 'xsd:decimal', 'xsd:double', 'xsd:float', 'xsd:boolean', 'xsd:date', 'xsd:dateTime']
+        return field_type in typed_fields
+
     def _is_attribute_field(self, cat_name: str, field_name: str) -> bool:
         """Determine if a field should be an XML attribute based on schema and conventions"""
         # Get mapping info
@@ -844,10 +858,13 @@ class PDBMLConverter:
                         value = row.data.get(field)
                         if value is not None:
                             if str(value) in ['', '.', '?']:
-                                # Null values as empty elements or special markers
-                                if str(value) == '.':
-                                    xml_lines.append(f'      <{field} nilValue="true"></{field}>')
+                                # Check if this is a typed field that needs xsi:nil
+                                field_type = self._get_field_type(cat_name_clean, field)
+                                if self._is_typed_field(field_type):
+                                    # For typed fields (integer, decimal, etc.), use xsi:nil="true"
+                                    xml_lines.append(f'      <{field} xsi:nil="true"/>')
                                 else:
+                                    # For string fields, use empty elements
                                     xml_lines.append(f'      <{field}></{field}>')
                             else:
                                 # Clean and escape XML text content
