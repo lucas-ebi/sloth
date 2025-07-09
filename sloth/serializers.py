@@ -23,7 +23,7 @@ from abc import ABC, abstractmethod
 
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
-from .validators import XMLSchemaValidator
+from .validators import XMLSchemaValidator, ValidationError
 from .schemas import (
     XMLLocation, XMLElementType, XMLGroupingType, XMLContainerType,
     PDBMLElement, PDBMLAttribute, DebugFile, get_numeric_fields, 
@@ -1056,11 +1056,18 @@ class MMCIFToPDBMLPipeline:
         pdbml_xml = self.converter.convert_to_pdbml(mmcif_container)
         
         # Validate
+        # Validate
         if self.validator:
-            is_valid, errors = self.validator.validate(pdbml_xml)
-            validation = {"is_valid": is_valid, "errors": errors}
+            try:
+                validation = self.validator.validate(pdbml_xml)
+            except ValidationError as e:
+                # Convert ValidationError exception to the expected dictionary format
+                validation = {
+                    "valid": False,
+                    "errors": str(e).split(';')
+                }
         else:
-            validation = {"is_valid": True, "errors": []}
+            validation = {"valid": True, "errors": []}
         
         # Resolve relationships
         nested_json = self.resolver.resolve_relationships(pdbml_xml)

@@ -557,7 +557,7 @@ ATOM 2 C 11.234 21.567 31.890
         """Test complete pipeline from mmCIF to nested JSON."""
         # Mock the validator to avoid XSD dependency
         mock_validator = MagicMock()
-        mock_validator.validate.return_value = (True, [])
+        mock_validator.validate.return_value = {"valid": True, "errors": []}
         mock_validator_class.return_value = mock_validator
         
         # Create pipeline without actual schema file
@@ -584,7 +584,7 @@ ATOM 2 C 11.234 21.567 31.890
         
         # Check validation result structure
         validation = result['validation']
-        self.assertIn('is_valid', validation)
+        self.assertIn('valid', validation)
         self.assertIn('errors', validation)
         
         # Check nested JSON

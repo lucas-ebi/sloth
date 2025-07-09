@@ -2159,13 +2159,13 @@ class PDBMLConverter:
             
         Returns:
             Dict containing validation results:
-            - is_valid: bool indicating if validation passed
+            - valid: bool indicating if validation passed
             - errors: list of validation errors
             - warnings: list of validation warnings
         """
         if not self.xml_validator:
             return {
-                "is_valid": False,
+                "valid": False,
                 "errors": ["XML validator not available - XSD schema not found"],
                 "warnings": []
             }
@@ -2174,13 +2174,13 @@ class PDBMLConverter:
             # Use the existing XMLSchemaValidator
             result = self.xml_validator.validate(xml_content)
             return {
-                "is_valid": result.get("valid", False),
+                "valid": result.get("valid", False),
                 "errors": result.get("errors", []),
                 "warnings": []  # XMLSchemaValidator doesn't separate warnings
             }
         except Exception as e:
             return {
-                "is_valid": False,
+                "valid": False,
                 "errors": [f"Validation failed: {str(e)}"],
                 "warnings": []
             }
@@ -2786,13 +2786,13 @@ class MMCIFToPDBMLPipeline:
             pdbml_xml = self.converter.convert_to_pdbml(mmcif_container)
             
             # Step 3: Validate XML against schema
-            validation_results = {"is_valid": True, "errors": []}
+            validation_results = {"valid": True, "errors": []}
             if self.validator:
                 try:
                     validation_result = self.validator.validate(pdbml_xml)
                     is_valid = validation_result["valid"]
                     errors = validation_result.get("errors", [])
-                    validation_results = {"is_valid": is_valid, "errors": errors}
+                    validation_results = {"valid": is_valid, "errors": errors}
                     
                     if not is_valid:
                         print(f"⚠️ Warning: XML validation failed with {len(errors)} errors:")
@@ -2800,7 +2800,7 @@ class MMCIFToPDBMLPipeline:
                             print(f"  - {error}")
                 except Exception as e:
                     print(f"⚠️ Warning: Error during XML validation: {str(e)}")
-                    validation_results = {"is_valid": False, "errors": [str(e)]}
+                    validation_results = {"valid": False, "errors": [str(e)]}
             
             # Step 4: Resolve relationships and create nested JSON
             nested_json = {}
@@ -2826,7 +2826,7 @@ class MMCIFToPDBMLPipeline:
             return {
                 "mmcif_data": None,
                 "pdbml_xml": f"<!-- Error generating XML: {str(e)} -->",
-                "validation": {"is_valid": False, "errors": [str(e)]},
+                "validation": {"valid": False, "errors": [str(e)]},
                 "nested_json": {"error": str(e)}
             }
     
@@ -2853,7 +2853,7 @@ class MMCIFToPDBMLPipeline:
         # Save validation report
         validation_path = output_dir / f"{base_name}_validation.txt"
         with open(validation_path, 'w', encoding='utf-8') as f:
-            f.write(f"Validation Status: {'PASSED' if results['validation']['is_valid'] else 'FAILED'}\n")
+            f.write(f"Validation Status: {'PASSED' if results['validation']['valid'] else 'FAILED'}\n")
             f.write(f"Number of errors: {len(results['validation']['errors'])}\n\n")
             if results['validation']['errors']:
                 f.write("Errors:\n")

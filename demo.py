@@ -13,6 +13,8 @@ import copy
 import sys
 import shutil
 import traceback
+import threading
+import hashlib
 from pathlib import Path
 from sloth import (
     MMCIFHandler,
@@ -1128,7 +1130,17 @@ primary 'Johnson, K.L.' 2
         # Step 2: Convert to PDBML XML
         print(f"\n🔄 Step 2: Converting to PDBML XML")
         dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        converter = PDBMLConverter(dictionary_path=dict_path)
+        xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        # Create parser components and converter
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(os.path.expanduser("~"), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, True)
+        xsd_parser = XSDParser(cache, True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
+        converter = PDBMLConverter(mapping_generator)
         xml_content = converter.convert_to_pdbml(container)
         
         print(f"   ✅ XML generated successfully")
@@ -1151,15 +1163,23 @@ primary 'Johnson, K.L.' 2
             print(f"   {'✅' if is_valid else '⚠️'} Validation: {'PASSED' if is_valid else 'FAILED'}")
             print(f"   📝 Total errors: {len(errors)}")
             
-            if errors and len(errors) <= 5:
-                print("   🔍 Errors:")
-                for i, error in enumerate(errors, 1):
-                    print(f"      {i}. {error}")
-            elif errors and len(errors) > 5:
-                print("   🔍 First 3 errors:")
-                for i, error in enumerate(errors[:3], 1):
-                    print(f"      {i}. {error}")
-                print(f"      ... and {len(errors) - 3} more")
+            # Show validation errors
+            if errors:
+                # Display errors appropriately based on type and count
+                if isinstance(errors, list):
+                    if len(errors) <= 5:
+                        print("   🔍 Validation errors:")
+                        for i, error in enumerate(errors, 1):
+                            print(f"      {i}. {error}")
+                    else:
+                        print("   🔍 First 3 validation errors:")
+                        for i, error in enumerate(errors[:3], 1):
+                            print(f"      {i}. {error}")
+                        print(f"      ... and {len(errors) - 3} more")
+                elif isinstance(errors, str):
+                    print(f"   🔍 Validation error: {errors}")
+                else:
+                    print(f"   🔍 Validation error details: {str(errors)}")
         else:
             print("   ❌ Schema file not found")
         
@@ -1301,9 +1321,9 @@ def demonstrate_complete_pdbml_pipeline():
         
         if not dict_path.exists():
             print("❌ Dictionary file not found - using basic conversion")
-            pipeline = MMCIFToPDBMLPipeline(schema_path=schema_path)
+            pipeline = MMCIFToPDBMLPipeline(xsd_path=schema_path)
         else:
-            pipeline = MMCIFToPDBMLPipeline(schema_path=schema_path, dictionary_path=dict_path)
+            pipeline = MMCIFToPDBMLPipeline(dict_path=dict_path, xsd_path=schema_path)
         
         print("✅ Pipeline initialized")
         
@@ -1315,13 +1335,35 @@ def demonstrate_complete_pdbml_pipeline():
         print(f"\n📊 Pipeline Results:")
         print(f"   ✅ mmCIF parsing: SUCCESS")
         print(f"   ✅ XML generation: SUCCESS")
-        print(f"   {'✅' if result['validation']['is_valid'] else '⚠️'} Schema validation: {'PASSED' if result['validation']['is_valid'] else 'FAILED'}")
+        print(f"   {'✅' if result['validation']['valid'] else '⚠️'} Schema validation: {'PASSED' if result['validation']['valid'] else 'FAILED'}")
         print(f"   📝 Validation errors: {len(result['validation']['errors'])}")
         
         if result['validation']['errors']:
             print(f"   🔍 First 3 validation errors:")
-            for i, error in enumerate(result['validation']['errors'][:3], 1):
-                print(f"      {i}. {error}")
+            errors = result['validation']['errors']
+            # print(f"      Error type: {type(errors).__name__}")
+            # print(f"      Error content: {repr(errors)}")
+            
+            # Try to display errors in a meaningful way
+            if isinstance(errors, list):
+                if errors and isinstance(errors[0], str) and len(errors[0]) > 1:
+                    # Good format, show first 3
+                    for i, error in enumerate(errors[:3], 1):
+                        print(f"      {i}. {error}")
+                elif errors and len(errors) > 1:
+                    # It's a list but might be split characters or something else
+                    if all(isinstance(e, str) for e in errors):
+                        # Join the first 100 characters
+                        error_message = "".join(errors[:100])
+                        print(f"      Error message: {error_message}")
+                    else:
+                        # Just convert each to string and show first 3
+                        for i, error in enumerate(errors[:3], 1):
+                            print(f"      {i}. {str(error)}")
+            elif isinstance(errors, str):
+                print(f"      Error message: {errors}")
+            elif errors:
+                print(f"      Error details: {str(errors)}")
         
         print(f"   ✅ Relationship resolution: SUCCESS")
         print(f"   📊 Root categories in JSON: {len(result['nested_json']) if result['nested_json'] else 0}")
@@ -1330,18 +1372,46 @@ def demonstrate_complete_pdbml_pipeline():
         output_dir = Path("exports") / "complete_pdbml_demo"
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        file_paths = pipeline.save_outputs(result, output_dir, "complete_demo")
+        # Since save_outputs was removed in the refactoring, we'll do this manually
+        file_paths = {}
         
         # Save XML
         if result['pdbml_xml']:
-            print(f"   💾 XML saved: {file_paths['xml']}")
+            xml_file = output_dir / "complete_demo.xml"
+            with open(xml_file, 'w', encoding='utf-8') as f:
+                f.write(result['pdbml_xml'])
+            file_paths['xml'] = xml_file
+            print(f"   💾 XML saved: {xml_file}")
         
         # Save JSON
         if result['nested_json']:
-            print(f"   💾 JSON saved: {file_paths['json']}")
+            json_file = output_dir / "complete_demo.json"
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(result['nested_json'], f, indent=2)
+            file_paths['json'] = json_file
+            print(f"   💾 JSON saved: {json_file}")
         
-        # Save pipeline report
-        print(f"   📋 Validation report: {file_paths['validation']}")
+        # Save validation report
+        validation_file = output_dir / "validation_report.txt"
+        with open(validation_file, 'w', encoding='utf-8') as f:
+            f.write(f"PDBML XML Validation Report\n")
+            f.write(f"===========================\n\n")
+            f.write(f"Status: {'PASSED' if result['validation']['valid'] else 'FAILED'}\n")
+            f.write(f"Total errors: {len(result['validation']['errors'])}\n\n")
+            if result['validation']['errors']:
+                f.write("Errors:\n")
+                errors = result['validation']['errors']
+                if isinstance(errors, list) and errors:
+                    if isinstance(errors[0], str) and len(errors[0]) > 1:
+                        # Good format, show all
+                        for i, error in enumerate(errors, 1):
+                            f.write(f"  {i}. {error}\n")
+                    else:
+                        # Probably single error message split into characters
+                        error_message = "".join(str(e) for e in errors)
+                        f.write(f"  XML validation error: {error_message}\n")
+        file_paths['validation'] = validation_file
+        print(f"   📋 Validation report: {validation_file}")
         
         print(f"\n📁 All outputs saved to: {output_dir}/")
         print(f"🎉 Complete pipeline demonstration finished successfully!")
@@ -1423,15 +1493,24 @@ _atom_site.pdbx_PDB_model_num 1
         # Step 2: Convert to PDBML XML
         print(f"\n2️⃣ Converting to PDBML XML...")
         dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        converter = PDBMLConverter(dictionary_path=dict_path)
+        xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        
+        # Create parser components and converter
+        from sloth.serializers import HybridCache, DictionaryParser, XSDParser, MappingGenerator
+        cache = HybridCache(os.path.join(os.path.expanduser("~"), ".sloth_cache"))
+        dict_parser = DictionaryParser(cache, True)
+        xsd_parser = XSDParser(cache, True)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, True)
+        converter = PDBMLConverter(mapping_generator)
         xml_content = converter.convert_to_pdbml(container)
         print(f"   ✅ XML generated - {len(xml_content)} characters")
         
         # Step 3: Resolve relationships using dictionary-driven approach
         print(f"\n3️⃣ Resolving parent-child relationships...")
-        dictionary = DictionaryParser()
-        dictionary.parse_dictionary(dict_path)
-        resolver = RelationshipResolver(dictionary)
+        # Reuse the mapping generator from previous step
+        resolver = RelationshipResolver(mapping_generator)
         nested_json = resolver.resolve_relationships(xml_content)
         print(f"   ✅ Relationships resolved")
         print(f"   📊 Root categories: {list(nested_json)}")
