@@ -1,8 +1,8 @@
 from typing import Optional, List, Dict, Any
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
-from .exporter import MMCIFExporter
-from .loaders import MMCIFImporter
+from .exporter import JSONExporter
+from .importers import JSONImporter
 from .models import MMCIFDataContainer, DataSourceFormat
 from .plugins import ValidatorFactory
 
@@ -56,9 +56,10 @@ class MMCIFHandler:
         mmcif: MMCIFDataContainer,
         file_path: Optional[str] = None,
         indent: int = 2,
+        permissive: bool = False,
     ) -> Optional[str]:
         """
-        Export mmCIF data to JSON format.
+        Export mmCIF data to nested JSON format.
 
         :param mmcif: The data container to export
         :type mmcif: MMCIFDataContainer
@@ -66,197 +67,50 @@ class MMCIFHandler:
         :type file_path: Optional[str]
         :param indent: Number of spaces for indentation
         :type indent: int
+        :param permissive: Whether to skip validation
+        :type permissive: bool
         :return: JSON string if no file_path provided, otherwise None
         :rtype: Optional[str]
         """
-        exporter = MMCIFExporter(mmcif)
-        return exporter.to_json(file_path, indent)
+        exporter = JSONExporter(permissive=permissive)
+        return exporter.to_json(mmcif, file_path, indent)
 
-    def export_to_xml(
-        self,
-        mmcif: MMCIFDataContainer,
-        file_path: Optional[str] = None,
-        pretty_print: bool = True,
-    ) -> Optional[str]:
-        """
-        Export mmCIF data to XML format.
-
-        :param mmcif: The data container to export
-        :type mmcif: MMCIFDataContainer
-        :param file_path: Path to save the XML file (optional)
-        :type file_path: Optional[str]
-        :param pretty_print: Whether to format XML with indentation
-        :type pretty_print: bool
-        :return: XML string if no file_path provided, otherwise None
-        :rtype: Optional[str]
-        """
-        exporter = MMCIFExporter(mmcif)
-        return exporter.to_xml(file_path, pretty_print)
-
-    def export_to_pickle(self, mmcif: MMCIFDataContainer, file_path: str) -> None:
-        """
-        Export mmCIF data to a Python pickle file.
-
-        :param mmcif: The data container to export
-        :type mmcif: MMCIFDataContainer
-        :param file_path: Path to save the pickle file
-        :type file_path: str
-        :return: None
-        """
-        exporter = MMCIFExporter(mmcif)
-        exporter.to_pickle(file_path)
-
-    def export_to_yaml(
-        self, mmcif: MMCIFDataContainer, file_path: Optional[str] = None
-    ) -> Optional[str]:
-        """
-        Export mmCIF data to YAML format.
-
-        :param mmcif: The data container to export
-        :type mmcif: MMCIFDataContainer
-        :param file_path: Path to save the YAML file (optional)
-        :type file_path: Optional[str]
-        :return: YAML string if no file_path provided, otherwise None
-        :rtype: Optional[str]
-        """
-        exporter = MMCIFExporter(mmcif)
-        return exporter.to_yaml(file_path)
-
-    def export_to_pandas(self, mmcif: MMCIFDataContainer) -> Dict[str, Dict[str, Any]]:
-        """
-        Export mmCIF data to pandas DataFrames, with one DataFrame per category.
-
-        :param mmcif: The data container to export
-        :type mmcif: MMCIFDataContainer
-        :return: Dictionary of DataFrames organized by data block and category
-        :rtype: Dict[str, Dict[str, Any]]
-        """
-        exporter = MMCIFExporter(mmcif)
-        return exporter.to_pandas()
-
-    def export_to_csv(
-        self, mmcif: MMCIFDataContainer, directory_path: str, prefix: str = ""
-    ) -> Dict[str, Dict[str, str]]:
-        """
-        Export mmCIF data to CSV files, with one file per category.
-
-        :param mmcif: The data container to export
-        :type mmcif: MMCIFDataContainer
-        :param directory_path: Directory to save the CSV files
-        :type directory_path: str
-        :param prefix: Prefix for CSV filenames
-        :type prefix: str
-        :return: Dictionary mapping block and category names to file paths
-        :rtype: Dict[str, Dict[str, str]]
-        """
-        exporter = MMCIFExporter(mmcif)
-        return exporter.to_csv(directory_path, prefix)
+    # Note: Legacy export methods (XML, YAML, pickle, CSV, pandas) have been moved to sloth.legacy
+    # For multiple format support, use: from sloth.legacy import MMCIFHandler
 
     def import_from_json(
-        self, file_path: str, schema_validator=None
+        self, 
+        file_path: str, 
+        permissive: bool = False,
+        validate: bool = None
     ) -> MMCIFDataContainer:
         """
-        Import mmCIF data from a JSON file.
+        Import mmCIF data from a nested JSON file.
 
         :param file_path: Path to the JSON file
         :type file_path: str
-        :param schema_validator: Optional schema validator for data validation
-        :type schema_validator: SchemaValidator
+        :param permissive: Whether to skip validation
+        :type permissive: bool
+        :param validate: Override validation setting
+        :type validate: bool
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        container = MMCIFImporter.from_json(
-            file_path, self.validator_factory, schema_validator
-        )
+        importer = JSONImporter(permissive=permissive)
+        container = importer.import_from_json(file_path, validate=validate)
         # Make sure source format is set correctly
         container.source_format = DataSourceFormat.JSON
         return container
 
-    def import_from_xml(
-        self, file_path: str, schema_validator=None
-    ) -> MMCIFDataContainer:
-        """
-        Import mmCIF data from an XML file.
-
-        :param file_path: Path to the XML file
-        :type file_path: str
-        :param schema_validator: Optional schema validator for data validation
-        :type schema_validator: SchemaValidator
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        container = MMCIFImporter.from_xml(
-            file_path, self.validator_factory, schema_validator
-        )
-        # Make sure source format is set correctly
-        container.source_format = DataSourceFormat.XML
-        return container
-
-    def import_from_pickle(
-        self, file_path: str, schema_validator=None
-    ) -> MMCIFDataContainer:
-        """
-        Import mmCIF data from a pickle file.
-
-        :param file_path: Path to the pickle file
-        :type file_path: str
-        :param schema_validator: Optional schema validator for data validation
-        :type schema_validator: SchemaValidator
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        container = MMCIFImporter.from_pickle(
-            file_path, self.validator_factory, schema_validator
-        )
-        # Make sure source format is set correctly
-        container.source_format = DataSourceFormat.PICKLE
-        return container
-
-    def import_from_yaml(
-        self, file_path: str, schema_validator=None
-    ) -> MMCIFDataContainer:
-        """
-        Import mmCIF data from a YAML file.
-
-        :param file_path: Path to the YAML file
-        :type file_path: str
-        :param schema_validator: Optional schema validator for data validation
-        :type schema_validator: SchemaValidator
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        container = MMCIFImporter.from_yaml(
-            file_path, self.validator_factory, schema_validator
-        )
-        # Make sure source format is set correctly
-        container.source_format = DataSourceFormat.YAML
-        return container
-
-    def import_from_csv_files(
-        self, directory_path: str, schema_validator=None
-    ) -> MMCIFDataContainer:
-        """
-        Import mmCIF data from CSV files in a directory.
-
-        :param directory_path: Directory containing CSV files
-        :type directory_path: str
-        :param schema_validator: Optional schema validator for data validation
-        :type schema_validator: SchemaValidator
-        :return: An MMCIFDataContainer instance
-        :rtype: MMCIFDataContainer
-        """
-        container = MMCIFImporter.from_csv_files(
-            directory_path, self.validator_factory, schema_validator
-        )
-        # Make sure source format is set correctly
-        container.source_format = DataSourceFormat.CSV
-        return container
+    # Note: Legacy import methods (XML, YAML, pickle, CSV) have been moved to sloth.legacy
+    # For multiple format support, use: from sloth.legacy import MMCIFHandler
 
     def import_auto_detect(
         self, file_path: str, validate_schema=False
     ) -> MMCIFDataContainer:
         """
         Auto-detect file format and import mmCIF data.
+        Currently only supports JSON format.
 
         :param file_path: Path to the file to import
         :type file_path: str
@@ -265,9 +119,8 @@ class MMCIFHandler:
         :return: An MMCIFDataContainer instance with appropriate source_format flag set
         :rtype: MMCIFDataContainer
         """
-        return MMCIFImporter.auto_detect_format(
-            file_path, self.validator_factory, validate_schema=validate_schema
-        )
+        # For now, assume JSON format
+        return self.import_from_json(file_path, permissive=not validate_schema)
 
     @property
     def file_obj(self):
