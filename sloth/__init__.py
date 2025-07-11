@@ -49,16 +49,12 @@ from .models import (
 )
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
-from .exporter import MMCIFExporter
-from .loaders import (
-    MMCIFImporter,
-    FormatLoader,
-    JsonLoader,
-    XmlLoader,
-    YamlLoader,
-    PickleLoader,
-    CsvLoader,
-    DictToMMCIFConverter,
+from .exporter import JSONExporter
+from .importers import (
+    JSONImporter,
+    import_json_file,
+    import_json_string,
+    import_json_dict,
 )
 from .handler import MMCIFHandler
 from .plugins import ValidatorFactory
@@ -84,26 +80,25 @@ from .serializers import (
 )
 
 __all__ = [
+    # Core components
     "MMCIFHandler",
-    # Main components now use gemmi backend by default
     "MMCIFParser",
     "MMCIFWriter",
-    "MMCIFExporter",
-    "MMCIFImporter",
+    # Data models
     "MMCIFDataContainer",
     "DataBlock",
     "Category",
     "Row",
     "Item",
-    "ValidatorFactory",
     "DataSourceFormat",
-    "FormatLoader",
-    "JsonLoader",
-    "XmlLoader",
-    "YamlLoader",
-    "PickleLoader",
-    "CsvLoader",
-    "DictToMMCIFConverter",
+    # JSON Import/Export (new focused API)
+    "JSONExporter",
+    "JSONImporter", 
+    "import_json_file",
+    "import_json_string",
+    "import_json_dict",
+    # Validation components
+    "ValidatorFactory",
     "SchemaValidator",
     "JSONSchemaValidator",
     "XMLSchemaValidator",
@@ -127,6 +122,6 @@ __all__ = [
     "__license__",
     "VERSION_INFO",
     "MIGRATION_INFO",
-    # Note: For legacy implementations, use:
-    # from sloth.legacy import MMCIFParser, MMCIFWriter
+    # Note: For legacy multi-format support, use:
+    # from sloth.legacy import MMCIFHandler, MMCIFExporter, MMCIFImporter
 ]
