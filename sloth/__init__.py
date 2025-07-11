@@ -81,7 +81,6 @@ from .serializers import (
     CacheManager,
     get_cache_manager,
     RelationshipResolver,
-    MMCIFToPDBMLPipeline,
 )
 
 __all__ = [
@@ -122,7 +121,6 @@ __all__ = [
     "CacheManager", 
     "get_cache_manager",
     "RelationshipResolver",
-    "MMCIFToPDBMLPipeline",
     # Version information
     "__version__",
     "__author__",

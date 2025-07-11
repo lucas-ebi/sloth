@@ -16,7 +16,6 @@ import traceback
 import threading
 import hashlib
 import tempfile
-from pathlib import Path
 from sloth import (
     MMCIFHandler,
     ValidatorFactory,
@@ -28,9 +27,15 @@ from sloth import (
     DictionaryParser,
     XMLSchemaValidator,
     RelationshipResolver,
-    MMCIFToPDBMLPipeline,
     MMCIFParser,
+    # Pipeline components
+    XSDParser,
+    MappingGenerator,
+    CacheManager,
+    get_cache_manager,
 )
+from typing import Dict, List, Optional, Any, Union
+from pathlib import Path
 
 # Comprehensive embedded demo mmCIF data - realistic protein complex structure
 COMPREHENSIVE_DEMO_MMCIF = """data_DEMO
@@ -377,6 +382,76 @@ ATOM   2    C  11.234 21.567 31.890
 ATOM   3    C  12.345 22.678 32.901
 #
 """
+
+
+# ====================== Main Pipeline ======================
+class MMCIFToPDBMLPipeline:
+    """Orchestrates the complete conversion pipeline"""
+    def __init__(
+        self,
+        dict_path: Optional[Union[str, Path]] = None,
+        xsd_path: Optional[Union[str, Path]] = "default",  # Use "default" as sentinel to allow None
+        cache_dir: Optional[str] = None,
+        permissive: bool = False,
+        quiet: bool = False
+    ):
+        # Set default schema paths if not provided
+        if dict_path is None:
+            dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        if xsd_path == "default":
+            xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+            
+        # Set up caching
+        cache_manager = get_cache_manager(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
+        
+        # Set up metadata parsers
+        dict_parser = DictionaryParser(cache_manager, quiet)
+        xsd_parser = XSDParser(cache_manager, quiet)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, quiet)
+        
+        # Store configuration
+        self.permissive = permissive
+        self.quiet = quiet
+        
+        # Set up converter and resolver
+        self.converter = PDBMLConverter(mapping_generator, permissive, quiet)
+        self.resolver = RelationshipResolver(mapping_generator)
+        self.validator = XMLSchemaValidator(xsd_path) if xsd_path and not permissive else None
+    
+    def process_mmcif_file(self, mmcif_path: Union[str, Path]) -> Dict[str, Any]:
+        # Parse mmCIF
+        parser = MMCIFParser()
+        mmcif_container = parser.parse_file(mmcif_path)
+        
+        # Convert to PDBML
+        pdbml_xml = self.converter.convert_to_pdbml(mmcif_container)
+        
+        # Validate
+        if self.validator:
+            try:
+                validation = self.validator.validate(pdbml_xml)
+            except ValidationError as e:
+                # Convert ValidationError exception to the expected dictionary format
+                validation = {
+                    "valid": False,
+                    "errors": str(e).split(';')
+                }
+        else:
+            validation = {"valid": True, "errors": []}
+        
+        # Resolve relationships
+        nested_json = self.resolver.resolve_relationships(pdbml_xml)
+        
+        return {
+            "mmcif_data": mmcif_container,
+            "pdbml_xml": pdbml_xml,
+            "validation": validation,
+            "nested_json": nested_json
+        }
 
 
 def category_validator(category_name):
