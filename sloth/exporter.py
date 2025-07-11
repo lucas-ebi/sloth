@@ -1,270 +1,217 @@
-from typing import Dict, Any, Optional
+#!/usr/bin/env python3
+"""
+JSON Exporter for SLOTH - Focused on nested JSON format using current serializers.
+
+This module provides functionality to export mmCIF data to nested JSON format
+using the RelationshipResolver from serializers.py. Supports validation 
+through intermediate PDBML XML when permissive=False.
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, Any, Optional, Union
 from .models import MMCIFDataContainer
+from .serializers import (
+    PDBMLConverter, 
+    RelationshipResolver,
+    DictionaryParser,
+    XSDParser,
+    MappingGenerator,
+    get_cache_manager
+)
+from .validators import XMLSchemaValidator, ValidationError
 
 
-class MMCIFExporter:
-    """A class to export mmCIF data to different formats like JSON, XML, Pickle, YAML, etc."""
-
-    def __init__(self, mmcif: MMCIFDataContainer):
+class JSONExporter:
+    """Export mmCIF data to nested JSON format with optional validation."""
+    
+    def __init__(
+        self,
+        dict_path: Optional[Union[str, Path]] = None,
+        xsd_path: Optional[Union[str, Path]] = None,
+        cache_dir: Optional[str] = None,
+        permissive: bool = False,
+        quiet: bool = False
+    ):
         """
-        Initialize the exporter with an mmCIF data container.
-
-        :param mmcif: The mmCIF data container to export
-        :type mmcif: MMCIFDataContainer
+        Initialize the JSON exporter.
+        
+        Args:
+            dict_path: Path to mmCIF dictionary file
+            xsd_path: Path to PDBML XSD schema file  
+            cache_dir: Directory for caching
+            permissive: If False, validates through PDBML XML against XSD schema
+            quiet: Suppress output messages
         """
-        self.mmcif = mmcif
-
-    def to_dict(self) -> Dict[str, Any]:
+        self.permissive = permissive
+        self.quiet = quiet
+        
+        # Set default schema paths
+        if dict_path is None:
+            dict_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
+        if xsd_path is None:
+            xsd_path = Path(__file__).parent / "schemas" / "pdbx-v50.xsd"
+            
+        self.dict_path = dict_path
+        self.xsd_path = xsd_path
+        
+        # Set up components
+        cache_manager = get_cache_manager(
+            cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
+        )
+        
+        # Set up metadata parsers
+        dict_parser = DictionaryParser(cache_manager, quiet)
+        xsd_parser = XSDParser(cache_manager, quiet)
+        dict_parser.source = dict_path
+        xsd_parser.source = xsd_path
+        
+        # Set up mapping generator and components
+        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, quiet)
+        self.converter = PDBMLConverter(mapping_generator, permissive, quiet)
+        self.resolver = RelationshipResolver(mapping_generator)
+        
+        # Set up validator if not permissive
+        if not permissive:
+            self.validator = XMLSchemaValidator(xsd_path)
+        else:
+            self.validator = None
+    
+    def export_to_nested_json(
+        self, 
+        mmcif_data: MMCIFDataContainer,
+        validate: bool = None
+    ) -> Dict[str, Any]:
         """
-        Convert the mmCIF data container to a dictionary structure.
-
-        :return: A dictionary representation of the mmCIF data
-        :rtype: Dict[str, Any]
+        Export mmCIF data to nested JSON format using relationship resolution.
+        
+        Args:
+            mmcif_data: The mmCIF data container to export
+            validate: Whether to validate (defaults to not self.permissive)
+            
+        Returns:
+            Nested JSON dictionary with resolved relationships
+            
+        Raises:
+            ValidationError: If validation fails and not in permissive mode
         """
-        result = {}
-
-        for block in self.mmcif:
-            block_dict = {}
-
-            for category_name in block.categories:
-                category = block[category_name]
-                category_dict = {}
-
-                # Get all data (this will force loading of lazy items)
-                items = category.data
-
-                # Check if we have multiple rows
-                if any(len(values) > 1 for values in items.values()):
-                    # For multi-row categories, create a list of row objects
-                    rows = []
-                    for i in range(category.row_count):
-                        row = {}
-                        for item_name, values in items.items():
-                            if i < len(values):
-                                row[item_name] = values[i]
-                        rows.append(row)
-                    category_dict = rows
-                else:
-                    # For single-row categories, create a simple key-value object
-                    for item_name, values in items.items():
-                        if values:  # Check if there are any values
-                            category_dict[item_name] = values[0]
-
-                block_dict[category_name] = category_dict
-
-            result[block.name] = block_dict
-
-        return result
-
+        if validate is None:
+            validate = not self.permissive
+            
+        # Convert mmCIF to PDBML XML first
+        pdbml_xml = self.converter.convert_to_pdbml(mmcif_data)
+        
+        # Validate if requested
+        if validate and self.validator:
+            validation_result = self.validator.validate(pdbml_xml)
+            if not validation_result.get("valid", False):
+                errors = validation_result.get("errors", [])
+                error_msg = f"PDBML validation failed: {'; '.join(errors)}"
+                if not self.permissive:
+                    raise ValidationError(error_msg)
+                elif not self.quiet:
+                    print(f"Warning: {error_msg}")
+        
+        # Resolve relationships to create nested JSON
+        nested_json = self.resolver.resolve_relationships(pdbml_xml)
+        
+        return nested_json
+    
     def to_json(
-        self, file_path: Optional[str] = None, indent: int = 2
+        self, 
+        mmcif_data: MMCIFDataContainer,
+        file_path: Optional[Union[str, Path]] = None, 
+        indent: int = 2,
+        validate: bool = None
     ) -> Optional[str]:
         """
         Export mmCIF data to JSON format.
 
-        :param file_path: Path to save the JSON file (optional)
-        :type file_path: Optional[str]
-        :param indent: Number of spaces for indentation
-        :type indent: int
-        :return: JSON string if no file_path provided, otherwise None
-        :rtype: Optional[str]
+        Args:
+            mmcif_data: The mmCIF data container to export
+            file_path: Path to save the JSON file (optional)
+            indent: Number of spaces for indentation
+            validate: Whether to validate (defaults to not self.permissive)
+            
+        Returns:
+            JSON string if no file_path provided, otherwise None
+            
+        Raises:
+            ValidationError: If validation fails and not in permissive mode
         """
-        import json
-
-        data_dict = self.to_dict()
-
-        if file_path:
-            with open(file_path, "w") as f:
-                json.dump(data_dict, f, indent=indent)
-            return None
-        else:
-            return json.dumps(data_dict, indent=indent)
-
-    def to_xml(
-        self, file_path: Optional[str] = None, pretty_print: bool = True
-    ) -> Optional[str]:
-        """
-        Export mmCIF data to XML format.
-
-        :param file_path: Path to save the XML file (optional)
-        :type file_path: Optional[str]
-        :param pretty_print: Whether to format XML with indentation
-        :type pretty_print: bool
-        :return: XML string if no file_path provided, otherwise None
-        :rtype: Optional[str]
-        """
-        from xml.dom import minidom
-        from xml.etree import ElementTree as ET
-
-        root = ET.Element("mmcif_data")
-
-        for block in self.mmcif:
-            block_elem = ET.SubElement(root, "data_block", name=block.name)
-
-            for category_name in block.categories:
-                category = block[category_name]
-                category_elem = ET.SubElement(
-                    block_elem, "category", name=category_name
-                )
-
-                # Get all data (this will force loading of lazy items)
-                items = category.data
-
-                if any(len(values) > 1 for values in items.values()):
-                    # For multi-row categories
-                    for i in range(category.row_count):
-                        row_elem = ET.SubElement(category_elem, "row", index=str(i))
-                        for item_name, values in items.items():
-                            if i < len(values):
-                                item_elem = ET.SubElement(
-                                    row_elem, "item", name=item_name
-                                )
-                                item_elem.text = values[i]
-                else:
-                    # For single-row categories
-                    for item_name, values in items.items():
-                        if values:  # Check if there are any values
-                            item_elem = ET.SubElement(
-                                category_elem, "item", name=item_name
-                            )
-                            item_elem.text = values[0]
-
-        # Convert to string
-        rough_string = ET.tostring(root, "utf-8")
-
-        if pretty_print:
-            reparsed = minidom.parseString(rough_string)
-            xml_string = reparsed.toprettyxml(indent="  ")
-        else:
-            xml_string = rough_string.decode("utf-8")
-
+        # Get nested JSON using relationship resolution
+        nested_data = self.export_to_nested_json(mmcif_data, validate)
+        
+        # Convert to JSON string
+        json_str = json.dumps(nested_data, indent=indent, ensure_ascii=False)
+        
         if file_path:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(xml_string)
+                f.write(json_str)
+            if not self.quiet:
+                print(f"Exported nested JSON to: {file_path}")
             return None
         else:
-            return xml_string
-
-    def to_pickle(self, file_path: str) -> None:
+            return json_str
+    
+    def to_file(
+        self, 
+        mmcif_data: MMCIFDataContainer,
+        file_path: Union[str, Path], 
+        indent: int = 2,
+        validate: bool = None
+    ) -> None:
         """
-        Export mmCIF data to a Python pickle file.
-
-        :param file_path: Path to save the pickle file
-        :type file_path: str
-        :return: None
+        Export mmCIF data to a JSON file.
+        
+        Args:
+            mmcif_data: The mmCIF data container to export
+            file_path: Path to save the JSON file
+            indent: Number of spaces for indentation
+            validate: Whether to validate (defaults to not self.permissive)
+            
+        Raises:
+            ValidationError: If validation fails and not in permissive mode
         """
-        import pickle
+        self.to_json(mmcif_data, file_path, indent, validate)
 
-        data_dict = self.to_dict()
 
-        with open(file_path, "wb") as f:
-            pickle.dump(data_dict, f)
-
-    def to_yaml(self, file_path: Optional[str] = None) -> Optional[str]:
-        """
-        Export mmCIF data to YAML format.
-
-        :param file_path: Path to save the YAML file (optional)
-        :type file_path: Optional[str]
-        :return: YAML string if no file_path provided, otherwise None
-        :rtype: Optional[str]
-        """
-        # Using PyYAML package
-        try:
-            import yaml
-        except ImportError:
-            raise ImportError(
-                "PyYAML package is required for YAML export. Install it using 'pip install pyyaml'."
-            )
-
-        data_dict = self.to_dict()
-
-        if file_path:
-            with open(file_path, "w") as f:
-                yaml.dump(data_dict, f, default_flow_style=False)
-            return None
-        else:
-            return yaml.dump(data_dict, default_flow_style=False)
-
-    def to_pandas(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Export mmCIF data to pandas DataFrames, with one DataFrame per category.
-
-        :return: Dictionary of DataFrames organized by data block and category
-        :rtype: Dict[str, Dict[str, Any]]
-        """
-        try:
-            import pandas as pd
-        except ImportError:
-            raise ImportError(
-                "pandas package is required for DataFrame export. Install it using 'pip install pandas'."
-            )
-
-        result = {}
-
-        for block in self.mmcif:
-            block_dict = {}
-
-            for category_name in block.categories:
-                category = block[category_name]
-
-                # Get all data (this will force loading of lazy items)
-                items = category.data
-
-                # Create DataFrame from items - convert LazyItemDict to regular dict first
-                df = pd.DataFrame(dict(items))
-                block_dict[category_name] = df
-
-            result[block.name] = block_dict
-
-        return result
-
-    def to_csv(
-        self, directory_path: str, prefix: str = ""
-    ) -> Dict[str, Dict[str, str]]:
-        """
-        Export mmCIF data to CSV files, with one file per category.
-
-        :param directory_path: Directory to save the CSV files
-        :type directory_path: str
-        :param prefix: Prefix for CSV filenames
-        :type prefix: str
-        :return: Dictionary mapping block and category names to file paths
-        :rtype: Dict[str, Dict[str, str]]
-        """
-        try:
-            import pandas as pd
-            import os
-        except ImportError:
-            raise ImportError(
-                "pandas package is required for CSV export. Install it using 'pip install pandas'."
-            )
-
-        # Create directory if it doesn't exist
-        os.makedirs(directory_path, exist_ok=True)
-
-        file_paths = {}
-
-        for block in self.mmcif:
-            block_dict = {}
-
-            for category_name in block.categories:
-                category = block[category_name]
-
-                # Get all data (this will force loading of lazy items)
-                items = category.data
-
-                # Create DataFrame from items - convert LazyItemDict to regular dict first
-                df = pd.DataFrame(dict(items))
-
-                # Create CSV filename
-                filename = f"{prefix}{block.name}_{category_name}.csv"
-                filepath = os.path.join(directory_path, filename)
-
-                # Save to CSV
-                df.to_csv(filepath, index=False)
-                block_dict[category_name] = filepath
-
-            file_paths[block.name] = block_dict
-
-        return file_paths
+# Convenience function for direct export
+def export_mmcif_to_json(
+    mmcif_data: MMCIFDataContainer,
+    file_path: Optional[Union[str, Path]] = None,
+    dict_path: Optional[Union[str, Path]] = None,
+    xsd_path: Optional[Union[str, Path]] = None,
+    permissive: bool = False,
+    validate: bool = None,
+    indent: int = 2,
+    quiet: bool = False
+) -> Optional[str]:
+    """
+    Convenience function to export mmCIF data to nested JSON format.
+    
+    Args:
+        mmcif_data: The mmCIF data container to export
+        file_path: Path to save the JSON file (optional)
+        dict_path: Path to mmCIF dictionary file (optional)
+        xsd_path: Path to PDBML XSD schema file (optional)
+        permissive: If False, validates through PDBML XML against XSD schema
+        validate: Whether to validate (defaults to not permissive)
+        indent: Number of spaces for indentation
+        quiet: Suppress output messages
+        
+    Returns:
+        JSON string if no file_path provided, otherwise None
+        
+    Raises:
+        ValidationError: If validation fails and not in permissive mode
+    """
+    exporter = JSONExporter(
+        dict_path=dict_path,
+        xsd_path=xsd_path,
+        permissive=permissive,
+        quiet=quiet
+    )
+    
+    return exporter.to_json(mmcif_data, file_path, indent, validate)
