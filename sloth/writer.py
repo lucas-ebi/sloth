@@ -21,9 +21,14 @@ class MMCIFWriter(BaseWriter):
     maintaining the exact same API as the original SLOTH writer.
     """
     
-    def __init__(self):
-        """Initialize the MMCIFWriter with gemmi backend."""
-        pass
+    def __init__(self, permissive: bool = False):
+        """
+        Initialize the MMCIFWriter with gemmi backend.
+        
+        Args:
+            permissive: If False, performs validation during writing
+        """
+        self.permissive = permissive
         
     def write(self, file_obj: IO, mmcif: MMCIFDataContainer) -> None:
         """
