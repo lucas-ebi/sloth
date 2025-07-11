@@ -17,7 +17,7 @@ import shutil
 
 from sloth.parser import MMCIFParser
 from sloth.serializers import (
-    PDBMLConverter, RelationshipResolver, MMCIFToPDBMLPipeline,
+    PDBMLConverter, RelationshipResolver,
     DictionaryParser, get_cache_manager, XSDParser, MappingGenerator
 )
 from sloth.validators import XMLSchemaValidator
@@ -655,24 +655,37 @@ _atom_site.Cartn_x    0.000
         # Create resolver
         return RelationshipResolver(mapping_generator)
     
-    def test_end_to_end_pipeline(self):
-        """Test the complete end-to-end pipeline."""
+    def test_end_to_end_conversion(self):
+        """Test the complete end-to-end conversion using individual components."""
         try:
-            # Test with pipeline class if available (use permissive mode for test data)
-            pipeline = MMCIFToPDBMLPipeline(permissive=True)
-            result = pipeline.process_mmcif_file(self.test_file)
+            # Parse mmCIF file
+            parser = MMCIFParser()
+            container = parser.parse_file(self.test_file)
             
-            # Verify all expected outputs
-            self.assertIn('pdbml_xml', result)
-            self.assertIn('nested_json', result)
-            self.assertIn('validation', result)
+            # Convert to PDBML
+            converter = PDBMLConverter(
+                dict_path=self.dict_path,
+                schema_path=self.schema_path,
+                permissive=True
+            )
+            pdbml_xml = converter.convert_to_pdbml(container)
+            
+            # Resolve relationships to nested JSON
+            resolver = self._create_resolver()
+            nested_json = resolver.resolve_relationships(pdbml_xml)
+            
+            # Verify outputs
+            self.assertIsInstance(pdbml_xml, str)
+            self.assertGreater(len(pdbml_xml), 100)
+            self.assertIsInstance(nested_json, dict)
             
             # Test nested structure
-            nested_json = result['nested_json']
+            entity_data = nested_json.get('entity', [])
+            self.assertIsInstance(entity_data, list)
             
             # Find entity with id '1'
             entity_1 = None
-            for entity in nested_json['entity']:
+            for entity in entity_data:
                 if entity.get('id') == '1':
                     entity_1 = entity
                     break

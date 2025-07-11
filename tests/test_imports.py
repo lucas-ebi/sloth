@@ -94,17 +94,14 @@ class TestImports(unittest.TestCase):
     def test_pipeline_imports(self):
         """Test that pipeline classes can be imported."""
         try:
-            from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver
+            from demo import MMCIFToPDBMLPipeline
+            from sloth.serializers import RelationshipResolver
         except ImportError as e:
             self.fail(f"Failed to import pipeline classes: {e}")
     
     def test_pipeline_instantiation(self):
         """Test that pipeline classes can be instantiated."""
-        from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver, DictionaryParser, XSDParser, MappingGenerator
-        
-        pipeline = MMCIFToPDBMLPipeline()
-        self.assertIsNotNone(pipeline)
-        
+        from sloth.serializers import RelationshipResolver, DictionaryParser, XSDParser, MappingGenerator
         # RelationshipResolver requires a mapping generator
         cache = get_cache_manager("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)

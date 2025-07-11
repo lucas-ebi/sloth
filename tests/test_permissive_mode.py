@@ -17,7 +17,6 @@ from sloth import MMCIFHandler, PDBMLConverter, XMLSchemaValidator
 from sloth.serializers import (
     DictionaryParser, XSDParser, MappingGenerator, get_cache_manager
 )
-from sloth.serializers import MMCIFToPDBMLPipeline
 from tests.test_utils import get_shared_converter
 
 
@@ -178,37 +177,35 @@ _citation.page_last           ?
         
         print(f"✓ Permissive parameter correctly accepted and defaults to False")
     
-    def test_pipeline_permissive_parameter(self):
-        """Test that the MMCIFToPDBMLPipeline correctly passes permissive parameter."""
-        if not hasattr(MMCIFToPDBMLPipeline, '__init__'):
-            self.skipTest("MMCIFToPDBMLPipeline not available")
+    def test_converter_permissive_parameter(self):
+        """Test that the PDBMLConverter correctly handles permissive parameter."""
+        # Parse mmCIF data
+        handler = MMCIFHandler(validator_factory=None)
+        container = handler.parse(self.test_file)
         
         try:
-            # Test pipeline with permissive=False
-            pipeline_false = MMCIFToPDBMLPipeline(permissive=False)
-            result_false = pipeline_false.process_mmcif_file(self.test_file)
+            # Test converter with permissive=False
+            converter_false = self._create_converter(permissive=False)
+            xml_false = converter_false.convert_to_pdbml(container)
             
-            # Test pipeline with permissive=True  
-            pipeline_true = MMCIFToPDBMLPipeline(permissive=True)
-            result_true = pipeline_true.process_mmcif_file(self.test_file)
+            # Test converter with permissive=True  
+            converter_true = self._create_converter(permissive=True)
+            xml_true = converter_true.convert_to_pdbml(container)
             
             # Both should generate XML
-            self.assertIn('pdbml_xml', result_false)
-            self.assertIn('pdbml_xml', result_true)
-            
-            # Verify XML content
-            xml_false = result_false['pdbml_xml']
-            xml_true = result_true['pdbml_xml']
-            
             self.assertIsInstance(xml_false, str)
             self.assertIsInstance(xml_true, str)
             self.assertGreater(len(xml_false), 100)
             self.assertGreater(len(xml_true), 100)
             
-            print(f"✓ Pipeline correctly handles permissive parameter")
+            # Verify XML content structure
+            self.assertIn('datablock', xml_false)
+            self.assertIn('datablock', xml_true)
+            
+            print(f"✓ Converter correctly handles permissive parameter")
             
         except Exception as e:
-            self.skipTest(f"Pipeline test skipped: {e}")
+            self.fail(f"Converter test failed: {e}")
     
     def test_no_arbitrary_defaults_in_either_mode(self):
         """Test that neither permissive mode injects arbitrary hardcoded defaults."""
