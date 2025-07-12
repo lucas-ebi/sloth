@@ -1,127 +1,14 @@
 """
-SLOTH: Structural Loader with On-demand Traversal Handling
+SLOTH Package - Simple re-export from mmcif
 
-Lazy by design. Fast by default.
-
-A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
-Now using gemmi as the default backend for optimal performance while maintaining
-the exact same API.
-
-The original pure Python implementation has been moved to sloth.legacy for
-compatibility and reference purposes.
-
-MIGRATION NOTE (v0.1.x → v0.2.0+): 
-- The `use_gemmi` parameter has been removed from MMCIFHandler as gemmi is now the default
-- For legacy compatibility, use: from sloth.legacy import MMCIFParser, MMCIFWriter
-- All existing code should continue to work with better performance
-- Version 0.2.0+ requires gemmi as a core dependency
-
-Version: 0.2.0
+This allows both import styles:
+- from sloth import MMCIFHandler
+- from sloth.mmcif import MMCIFHandler
 """
 
-__version__ = "0.2.0"
-__author__ = "Lucas"
-__email__ = "lucas@ebi.ac.uk"
-__license__ = "MIT"
+# Re-export everything from mmcif submodule
+from .mmcif import *
+from .mmcif import __all__ as _mmcif_all
 
-# Version info tuple for programmatic access
-VERSION_INFO = tuple(map(int, __version__.split('.')))
-
-# Migration information
-MIGRATION_INFO = {
-    "from_version": "0.1.x",
-    "to_version": "0.2.0+",
-    "breaking_changes": [
-        "use_gemmi parameter removed (gemmi is now default)",
-        "gemmi is now a required dependency",
-    ],
-    "compatibility": "Full backward compatibility maintained",
-    "legacy_access": "sloth.legacy module for original implementation"
-}
-
-from .models import (
-    MMCIFDataContainer,
-    DataBlock,
-    Category,
-    Row,
-    Item,
-    DataSourceFormat,
-)
-from .parser import MMCIFParser
-from .writer import MMCIFWriter
-from .exporter import JSONExporter
-from .importer import (
-    JSONImporter,
-    import_json_file,
-    import_json_string,
-    import_json_dict,
-)
-from .handler import MMCIFHandler
-from .plugins import ValidatorFactory
-from .validators import (
-    SchemaValidator,
-    JSONSchemaValidator,
-    XMLSchemaValidator,
-    YAMLSchemaValidator,
-    CSVSchemaValidator,
-    ValidationError,
-    ValidationSeverity,
-    SchemaValidatorFactory,
-    default_mmcif_json_schema,
-)
-from .serializer import (
-    PDBMLConverter,
-    MappingGenerator,
-    DictionaryParser,
-    XSDParser,
-    CacheManager,
-    get_cache_manager,
-    RelationshipResolver,
-)
-
-__all__ = [
-    # Core components
-    "MMCIFHandler",
-    "MMCIFParser",
-    "MMCIFWriter",
-    # Data models
-    "MMCIFDataContainer",
-    "DataBlock",
-    "Category",
-    "Row",
-    "Item",
-    "DataSourceFormat",
-    # JSON Import/Export (new focused API)
-    "JSONExporter",
-    "JSONImporter", 
-    "import_json_file",
-    "import_json_string",
-    "import_json_dict",
-    # Validation components
-    "ValidatorFactory",
-    "SchemaValidator",
-    "JSONSchemaValidator",
-    "XMLSchemaValidator",
-    "YAMLSchemaValidator",
-    "CSVSchemaValidator",
-    "ValidationError",
-    "ValidationSeverity",
-    "SchemaValidatorFactory",
-    "default_mmcif_json_schema",
-    # PDBML Converter components
-    "PDBMLConverter",
-    "MappingGenerator", 
-    "DictionaryParser",
-    "XSDParser",
-    "CacheManager", 
-    "get_cache_manager",
-    "RelationshipResolver",
-    # Version information
-    "__version__",
-    "__author__",
-    "__license__",
-    "VERSION_INFO",
-    "MIGRATION_INFO",
-    # Note: For legacy multi-format support, use:
-    # from sloth.legacy import MMCIFHandler, MMCIFExporter, MMCIFImporter
-]
+# Ensure __all__ is properly set
+__all__ = _mmcif_all
