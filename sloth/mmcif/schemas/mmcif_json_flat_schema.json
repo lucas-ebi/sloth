@@ -1,0 +1,60 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "urn:sloth:schemas:mmcif_json_flat_schema",
+    "title": "SLOTH mmCIF Flat JSON Schema",
+    "description": "Structural schema for flat JSON format produced by SLOTH exporter. This represents the traditional mmCIF table structure where each category contains arrays of values for each field. Validates only JSON structure/topology, not mmCIF content semantics. Content validation is handled by PDBML XSD schema.",
+    "type": "object",
+    "properties": {
+        "blocks": {
+            "description": "mmCIF data blocks",
+            "type": "object",
+            "patternProperties": {
+                "^[a-zA-Z][a-zA-Z0-9_]*$": {
+                    "description": "Data block name (e.g., 'DEMO', '1ABC')",
+                    "type": "object",
+                    "patternProperties": {
+                        "^_[a-zA-Z][a-zA-Z0-9_]*$": {
+                            "description": "mmCIF category (e.g., '_atom_site', '_entity')",
+                            "oneOf": [
+                                {
+                                    "description": "Single-row category (non-loop)",
+                                    "type": "object",
+                                    "patternProperties": {
+                                        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+                                            "description": "mmCIF item name",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "additionalProperties": false,
+                                    "minProperties": 1
+                                },
+                                {
+                                    "description": "Multi-row category (loop)",
+                                    "type": "object",
+                                    "patternProperties": {
+                                        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+                                            "description": "mmCIF item name with array of values",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            },
+                                            "minItems": 1
+                                        }
+                                    },
+                                    "additionalProperties": false,
+                                    "minProperties": 1
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false,
+                    "minProperties": 1
+                }
+            },
+            "additionalProperties": false,
+            "minProperties": 1
+        }
+    },
+    "required": ["blocks"],
+    "additionalProperties": false
+}

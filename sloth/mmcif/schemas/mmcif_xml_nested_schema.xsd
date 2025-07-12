@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:sloth:schemas:mmcif_nested"
+           xmlns:tns="urn:sloth:schemas:mmcif_nested"
+           elementFormDefault="qualified">
+
+    <xs:annotation>
+        <xs:documentation>
+            SLOTH mmCIF Nested XML Schema
+            
+            This schema validates the nested XML structure produced by SLOTH's XML exporter.
+            In nested format, related categories can be hierarchically nested within parent 
+            categories to show relationships more clearly.
+            
+            This validates only XML structure/topology, not mmCIF content semantics.
+            Content validation is handled by PDBML XSD schema.
+        </xs:documentation>
+    </xs:annotation>
+
+    <!-- Root element -->
+    <xs:element name="mmcif_data" type="tns:mmcifDataType"/>
+
+    <!-- Main data container -->
+    <xs:complexType name="mmcifDataType">
+        <xs:sequence>
+            <xs:element name="blocks" type="tns:blocksType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Data blocks container -->
+    <xs:complexType name="blocksType">
+        <xs:sequence>
+            <xs:element name="block" type="tns:blockType" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Individual data block -->
+    <xs:complexType name="blockType">
+        <xs:sequence>
+            <xs:element name="category" type="tns:categoryType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- mmCIF category (e.g., _entity, _atom_site) -->
+    <xs:complexType name="categoryType">
+        <xs:choice>
+            <!-- Single-row category -->
+            <xs:sequence>
+                <xs:element name="item" type="tns:itemType" maxOccurs="unbounded"/>
+            </xs:sequence>
+            <!-- Multi-row category (loop) -->
+            <xs:sequence>
+                <xs:element name="row" type="tns:rowType" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:choice>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- Individual mmCIF item within a category -->
+    <xs:complexType name="itemType" mixed="true">
+        <xs:sequence>
+            <!-- Optional nested child categories -->
+            <xs:element name="category" type="tns:categoryType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- Row in a loop category -->
+    <xs:complexType name="rowType">
+        <xs:sequence>
+            <xs:element name="item" type="tns:itemType" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+</xs:schema>
