@@ -1,6 +1,17 @@
+"""
+Legacy mmCIF Writer Implementation
+
+This module contains the original pure Python mmCIF writer implementation
+that was used before migrating to the gemmi-based backend. It is preserved
+for reference purposes and compatibility with any code that may specifically
+require the original implementation.
+
+For new projects, use the main sloth.writer module which provides the same
+API with significantly better performance via the gemmi backend.
+"""
 from typing import IO
-from ..models import MMCIFDataContainer, Category
-from ..common import BaseWriter
+from ..mmcif.models import MMCIFDataContainer, Category
+from ..mmcif.common import BaseWriter
 
 
 class MMCIFWriter(BaseWriter):

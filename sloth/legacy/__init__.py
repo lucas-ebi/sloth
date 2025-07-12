@@ -8,7 +8,7 @@ legacy archive and replaced with gemmi-based implementations for better performa
 The legacy implementations are still available for compatibility and reference purposes.
 
 Usage:
-    from sloth.legacy import MMCIFParser, MMCIFWriter
+    from legacy import MMCIFParser, MMCIFWriter
     
 Note: The legacy implementations use the same API as the current implementations
 but may have different performance characteristics.

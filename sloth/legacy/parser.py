@@ -1,9 +1,20 @@
+"""
+Legacy mmCIF Parser Implementation
+
+This module contains the original pure Python mmCIF parser implementation
+that was used before migrating to the gemmi-based backend. It is preserved
+for reference purposes and compatibility with any code that may specifically
+require the original implementation.
+
+For new projects, use the main sloth.parser module which provides the same
+API with significantly better performance via the gemmi backend.
+"""
 import os
 from typing import Optional, List, Union
 from pathlib import Path
-from ..models import Category, DataBlock, MMCIFDataContainer, DataSourceFormat
-from ..plugins import ValidatorFactory
-from ..common import BaseParser
+from ..mmcif.models import Category, DataBlock, MMCIFDataContainer, DataSourceFormat
+from ..mmcif.plugins import ValidatorFactory
+from ..mmcif.common import BaseParser
 import shlex
 
 
@@ -59,6 +70,17 @@ class MMCIFParser(BaseParser):
         self._current_row_values = []
         self._value_counter = 0
         self._file_path: Optional[str] = None
+
+    def parse(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
+        """
+        Parse mmCIF file and return a data container.
+        
+        :param file_path: Path to the mmCIF file to parse
+        :type file_path: Union[str, Path]
+        :return: The data container with parsed mmCIF data
+        :rtype: MMCIFDataContainer
+        """
+        return self.parse_file(file_path)
 
     def parse_file(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """Parse a file using memory mapping with lazy loading."""
