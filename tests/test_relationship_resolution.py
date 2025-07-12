@@ -15,12 +15,12 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 import shutil
 
-from sloth.parser import MMCIFParser
-from sloth.serializer import (
+from sloth.mmcif.parser import MMCIFParser
+from sloth.mmcif.serializer import (
     PDBMLConverter, RelationshipResolver,
     DictionaryParser, get_cache_manager, XSDParser, MappingGenerator
 )
-from sloth.validators import XMLSchemaValidator
+from sloth.mmcif.validator import XMLSchemaValidator
 
 
 class TestRelationshipResolution(unittest.TestCase):

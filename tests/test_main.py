@@ -15,11 +15,13 @@ import pickle
 import yaml
 from io import StringIO
 from unittest.mock import mock_open, patch
-from sloth import (
+from sloth.mmcif import (
     MMCIFHandler,
     MMCIFWriter,
-    MMCIFExporter,
-    MMCIFImporter,
+    JSONExporter,
+    XMLExporter,
+    JSONImporter,
+    XMLImporter,
     MMCIFDataContainer,
     DataBlock,
     Category,
@@ -27,12 +29,12 @@ from sloth import (
     Item,
     ValidatorFactory,
     DataSourceFormat,
-    JsonLoader,
-    XmlLoader,
-    YamlLoader,
-    PickleLoader,
-    CsvLoader,
-    DictToMMCIFConverter,
+    PDBMLConverter,
+    MappingGenerator,
+    DictionaryParser,
+    XSDParser,
+    CacheManager,
+    RelationshipResolver,
 )
 
 

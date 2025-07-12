@@ -16,7 +16,7 @@ import traceback
 import threading
 import hashlib
 import tempfile
-from sloth import (
+from sloth.mmcif import (
     MMCIFHandler,
     ValidatorFactory,
     DataSourceFormat,
@@ -546,7 +546,7 @@ def get_pdbml_infrastructure():
             xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
             
             # Create parser components and converter
-            from sloth.serializer import get_cache_manager, DictionaryParser, XSDParser, MappingGenerator
+            from sloth.mmcif.serializer import get_cache_manager, DictionaryParser, XSDParser, MappingGenerator
             cache_manager = get_cache_manager(os.path.join(os.path.expanduser("~"), ".sloth_cache"))
             dict_parser = DictionaryParser(cache_manager, True)
             xsd_parser = XSDParser(cache_manager, True)
@@ -1118,7 +1118,7 @@ def demonstrate_schema_validation(mmcif, output_dir):
 
         if os.path.exists(auto_detect_path):
             handler = MMCIFHandler()
-            mmcif = handler.import_auto_detect(auto_detect_path, validate_schema=True)
+            mmcif = handler.import_auto_detect(auto_detect_path, permissive_schema=True)
             print(f"   ✅ Auto-detected format and validated successfully")
         else:
             print(f"   ⚠️ File not found for auto-detection")
@@ -1159,7 +1159,7 @@ ATOM 2 C 11.234 21.567 31.890
     # Method 2: Programmatic creation using SLOTH's API with dictionary notation
     print("\n⚙️  Method 2: Programmatic creation using dictionary notation")
     try:
-        from sloth.models import MMCIFDataContainer, DataBlock, Category
+        from sloth.mmcif.models import MMCIFDataContainer, DataBlock, Category
 
         # Create container and block
         mmcif = MMCIFDataContainer()
@@ -1273,8 +1273,8 @@ def demonstrate_auto_creation():
     print("   This is the exact example from the README.md file.\n")
 
     try:
-        from sloth.models import MMCIFDataContainer
-        from sloth.handler import MMCIFHandler
+        from sloth.mmcif.models import MMCIFDataContainer
+        from sloth.mmcif.handler import MMCIFHandler
 
         # Create an empty container - this is all you need!
         print("📝 Creating an empty container...")
@@ -1350,68 +1350,6 @@ def demonstrate_auto_creation():
 
         traceback.print_exc()
         return None
-
-
-def demo_backend_comparison(sample_file):
-    """Demonstrate current gemmi backend vs legacy implementation"""
-    print("\n🔬 Handler Comparison - Gemmi Backend vs Legacy")
-    print("=" * 50)
-    
-    try:
-        # Test current handler (gemmi backend)
-        print("⚡ MMCIFHandler (gemmi backend - default):")
-        current_handler = MMCIFHandler()
-        current_mmcif = current_handler.parse(sample_file)
-        current_atom_count = len(current_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in current_mmcif.data[0].categories else 0
-        print(f"   Parsed {current_atom_count} atoms")
-        if current_atom_count > 0:
-            print(f"   API: mmcif.data[0]._atom_site.Cartn_x[0] = {current_mmcif.data[0]._atom_site.Cartn_x[0]}")
-        
-        # Test legacy handler
-        print("\n📊 Legacy MMCIFHandler (pure Python):")
-        try:
-            from sloth.legacy import MMCIFParser
-            legacy_parser = MMCIFParser(None)
-            legacy_mmcif = legacy_parser.parse_file(sample_file)
-            legacy_atom_count = len(legacy_mmcif.data[0]._atom_site.Cartn_x) if '_atom_site' in legacy_mmcif.data[0].categories else 0
-            print(f"   Parsed {legacy_atom_count} atoms")
-            if legacy_atom_count > 0:
-                print(f"   API: mmcif.data[0]._atom_site.Cartn_x[0] = {legacy_mmcif.data[0]._atom_site.Cartn_x[0]}")
-            
-            # Verify identical results
-            if current_atom_count == legacy_atom_count:
-                print("   ✅ Identical atom counts!")
-            else:
-                print("   ⚠️ Different atom counts")
-                
-            if (current_atom_count > 0 and legacy_atom_count > 0 and 
-                current_mmcif.data[0]._atom_site.Cartn_x[0] == legacy_mmcif.data[0]._atom_site.Cartn_x[0]):
-                print("   ✅ Identical first coordinate!")
-            elif current_atom_count > 0 and legacy_atom_count > 0:
-                print("   ⚠️ Different first coordinates")
-            
-            # Test write functionality
-            print("\n📝 Testing write functionality with gemmi backend...")
-            with open("current_write_test.cif", 'w') as f:
-                current_handler.file_obj = f
-                current_handler.write(current_mmcif)
-            print("   ✅ Successfully wrote file using gemmi backend")
-            
-            # Verify round-trip
-            mmcif_roundtrip = current_handler.parse("current_write_test.cif")
-            if mmcif_roundtrip.data[0]._entry.id[0] == current_mmcif.data[0]._entry.id[0]:
-                print(f"   ✅ Round-trip test: {mmcif_roundtrip.data[0]._entry.id[0]}")
-            
-            # Clean up
-            if os.path.exists("current_write_test.cif"):
-                os.remove("current_write_test.cif")
-                
-        except ImportError:
-            print("   ❌ Legacy parser not available")
-            print("   This should not happen as legacy is included by default")
-            
-    except Exception as e:
-        print(f"   ❌ Error in comparison: {e}")
 
 
 def parse_embedded_demo_data_as_string():
@@ -1926,7 +1864,7 @@ def main():
         print("=" * 40)
         print("⚡ Now using gemmi backend by default for high-performance parsing!")
         print("   Same elegant API, optimal performance")
-        print("   Legacy implementations available in sloth.legacy")
+        print("   Legacy parser and writer available in sloth.legacy for reference")
         print()
 
         # Use embedded demo data instead of creating a file
@@ -2060,10 +1998,6 @@ def main():
 
         # Demonstrate import functionality
         imported_containers = demonstrate_import_functionality(output_dir)
-        
-        # Demonstrate gemmi comparison in demo mode
-        if args.demo:
-            demo_backend_comparison(args.input)
 
         # Demonstrate round-trip validation for each imported format
         for format_name, imported_container in imported_containers.items():

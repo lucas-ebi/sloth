@@ -12,7 +12,7 @@ import psutil
 import sys
 from typing import Dict, List, Tuple
 
-from sloth import MMCIFHandler
+from sloth.mmcif import MMCIFHandler
 
 
 def get_memory_usage() -> float:

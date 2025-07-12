@@ -12,12 +12,12 @@ import os
 import shutil
 from pathlib import Path
 
-from sloth.parser import MMCIFParser
-from sloth.serializer import (
+from sloth.mmcif.parser import MMCIFParser
+from sloth.mmcif.serializer import (
     PDBMLConverter, MappingGenerator,
     DictionaryParser, XSDParser, get_cache_manager
 )
-from sloth import MMCIFHandler
+from sloth.mmcif import MMCIFHandler
 from tests.test_utils import get_shared_converter
 
 
@@ -142,7 +142,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_enum_class_functionality(self):
         """Test that enum classes work correctly."""
-        from sloth.defaults import (
+        from sloth.mmcif.defaults import (
             XMLLocation, DataValue, DataType,
             get_numeric_fields, is_null_value
         )
@@ -175,7 +175,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_xml_mapping_generator_properties(self):
         """Test MappingGenerator properties."""
-        from sloth.serializer import DictionaryParser, XSDParser
+        from sloth.mmcif.serializer import DictionaryParser, XSDParser
         cache = get_cache_manager("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)
         xsd_parser = XSDParser(cache)
@@ -218,7 +218,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_dictionary_parser_instantiation(self):
         """Test DictionaryParser instantiation and basic functionality."""
-        from sloth.serializer import DictionaryParser
+        from sloth.mmcif.serializer import DictionaryParser
         
         # Create with cache
         cache = get_cache_manager(os.path.join(self.temp_dir, ".cache"))
@@ -273,7 +273,7 @@ class TestErrorHandling(unittest.TestCase):
     
     def test_converter_with_invalid_input(self):
         """Test converter with invalid input."""
-        from sloth.models import MMCIFDataContainer
+        from sloth.mmcif.models import MMCIFDataContainer
         
         converter = self._create_converter()
         

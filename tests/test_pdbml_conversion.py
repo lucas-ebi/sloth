@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from sloth import (
+from sloth.mmcif import (
     MMCIFHandler,
     MMCIFParser,
     PDBMLConverter,
@@ -28,9 +28,9 @@ from sloth import (
     XMLSchemaValidator,
     DictionaryParser
 )
-from sloth.serializer import get_cache_manager, XSDParser, MappingGenerator
-from sloth.models import MMCIFDataContainer, DataBlock, Category
-from sloth.validators import ValidationError
+from sloth.mmcif.serializer import get_cache_manager, XSDParser, MappingGenerator
+from sloth.mmcif.models import MMCIFDataContainer, DataBlock, Category
+from sloth.mmcif.validator import ValidationError
 from tests.test_utils import get_shared_converter
 
 
@@ -444,7 +444,7 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
         
         self.handler = MMCIFHandler(validator_factory=None)
         # Set up converter and resolver with new API
-        from sloth.serializer import DictionaryParser, XSDParser, MappingGenerator
+        from sloth.mmcif.serializer import DictionaryParser, XSDParser, MappingGenerator
         cache = get_cache_manager(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
@@ -471,7 +471,7 @@ ATOM 2 C CA A 1 11.234 21.567 31.890
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializer import DictionaryParser, XSDParser, MappingGenerator
+        from sloth.mmcif.serializer import DictionaryParser, XSDParser, MappingGenerator
         cache = get_cache_manager(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
@@ -816,7 +816,7 @@ _atom_site.pdbx_PDB_model_num 1
     
     def _create_resolver_with_dictionary(self):
         """Helper method to create RelationshipResolver with dictionary."""
-        from sloth.serializer import DictionaryParser, XSDParser, MappingGenerator
+        from sloth.mmcif.serializer import DictionaryParser, XSDParser, MappingGenerator
         cache = get_cache_manager(os.path.join(tempfile.gettempdir(), ".sloth_cache"))
         dict_parser = DictionaryParser(cache, True)
         xsd_parser = XSDParser(cache, True)
@@ -1736,7 +1736,7 @@ ATOM   1    BADTYPE BADATOM BADCOMP 0.0 0.0 0.0
             self.skipTest("Schema validation not available - skipping validation comparison")
         
         try:
-            from sloth.validators import XMLSchemaValidator
+            from sloth.mmcif.validator import XMLSchemaValidator
             validator = XMLSchemaValidator(schema_path)
             
             if validator.schema is None:
