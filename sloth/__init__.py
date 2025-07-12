@@ -50,7 +50,7 @@ from .models import (
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
 from .exporter import JSONExporter
-from .importers import (
+from .importer import (
     JSONImporter,
     import_json_file,
     import_json_string,
@@ -69,7 +69,7 @@ from .validators import (
     SchemaValidatorFactory,
     default_mmcif_json_schema,
 )
-from .serializers import (
+from .serializer import (
     PDBMLConverter,
     MappingGenerator,
     DictionaryParser,

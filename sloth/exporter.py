@@ -3,7 +3,7 @@
 JSON Exporter for SLOTH - Focused on nested JSON format using current serializers.
 
 This module provides functionality to export mmCIF data to nested JSON format
-using the RelationshipResolver from serializers.py. Supports validation 
+using the RelationshipResolver from serializer.py. Supports validation 
 through intermediate PDBML XML when permissive=False.
 """
 
@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Union
 from .models import MMCIFDataContainer
-from .serializers import (
+from .serializer import (
     PDBMLConverter, 
     RelationshipResolver,
     DictionaryParser,

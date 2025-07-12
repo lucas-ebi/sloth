@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, Union, List
 import jsonschema
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
-from .serializers import (
+from .serializer import (
     PDBMLConverter, 
     RelationshipResolver,
     DictionaryParser,

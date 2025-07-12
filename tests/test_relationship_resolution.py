@@ -16,7 +16,7 @@ from pathlib import Path
 import shutil
 
 from sloth.parser import MMCIFParser
-from sloth.serializers import (
+from sloth.serializer import (
     PDBMLConverter, RelationshipResolver,
     DictionaryParser, get_cache_manager, XSDParser, MappingGenerator
 )

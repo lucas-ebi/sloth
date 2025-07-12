@@ -546,7 +546,7 @@ def get_pdbml_infrastructure():
             xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
             
             # Create parser components and converter
-            from sloth.serializers import get_cache_manager, DictionaryParser, XSDParser, MappingGenerator
+            from sloth.serializer import get_cache_manager, DictionaryParser, XSDParser, MappingGenerator
             cache_manager = get_cache_manager(os.path.join(os.path.expanduser("~"), ".sloth_cache"))
             dict_parser = DictionaryParser(cache_manager, True)
             xsd_parser = XSDParser(cache_manager, True)

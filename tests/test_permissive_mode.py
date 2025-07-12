@@ -14,7 +14,7 @@ import tempfile
 import os
 from pathlib import Path
 from sloth import MMCIFHandler, PDBMLConverter, XMLSchemaValidator
-from sloth.serializers import (
+from sloth.serializer import (
     DictionaryParser, XSDParser, MappingGenerator, get_cache_manager
 )
 from tests.test_utils import get_shared_converter

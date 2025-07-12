@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 
 from sloth.parser import MMCIFParser
-from sloth.serializers import (
+from sloth.serializer import (
     PDBMLConverter, MappingGenerator,
     DictionaryParser, XSDParser, get_cache_manager
 )
@@ -175,7 +175,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_xml_mapping_generator_properties(self):
         """Test MappingGenerator properties."""
-        from sloth.serializers import DictionaryParser, XSDParser
+        from sloth.serializer import DictionaryParser, XSDParser
         cache = get_cache_manager("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)
         xsd_parser = XSDParser(cache)
@@ -218,7 +218,7 @@ class TestComponentFixes(unittest.TestCase):
     
     def test_dictionary_parser_instantiation(self):
         """Test DictionaryParser instantiation and basic functionality."""
-        from sloth.serializers import DictionaryParser
+        from sloth.serializer import DictionaryParser
         
         # Create with cache
         cache = get_cache_manager(os.path.join(self.temp_dir, ".cache"))

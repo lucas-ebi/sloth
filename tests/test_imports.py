@@ -9,7 +9,7 @@ and that basic classes can be instantiated without errors.
 import unittest
 import sys
 from pathlib import Path
-from sloth.serializers import CacheManager, get_cache_manager
+from sloth.serializer import CacheManager, get_cache_manager
 
 
 class TestImports(unittest.TestCase):
@@ -18,7 +18,7 @@ class TestImports(unittest.TestCase):
     def test_main_converter_imports(self):
         """Test that main converter classes can be imported."""
         try:
-            from sloth.serializers import PDBMLConverter, MappingGenerator, DictionaryParser
+            from sloth.serializer import PDBMLConverter, MappingGenerator, DictionaryParser
         except ImportError as e:
             self.fail(f"Failed to import main converter classes: {e}")
     
@@ -50,7 +50,7 @@ class TestImports(unittest.TestCase):
     
     def test_basic_instantiation(self):
         """Test that basic classes can be instantiated."""
-        from sloth.serializers import PDBMLConverter, MappingGenerator, DictionaryParser, XSDParser
+        from sloth.serializer import PDBMLConverter, MappingGenerator, DictionaryParser, XSDParser
         from sloth.parser import MMCIFParser
         
         # Test instantiation without parameters
@@ -73,7 +73,7 @@ class TestImports(unittest.TestCase):
     
     def test_converter_with_parameters(self):
         """Test that converter can be instantiated with optional parameters."""
-        from sloth.serializers import PDBMLConverter, DictionaryParser, XSDParser, MappingGenerator
+        from sloth.serializer import PDBMLConverter, DictionaryParser, XSDParser, MappingGenerator
         
         # Test with cache directory
         cache = get_cache_manager("/tmp/test_cache")
@@ -95,13 +95,13 @@ class TestImports(unittest.TestCase):
         """Test that pipeline classes can be imported."""
         try:
             from demo import MMCIFToPDBMLPipeline
-            from sloth.serializers import RelationshipResolver
+            from sloth.serializer import RelationshipResolver
         except ImportError as e:
             self.fail(f"Failed to import pipeline classes: {e}")
     
     def test_pipeline_instantiation(self):
         """Test that pipeline classes can be instantiated."""
-        from sloth.serializers import RelationshipResolver, DictionaryParser, XSDParser, MappingGenerator
+        from sloth.serializer import RelationshipResolver, DictionaryParser, XSDParser, MappingGenerator
         # RelationshipResolver requires a mapping generator
         cache = get_cache_manager("/tmp/test_cache")
         dict_parser = DictionaryParser(cache)
@@ -135,7 +135,7 @@ class TestImports(unittest.TestCase):
     
     def test_converter_lazy_loading(self):
         """Test that converter components are properly lazy-loaded."""
-        from sloth.serializers import PDBMLConverter, DictionaryParser, XSDParser, MappingGenerator
+        from sloth.serializer import PDBMLConverter, DictionaryParser, XSDParser, MappingGenerator
         
         # Create converter with required mapping generator
         cache = get_cache_manager("/tmp/test_cache")
@@ -154,7 +154,7 @@ class TestImports(unittest.TestCase):
     
     def test_mapping_generator_lazy_loading(self):
         """Test that XML mapping generator properly lazy-loads components."""
-        from sloth.serializers import MappingGenerator, DictionaryParser, XSDParser
+        from sloth.serializer import MappingGenerator, DictionaryParser, XSDParser
         
         # Create mapping generator in quiet mode
         cache = get_cache_manager("/tmp/test_cache")
@@ -172,7 +172,7 @@ class TestImports(unittest.TestCase):
     
     def test_error_handling(self):
         """Test that error conditions are handled gracefully."""
-        from sloth.serializers import PDBMLConverter, MappingGenerator, DictionaryParser, XSDParser
+        from sloth.serializer import PDBMLConverter, MappingGenerator, DictionaryParser, XSDParser
         
         # Test with non-existent dictionary file (should not crash)
         cache = get_cache_manager("/tmp/test_cache")
@@ -189,7 +189,7 @@ class TestImports(unittest.TestCase):
         self.assertIsInstance(mapping_rules, dict)
         
         # Test mapping generator with invalid paths
-        from sloth.serializers import DictionaryParser, XSDParser
+        from sloth.serializer import DictionaryParser, XSDParser
         cache = get_cache_manager("/tmp/test_cache")
         dict_parser = DictionaryParser(cache, quiet=True)
         xsd_parser = XSDParser(cache, quiet=True)
@@ -220,7 +220,7 @@ class TestModuleStructure(unittest.TestCase):
         """Test that submodules are accessible."""
         try:
             import sloth.parser
-            import sloth.serializers
+            import sloth.serializer
             import sloth.validators
             import sloth.models
         except ImportError as e:

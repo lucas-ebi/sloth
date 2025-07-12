@@ -12,7 +12,7 @@ from pathlib import Path
 from functools import lru_cache
 from typing import Dict, Any
 
-from sloth.serializers import (
+from sloth.serializer import (
     PDBMLConverter, MappingGenerator, DictionaryParser, 
     XSDParser, CacheManager, get_cache_manager
 )

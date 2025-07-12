@@ -2,7 +2,7 @@ from typing import Optional, List, Dict, Any
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
 from .exporter import JSONExporter
-from .importers import JSONImporter
+from .importer import JSONImporter
 from .models import MMCIFDataContainer, DataSourceFormat
 from .plugins import ValidatorFactory
 
