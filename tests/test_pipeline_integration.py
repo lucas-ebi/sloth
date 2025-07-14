@@ -58,7 +58,7 @@ _atom_site.Cartn_z    3.0
     def test_parser_functionality(self):
         """Test that the mmCIF parser works correctly."""
         parser = MMCIFParser()
-        container = parser.parse_file(self.test_file)
+        container = parser.parse(self.test_file)
         
         self.assertEqual(len(container.data), 1)
         self.assertIn('TEST', container.data)
@@ -73,7 +73,7 @@ _atom_site.Cartn_z    3.0
         self.assertIsNotNone(converter)
         
         parser = MMCIFParser()
-        container = parser.parse_file(self.test_file)
+        container = parser.parse(self.test_file)
         
         # Test XML generation
         pdbml_xml = converter.convert_to_pdbml(container)
@@ -85,7 +85,7 @@ _atom_site.Cartn_z    3.0
     def test_xml_content_validity(self):
         """Test that generated XML contains expected content."""
         parser = MMCIFParser()
-        container = parser.parse_file(self.test_file)
+        container = parser.parse(self.test_file)
         
         converter = self._create_converter()
         pdbml_xml = converter.convert_to_pdbml(container)
@@ -112,7 +112,7 @@ _atom_site.Cartn_z    3.0
     def test_handler_integration(self):
         """Test integration with MMCIFHandler."""
         handler = MMCIFHandler()
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
         self.assertEqual(len(container.data), 1)
         
@@ -195,8 +195,8 @@ class TestComponentFixes(unittest.TestCase):
             
             # Set up metadata parsers with default paths
             from pathlib import Path
-            dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-            xsd_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+            dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
+            xsd_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
             
             dict_parser = DictionaryParser(cache, quiet=True)
             xsd_parser = XSDParser(cache, quiet=True)
@@ -227,7 +227,7 @@ class TestComponentFixes(unittest.TestCase):
         
         # Test basic functionality by parsing
         from pathlib import Path
-        dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
+        dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
         result = parser.parse(dict_path)
         self.assertIsInstance(result, dict)
         self.assertIn('categories', result)
@@ -266,7 +266,7 @@ class TestErrorHandling(unittest.TestCase):
             
             # Should handle the error gracefully
             with self.assertRaises(Exception):
-                parser.parse_file(invalid_file)
+                parser.parse(invalid_file)
                 
         except Exception:
             pass  # Expected behavior
