@@ -78,24 +78,24 @@ class TestParameterRefactoring(unittest.TestCase):
         """Test JSONImporter uses permissive parameter correctly."""
         # Test with permissive=True (should not validate schema)
         importer = JSONImporter(permissive=True)
-        container = importer.import_data(self.json_file, nested=True, permissive=True)
+        container = importer.import_data(self.json_file, permissive=True)
         self.assertIsInstance(container, MMCIFDataContainer)
         
         # Test with permissive=False (should validate schema)
         importer = JSONImporter(permissive=False)
-        container = importer.import_data(self.json_file, nested=True, permissive=False)
+        container = importer.import_data(self.json_file, permissive=False)
         self.assertIsInstance(container, MMCIFDataContainer)
 
     def test_xml_importer_permissive_parameter(self):
         """Test XMLImporter uses permissive parameter correctly."""
         # Test with permissive=True (should not validate schema)
         importer = XMLImporter(permissive=True)
-        container = importer.import_data(self.xml_file, nested=True, permissive=True)
+        container = importer.import_data(self.xml_file, permissive=True)
         self.assertIsInstance(container, MMCIFDataContainer)
         
         # Test with permissive=False (should validate schema)
         importer = XMLImporter(permissive=False)
-        container = importer.import_data(self.xml_file, nested=True, permissive=False)
+        container = importer.import_data(self.xml_file, permissive=False)
         self.assertIsInstance(container, MMCIFDataContainer)
 
     def test_json_exporter_permissive_parameter(self):
@@ -111,12 +111,12 @@ class TestParameterRefactoring(unittest.TestCase):
         
         # Test with permissive=True
         exporter = JSONExporter(permissive=True)
-        json_str = exporter.export_data(container, nested=True, permissive=True)
+        json_str = exporter.export_data(container, permissive=True)
         self.assertIsInstance(json_str, str)
         
         # Test with permissive=False
         exporter = JSONExporter(permissive=False)
-        json_str = exporter.export_data(container, nested=True, permissive=False)
+        json_str = exporter.export_data(container, permissive=False)
         self.assertIsInstance(json_str, str)
 
     def test_xml_exporter_permissive_parameter(self):
@@ -132,12 +132,12 @@ class TestParameterRefactoring(unittest.TestCase):
         
         # Test with permissive=True
         exporter = XMLExporter(permissive=True)
-        xml_str = exporter.export_data(container, nested=True, permissive=True)
+        xml_str = exporter.export_data(container, permissive=True)
         self.assertIsInstance(xml_str, str)
         
         # Test with permissive=False
         exporter = XMLExporter(permissive=False)
-        xml_str = exporter.export_data(container, nested=True, permissive=False)
+        xml_str = exporter.export_data(container, permissive=False)
         self.assertIsInstance(xml_str, str)
 
     def test_handler_unified_api_permissive(self):
@@ -145,19 +145,17 @@ class TestParameterRefactoring(unittest.TestCase):
         handler = MMCIFHandler()
         
         # Test import with permissive=True
-        container = handler.import_data(
+        container = handler.load(
             self.json_file, 
             ExportFormat.JSON, 
-            StructureFormat.NESTED, 
             permissive=True
         )
         self.assertIsInstance(container, MMCIFDataContainer)
         
         # Test import with permissive=False
-        container = handler.import_data(
+        container = handler.load(
             self.json_file, 
             ExportFormat.JSON, 
-            StructureFormat.NESTED, 
             permissive=False
         )
         self.assertIsInstance(container, MMCIFDataContainer)
@@ -166,7 +164,6 @@ class TestParameterRefactoring(unittest.TestCase):
         json_str = handler.export(
             container,
             ExportFormat.JSON,
-            StructureFormat.NESTED,
             permissive=True
         )
         self.assertIsInstance(json_str, str)
@@ -175,7 +172,6 @@ class TestParameterRefactoring(unittest.TestCase):
         json_str = handler.export(
             container,
             ExportFormat.JSON,
-            StructureFormat.NESTED,
             permissive=False
         )
         self.assertIsInstance(json_str, str)
@@ -200,10 +196,9 @@ class TestParameterRefactoring(unittest.TestCase):
         handler = MMCIFHandler()
         
         # Import data using the new API - should only use permissive parameter
-        container = handler.import_data(
+        container = handler.load(
             self.json_file, 
             ExportFormat.JSON, 
-            StructureFormat.NESTED, 
             permissive=True
         )
         self.assertIsInstance(container, MMCIFDataContainer)
@@ -212,7 +207,6 @@ class TestParameterRefactoring(unittest.TestCase):
         output = handler.export(
             container,
             ExportFormat.JSON,
-            StructureFormat.NESTED,
             permissive=True
         )
         self.assertIsInstance(output, str)
@@ -225,11 +219,11 @@ class TestParameterRefactoring(unittest.TestCase):
         importer = JSONImporter(permissive=True)  # Skip validation by default
         
         # With permissive=True, should not perform strict validation
-        container = importer.import_data(self.json_file, nested=True, permissive=True)
+        container = importer.import_data(self.json_file, permissive=True)
         self.assertIsInstance(container, MMCIFDataContainer)
         
         # With permissive=False, should perform strict validation
-        container = importer.import_data(self.json_file, nested=True, permissive=False)
+        container = importer.import_data(self.json_file, permissive=False)
         self.assertIsInstance(container, MMCIFDataContainer)
 
     def test_method_signatures_consistency(self):

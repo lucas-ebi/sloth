@@ -636,7 +636,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
     def test_json_export_to_string(self):
         """Test JSON export to string."""
-        json_str = self.handler.export(self.mmcif, format_type='json', permissive=True, structure='flat')
+        json_str = self.handler.export(self.mmcif, format_type='json', permissive=True)
         self.assertIsInstance(json_str, str)
         data = json.loads(json_str)
         
@@ -646,8 +646,9 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         self.assertIn("_entry", block_data)  # Category name with _ prefix
         self.assertIn("_atom_site", block_data)
         
-        # Verify specific values
-        self.assertEqual(block_data["_entry"]["id"], "test_structure")
+        # Verify specific values - _entry is now a list in nested structure
+        self.assertIsInstance(block_data["_entry"], list)
+        self.assertEqual(block_data["_entry"][0]["id"], "test_structure")
         
         # Verify multi-row category
         atom_site = block_data["_atom_site"]
@@ -657,7 +658,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
     def test_json_export_to_file(self):
         """Test JSON export to file."""
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path, permissive=True, structure='flat')
+        self.handler.export(self.mmcif, format_type='json', file_path=json_path, permissive=True)
 
         # Verify file exists
         self.assertTrue(os.path.exists(json_path))
@@ -669,7 +670,9 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         self.assertIn("data_test", data)  # Block name with data_ prefix
         block_data = data["data_test"]
         self.assertIn("_database_2", block_data)  # Category name with _ prefix
-        self.assertEqual(block_data["_database_2"]["database_id"], "PDB")
+        # In nested structure, _database_2 is a list of objects
+        self.assertIsInstance(block_data["_database_2"], list)
+        self.assertEqual(block_data["_database_2"][0]["database_id"], "PDB")
 
     def test_xml_export_to_string(self):
         """Test XML export to string."""

@@ -235,7 +235,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
 
         # Test with valid data - use the new unified API
         handler = MMCIFHandler()
-        valid_container = handler.import_data(
+        valid_container = handler.load(
             valid_json_path, format_type=ExportFormat.JSON, structure=StructureFormat.NESTED
         )
         self.assertIsNotNone(
@@ -245,7 +245,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
         # Test with invalid data - this may not raise an exception due to permissive mode
         # Just test that we can attempt to import it
         try:
-            handler.import_data(invalid_json_path, format_type=ExportFormat.JSON, structure=StructureFormat.NESTED)
+            handler.load(invalid_json_path, format_type=ExportFormat.JSON)
         except Exception:
             # Expected for invalid data
             pass
