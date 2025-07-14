@@ -92,7 +92,7 @@ from sloth import MMCIFHandler
 import sloth
 
 handler = MMCIFHandler()
-mmcif = handler.parse("1abc.cif")
+mmcif = handler.read("1abc.cif")
 
 print(mmcif.data_1ABC._struct.title[0])
 print(mmcif.data_1ABC._atom_site.Cartn_x[0])
@@ -239,7 +239,7 @@ vf = ValidatorFactory()
 vf.register_validator("_atom_site", lambda cat: print("Validating", cat.name))
 
 handler = MMCIFHandler(validator_factory=vf)
-mmcif = handler.parse("1abc.cif")
+mmcif = handler.read("1abc.cif")
 mmcif.data_1ABC._atom_site.validate()
 ```
 
@@ -308,7 +308,7 @@ val = mmcif.data[0]["_atom_site"]["Cartn_x"]
 mmcif = handler.import_auto_detect("file.ext")
 
 # Partial category loading
-mmcif = handler.parse("file.cif", categories=["_atom_site"])
+mmcif = handler.read("file.cif", categories=["_atom_site"])
 ```
 
 ---
