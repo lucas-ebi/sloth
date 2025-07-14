@@ -273,7 +273,7 @@ Your code will continue to work. Only explicit `use_gemmi=False` needs updating.
 from sloth.legacy import MMCIFParser, MMCIFWriter
 
 parser = MMCIFParser()
-mmcif = parser.parse_file("1abc.cif")
+mmcif = parser.parse("1abc.cif")
 ```
 
 Same dot-notation access, same serialization features.
