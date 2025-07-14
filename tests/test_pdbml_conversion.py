@@ -859,8 +859,8 @@ _atom_site.Cartn_z
 _atom_site.occupancy
 _atom_site.B_iso_or_equiv
 _atom_site.pdbx_PDB_model_num
-ATOM 1 N  N   VAL A 1 1 12.345 67.890 42.000 1.00 35.0 1
-ATOM 2 C  CA  VAL A 1 1 13.456 68.901 43.111 1.00 36.0 1
+ATOM 1 C  CA  VAL A 1 1 12.345 67.890 42.000 1.00 35.0 1
+ATOM 2 N  N   VAL A 1 1 13.456 68.901 43.111 1.00 36.0 1
 ATOM 3 C  C   VAL A 1 1 14.567 69.012 44.222 1.00 37.0 1
 ATOM 4 O  O   VAL A 1 1 15.678 70.123 45.333 1.00 38.0 1
 #"""
@@ -1077,12 +1077,9 @@ ATOM 4 O  O   VAL A 1 1 15.678 70.123 45.333 1.00 38.0 1
             self.skipTest(f"Schema validation skipped: {e}")
     def test_relationship_resolution_four_level_nesting(self):
         """Test that 4-level nested relationships are correctly resolved."""
-        # Full pipeline test
-        parser = MMCIFParser()
-        container = parser.parse(self.test_file)
-        
-        converter = self._create_converter()
-        xml_content = converter.convert_to_pdbml(container)
+        # Full pipeline test using the new MMCIFHandler API
+        container = self.handler.read(self.test_file)
+        xml_content = self.handler.export(container, format_type=ExportFormat.XML, structure=StructureFormat.NESTED, permissive=True)
         
         resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
@@ -1200,13 +1197,11 @@ ATOM 4 O  O   VAL A 1 1 15.678 70.123 45.333 1.00 38.0 1
         """Test the complete component integration from mmCIF to nested JSON."""
         # Test components individually instead of using pipeline
         try:
-            # Parse mmCIF
-            parser = MMCIFParser()
-            container = parser.parse(self.test_file)
+            # Parse mmCIF using new API
+            container = self.handler.read(self.test_file)
             
-            # Convert to XML
-            converter = get_shared_converter(permissive=False)
-            xml_content = converter.convert_to_pdbml(container)
+            # Convert to XML using new API 
+            xml_content = self.handler.export(container, format_type=ExportFormat.XML, structure=StructureFormat.NESTED, permissive=True)
             
             # Resolve relationships if available
             try:
@@ -1366,12 +1361,9 @@ ATOM 2 C 2 B CA ALA 1 20.0 21.0 22.0 1.00 36.0 1
         with open(multi_test_file, 'w') as f:
             f.write(multi_entity_content)
         
-        # Process with full pipeline
-        parser = MMCIFParser()
-        container = parser.parse(multi_test_file)
-        
-        converter = self._create_converter()
-        xml_content = converter.convert_to_pdbml(container)
+        # Process with new API
+        container = self.handler.read(multi_test_file)
+        xml_content = self.handler.export(container, format_type=ExportFormat.XML, structure=StructureFormat.NESTED, permissive=True)
         
         resolver = self._create_resolver_with_dictionary()
         nested_json = resolver.resolve_relationships(xml_content)
