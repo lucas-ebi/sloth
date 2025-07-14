@@ -64,7 +64,6 @@ class MMCIFHandler:
         self,
         mmcif: MMCIFDataContainer,
         format_type: Union[str, ExportFormat] = ExportFormat.JSON,
-        structure: Union[str, StructureFormat] = StructureFormat.NESTED,
         file_path: Optional[str] = None,
         permissive: bool = False,
         **kwargs
@@ -76,8 +75,6 @@ class MMCIFHandler:
         :type mmcif: MMCIFDataContainer
         :param format_type: Export format ('json' or 'xml')
         :type format_type: Union[str, ExportFormat]
-        :param structure: Structure type ('nested' or 'flat')
-        :type structure: Union[str, StructureFormat]
         :param file_path: Path to save the file (optional)
         :type file_path: Optional[str]
         :param permissive: Whether to skip validation
@@ -89,21 +86,18 @@ class MMCIFHandler:
         # Convert string inputs to enums
         if isinstance(format_type, str):
             format_type = ExportFormat(format_type.lower())
-        if isinstance(structure, str):
-            structure = StructureFormat(structure.lower())
         
         if format_type == ExportFormat.JSON:
-            return self._export_json(mmcif, file_path, structure, permissive, **kwargs)
+            return self._export_json(mmcif, file_path, permissive, **kwargs)
         elif format_type == ExportFormat.XML:
-            return self._export_xml(mmcif, file_path, structure, permissive, **kwargs)
+            return self._export_xml(mmcif, file_path, permissive, **kwargs)
         else:
             raise ValueError(f"Unsupported export format: {format_type}")
 
-    def import_data(
+    def load(
         self,
         file_path: str,
         format_type: Union[str, ExportFormat] = ExportFormat.JSON,
-        structure: Union[str, StructureFormat] = StructureFormat.NESTED,
         permissive: bool = False,
         **kwargs
     ) -> MMCIFDataContainer:
@@ -114,8 +108,6 @@ class MMCIFHandler:
         :type file_path: str
         :param format_type: Import format ('json' or 'xml')
         :type format_type: Union[str, ExportFormat]
-        :param structure: Structure type ('nested' or 'flat')
-        :type structure: Union[str, StructureFormat]
         :param permissive: Whether to skip validation
         :type permissive: bool
         :param kwargs: Additional format-specific options
@@ -125,13 +117,11 @@ class MMCIFHandler:
         # Convert string inputs to enums
         if isinstance(format_type, str):
             format_type = ExportFormat(format_type.lower())
-        if isinstance(structure, str):
-            structure = StructureFormat(structure.lower())
         
         if format_type == ExportFormat.JSON:
-            return self._import_json(file_path, structure, permissive, **kwargs)
+            return self._import_json(file_path, permissive, **kwargs)
         elif format_type == ExportFormat.XML:
-            return self._import_xml(file_path, structure, permissive, **kwargs)
+            return self._import_xml(file_path, permissive, **kwargs)
         else:
             raise ValueError(f"Unsupported import format: {format_type}")
 
@@ -140,55 +130,46 @@ class MMCIFHandler:
         self,
         mmcif: MMCIFDataContainer,
         file_path: Optional[str],
-        structure: StructureFormat,
         permissive: bool,
         **kwargs
     ) -> Optional[str]:
-        """Export to JSON format."""
+        """Export to JSON format (always nested)."""
         exporter = JSONExporter(permissive=permissive)
-        nested = (structure == StructureFormat.NESTED)
         indent = kwargs.get('indent', 2)
-        return exporter.export_data(mmcif, file_path, nested, permissive, indent)
+        return exporter.export_data(mmcif, file_path, permissive, indent)
 
     def _export_xml(
         self,
         mmcif: MMCIFDataContainer,
         file_path: Optional[str],
-        structure: StructureFormat,
         permissive: bool,
         **kwargs
     ) -> Optional[str]:
         """Export to XML format."""
         exporter = XMLExporter(permissive=permissive)
-        nested = (structure == StructureFormat.NESTED)  # XML is inherently structured
         pretty_print = kwargs.get('pretty_print', True)
-        return exporter.export_data(mmcif, file_path, nested, permissive, pretty_print)
+        return exporter.export_data(mmcif, file_path, permissive, pretty_print)
 
     def _import_json(
         self,
         file_path: str,
-        structure: StructureFormat,
         permissive: bool,
         **kwargs
     ) -> MMCIFDataContainer:
-        """Import from JSON format."""
+        """Import from JSON format (assumes nested structure)."""
         importer = JSONImporter(permissive=permissive)
-        nested = (structure == StructureFormat.NESTED)
-        container = importer.import_data(file_path, nested, permissive)
+        container = importer.import_data(file_path, permissive)
         container.source_format = DataSourceFormat.JSON
         return container
 
     def _import_xml(
         self,
         file_path: str,
-        structure: StructureFormat,
         permissive: bool,
         **kwargs
     ) -> MMCIFDataContainer:
         """Import from XML format."""
         importer = XMLImporter(permissive=permissive)
-        nested = (structure == StructureFormat.NESTED)  # XML structure is fixed
-        container = importer.import_data(file_path, nested, permissive)
+        container = importer.import_data(file_path, permissive)
         container.source_format = DataSourceFormat.XML
         return container
-
