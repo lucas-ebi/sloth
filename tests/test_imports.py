@@ -219,10 +219,10 @@ class TestModuleStructure(unittest.TestCase):
     def test_submodule_accessibility(self):
         """Test that submodules are accessible."""
         try:
-            import sloth.parser
-            import sloth.serializer
-            import sloth.validator
-            import sloth.models
+            import sloth.mmcif.parser
+            import sloth.mmcif.serializer
+            import sloth.mmcif.validator
+            import sloth.mmcif.models
         except ImportError as e:
             self.fail(f"Failed to import submodules: {e}")
 
