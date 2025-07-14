@@ -14,7 +14,7 @@ from typing import Optional, Union, IO, Dict, Any
 from pathlib import Path
 from .models import MMCIFDataContainer, DataSourceFormat
 from .plugins import ValidatorFactory
-from .validator import SchemaValidator
+from .validator import SchemaValidator, ValidationError
 
 
 def auto_detect_format_and_load(
@@ -210,14 +210,12 @@ class BaseImporter(ABC):
                 if not validation_result.get('valid', False):
                     errors = validation_result.get('errors', [])
                     error_msg = '; '.join(errors) if errors else 'Unknown validation error'
-                    from .validator import ValidationError
                     raise ValidationError(f"PDBML XSD content validation failed: {error_msg}")
                 else:
                     if not self.quiet:
                         print("✅ PDBML XSD content validation passed")
             
         except Exception as e:
-            from .validator import ValidationError
             if isinstance(e, ValidationError):
                 raise
             else:
