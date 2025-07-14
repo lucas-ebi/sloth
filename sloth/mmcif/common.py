@@ -130,7 +130,46 @@ class BaseWriter(ABC):
         pass
 
 
-class BaseImporter(ABC):
+class PDBMLValidationMixin:
+    """Mixin class providing shared PDBML validation functionality."""
+    
+    def _validate_pdbml_content(self, pdbml_xml: str) -> None:
+        """Validate PDBML XML content against XSD schema."""
+        if not hasattr(self, 'validator') or not self.validator:
+            return  # Skip validation if no validator available
+            
+        try:
+            if not getattr(self, 'quiet', False):
+                print("🔍 Validating PDBML XML content against XSD schema...")        
+            
+            # Validate against XSD
+            validation_result = self.validator.validate(pdbml_xml)
+            
+            if isinstance(validation_result, dict):
+                if not validation_result.get('valid', False):
+                    errors = validation_result.get('errors', [])
+                    error_msg = '; '.join(errors) if errors else 'Unknown validation error'
+                    
+                    if not getattr(self, 'permissive', False):
+                        raise ValidationError(f"PDBML XSD content validation failed: {error_msg}")
+                    elif not getattr(self, 'quiet', False):
+                        print(f"⚠️  Warning: PDBML validation failed: {error_msg}")
+                else:
+                    if not getattr(self, 'quiet', False):
+                        print("✅ PDBML XSD content validation passed")
+            
+        except Exception as e:
+            if isinstance(e, ValidationError):
+                raise
+            else:
+                error_msg = f"Content validation process failed: {str(e)}"
+                if not getattr(self, 'permissive', False):
+                    raise ValidationError(error_msg)
+                elif not getattr(self, 'quiet', False):
+                    print(f"⚠️  Warning: {error_msg}")
+
+
+class BaseImporter(ABC, PDBMLValidationMixin):
     """Abstract base class for all SLOTH importers."""
     
     def __init__(
@@ -194,29 +233,6 @@ class BaseImporter(ABC):
             self.converter = None
             self.validator = None
     
-    def _validate_pdbml_content(self, pdbml_xml: str) -> None:
-        """Validate PDBML XML content against XSD schema."""
-        try:
-            if not self.quiet:
-                print("🔍 Validating PDBML XML content against XSD schema...")        
-            # Validate against XSD
-            validation_result = self.validator.validate(pdbml_xml)
-            
-            if isinstance(validation_result, dict):
-                if not validation_result.get('valid', False):
-                    errors = validation_result.get('errors', [])
-                    error_msg = '; '.join(errors) if errors else 'Unknown validation error'
-                    raise ValidationError(f"PDBML XSD content validation failed: {error_msg}")
-                else:
-                    if not self.quiet:
-                        print("✅ PDBML XSD content validation passed")
-            
-        except Exception as e:
-            if isinstance(e, ValidationError):
-                raise
-            else:
-                raise ValidationError(f"Content validation process failed: {str(e)}")
-    
     @abstractmethod
     def import_data(
         self, 
@@ -238,7 +254,7 @@ class BaseImporter(ABC):
         pass
 
 
-class BaseExporter(ABC):
+class BaseExporter(ABC, PDBMLValidationMixin):
     """Abstract base class for all SLOTH exporters."""
     
     def __init__(
@@ -306,19 +322,6 @@ class BaseExporter(ABC):
     def _convert_to_pdbml(self, mmcif_data: "MMCIFDataContainer") -> str:
         """Convert mmCIF data to PDBML XML format."""
         return self.converter.convert_to_pdbml(mmcif_data)
-    
-    def _validate_pdbml(self, pdbml_xml: str) -> None:
-        """Validate PDBML XML against XSD schema."""
-        if self.validator:
-            validation_result = self.validator.validate(pdbml_xml)
-            if not validation_result.get("valid", False):
-                errors = validation_result.get("errors", [])
-                error_msg = f"PDBML validation failed: {'; '.join(errors)}"
-                from .validator import ValidationError
-                if not self.permissive:
-                    raise ValidationError(error_msg)
-                elif not self.quiet:
-                    print(f"Warning: {error_msg}")
     
     @abstractmethod
     def export_data(
