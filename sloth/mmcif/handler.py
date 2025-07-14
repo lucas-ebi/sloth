@@ -38,19 +38,27 @@ class MMCIFHandler:
         self._parser = MMCIFParser(self.validator_factory, categories)
         return self._parser.parse(filename)
 
-    def write(self, mmcif: MMCIFDataContainer) -> None:
+    def write(self, mmcif: MMCIFDataContainer, filename: Optional[str] = None) -> None:
         """
         Writes a data container to a file using gemmi's high-performance backend.
 
         :param mmcif: The data container to write.
         :type mmcif: MMCIFDataContainer
+        :param filename: Optional filename to write to. If not provided, uses pre-set file object.
+        :type filename: Optional[str]
         :return: None
         """
-        if hasattr(self, "_file_obj") and self._file_obj:
-            self._writer = MMCIFWriter()
+        self._writer = MMCIFWriter()
+        
+        if filename:
+            # Write to specified filename
+            with open(filename, 'w') as file_obj:
+                self._writer.write(file_obj, mmcif)
+        elif hasattr(self, "_file_obj") and self._file_obj:
+            # Write to pre-set file object
             self._writer.write(self._file_obj, mmcif)
         else:
-            raise IOError("File is not open for writing")
+            raise IOError("No filename provided and file is not open for writing")
 
     def export(
         self,
