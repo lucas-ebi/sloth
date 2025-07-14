@@ -89,7 +89,6 @@ pip install -e ".[dev]"
 
 ```python
 from sloth import MMCIFHandler
-import sloth
 
 handler = MMCIFHandler()
 mmcif = handler.read("1abc.cif")
@@ -196,22 +195,27 @@ mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
 ### Export
 
 ```python
-handler.export_to_json(mmcif, "out.json")
-handler.export_to_xml(mmcif, "out.xml")
-handler.export_to_yaml(mmcif, "out.yml")
-handler.export_to_pickle(mmcif, "out.pkl")
-handler.export_to_csv(mmcif, "csv_dir")
-dfs = handler.export_to_pandas(mmcif)
+# Export to JSON (pretty-printed by default, returns string if file_path not given)
+json_str = handler.export(mmcif, format_type="json", indent=2)
+handler.export(mmcif, format_type="json", file_path="out.json", indent=2)
+
+# Export to XML (pretty-printed by default, returns string if file_path not given)
+xml_str = handler.export(mmcif, format_type="xml")
+handler.export(mmcif, format_type="xml", file_path="out.xml")
+```
+
+You can control pretty-printing for XML with the `pretty_print` argument (default: `True`):
+
+```python
+# Compact XML (no indentation)
+handler.export(mmcif, format_type="xml", file_path="out.xml", pretty_print=False)
 ```
 
 ### Import
 
 ```python
-mmcif = handler.import_from_json("out.json")
-mmcif = handler.import_from_xml("out.xml")
-mmcif = handler.import_from_yaml("out.yml")
-mmcif = handler.import_from_pickle("out.pkl")
-mmcif = handler.import_auto_detect("out.txt")
+mmcif = handler.load("out.json", format_type="json")
+mmcif = handler.load("out.xml", format_type="xml")
 ```
 
 ### Round-trip validation
@@ -249,7 +253,6 @@ mmcif.data_1ABC._atom_site.validate()
 
 ```bash
 python demo.py --demo
-python demo.py input.cif output.cif --categories _atom_site --validate
 ```
 
 ---
@@ -284,7 +287,7 @@ Same dot-notation access, same serialization features.
 
 | File Size     | Full Parse | Selective Parse | Access Speed | Memory Usage |
 | ------------- | ---------- | --------------- | ------------ | ------------ |
-| <10KB         | 28ms       | 204μs           | 51μs         | 4.0MB        |
+| <10KB         | 28μs       | 204μs           | 51μs         | 4.0MB        |
 | 10KB–100KB    | 703μs      | 634μs           | 22μs         | 172KB        |
 | 100KB–1MB     | 6ms        | 5ms             | 35μs         | 2.1MB        |
 | 1MB–10MB      | 77ms       | 57ms            | 52μs         | 18.8MB       |
