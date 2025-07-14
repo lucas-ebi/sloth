@@ -92,7 +92,20 @@ class JSONImporter(BaseImporter):
         """
         # Parse JSON input
         if isinstance(data, (str, Path)):
-            if Path(data).exists():
+            # Better detection of file path vs JSON string
+            is_file_path = False
+            if isinstance(data, Path):
+                is_file_path = True
+            elif isinstance(data, str):
+                # Check if it looks like a file path (ends with .json and no newlines/braces)
+                if (data.endswith('.json') and '\n' not in data and '{' not in data and 
+                    len(data) < 500):  # Reasonable file path length
+                    try:
+                        is_file_path = Path(data).exists()
+                    except (OSError, ValueError):
+                        is_file_path = False
+                
+            if is_file_path:
                 # It's a file path
                 with open(data, 'r') as f:
                     json_data = json.load(f)
@@ -245,12 +258,14 @@ class JSONImporter(BaseImporter):
         # or if it's in flat export format (data blocks as top-level keys)
         if any(isinstance(v, dict) and not isinstance(list(v.values())[0] if v else None, list) 
                for v in flat_data.values()):
-            # This looks like flat export format: {"block_name": {"_category": {...}}}
-            for block_name, block_data in flat_data.items():
+            # This looks like flat export format: {"block_name": {"category": {...}}}
+            for clean_block_name, block_data in flat_data.items():
                 categories = {}
-                for category_name, items in block_data.items():
+                for clean_category_name, items in block_data.items():
                     if items:  # Only create categories with data
-                        category = Category(category_name)
+                        # Add underscore prefix for internal mmCIF representation
+                        internal_category_name = f"_{clean_category_name}" if not clean_category_name.startswith('_') else clean_category_name
+                        category = Category(internal_category_name)
                         
                         if isinstance(items, list):
                             # Multi-row category
@@ -274,10 +289,12 @@ class JSONImporter(BaseImporter):
                                 for field, value in items.items():
                                     category[field] = [str(value)]
                         
-                        categories[category_name] = category
+                        categories[internal_category_name] = category
                 
-                data_block = DataBlock(block_name, categories)
-                containers[block_name] = data_block
+                # Create block with full data_ prefixed name for container
+                full_block_name = f"data_{clean_block_name}" if not clean_block_name.startswith('data_') else clean_block_name
+                data_block = DataBlock(clean_block_name, categories)  # Block object uses clean name internally
+                containers[full_block_name] = data_block
         else:
             # This is in the expected format: {"_category": [...]}
             block_name = self._get_block_name(flat_data)
@@ -317,17 +334,18 @@ class JSONImporter(BaseImporter):
         if non_category_keys:
             return non_category_keys[0]
         
-        # Try to get from entry category
-        if '_entry' in flat_data:
-            entry_data = flat_data['_entry']
-            if isinstance(entry_data, list) and entry_data:
-                entry_id = entry_data[0].get('id')
-                if entry_id:
-                    return str(entry_id)
-            elif isinstance(entry_data, dict):
-                entry_id = entry_data.get('id')
-                if entry_id:
-                    return str(entry_id)
+        # Try to get from entry category (with or without underscore prefix)
+        for entry_key in ['_entry', 'entry']:
+            if entry_key in flat_data:
+                entry_data = flat_data[entry_key]
+                if isinstance(entry_data, list) and entry_data:
+                    entry_id = entry_data[0].get('id')
+                    if entry_id:
+                        return str(entry_id)
+                elif isinstance(entry_data, dict):
+                    entry_id = entry_data.get('id')
+                    if entry_id:
+                        return str(entry_id)
         
         # Default name
         return 'IMPORTED_DATA'
@@ -391,7 +409,9 @@ class XMLImporter(BaseImporter):
         """
         # Parse XML input
         if isinstance(data, (str, Path)):
-            if Path(data).exists():
+            # Determine if it's a file path or XML string
+            # A file path should be much shorter and not contain XML structure
+            if len(str(data)) < 512 and not str(data).strip().startswith('<') and Path(data).exists():
                 # It's a file path
                 with open(data, 'r') as f:
                     xml_data = f.read()
@@ -401,14 +421,15 @@ class XMLImporter(BaseImporter):
         else:
             raise ValidationError("Invalid data type for XML import")
         
-        # Validate XML structure
-        self._validate_xml_structure(xml_data, nested)
+        # Validate XML structure only if not in permissive mode
+        should_validate = not (self.permissive if permissive is None else permissive)
+        if should_validate:
+            self._validate_xml_structure(xml_data, nested)
         
         # Convert XML to mmCIF container
         container = self._convert_xml_to_mmcif(xml_data)
         
-        # Validate content if required (PDBML XSD validation)
-        should_validate = not (self.permissive if permissive is None else permissive)
+        # Validate content if required (PDBML XSD validation) - reuse should_validate from above
         if should_validate and self.converter and self.validator:
             self._validate_content_via_pdbml(container)
         
@@ -443,8 +464,44 @@ class XMLImporter(BaseImporter):
         block_name = root.get('datablockName', 'IMPORTED_XML')
         categories = {}
         
-        # This is a very basic implementation
-        # In practice, the PDBMLConverter handles this properly
+        # Extract categories from XML
+        from .models import Category
+        
+        # Iterate through all child elements that end with "Category"
+        for element in root:
+            if element.tag.endswith('Category'):
+                # Extract category name (remove "Category" suffix and namespace)
+                category_name = element.tag.split('}')[-1]  # Remove namespace
+                if category_name.endswith('Category'):
+                    category_name = category_name[:-8]  # Remove "Category" suffix
+                
+                # Add underscore prefix for mmCIF convention
+                if not category_name.startswith('_'):
+                    category_name = f'_{category_name}'
+                
+                # Create category object
+                category = Category(name=category_name, validator_factory=None)
+                
+                # Extract items from category
+                for item_element in element:
+                    # Get item name from tag (remove namespace)
+                    item_tag = item_element.tag.split('}')[-1]
+                    
+                    # Add values for each attribute
+                    for attr_name, attr_value in item_element.attrib.items():
+                        category._add_item_value(attr_name, attr_value)
+                    
+                    # Also extract data from child elements (for multi-row categories)
+                    for child in item_element:
+                        child_name = child.tag.split('}')[-1]  # Remove namespace
+                        child_text = child.text or ""
+                        category._add_item_value(child_name, child_text)
+                
+                # Commit batches to make data available
+                category._commit_all_batches()
+                categories[category_name] = category
+        
+        # Create data block with extracted categories
         from .models import DataBlock
         data_block = DataBlock(block_name, categories)
         return MMCIFDataContainer({block_name: data_block})
