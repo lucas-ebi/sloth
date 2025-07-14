@@ -11,8 +11,6 @@ import tempfile
 import os
 import json
 import shutil
-import pickle
-import yaml
 from io import StringIO
 from unittest.mock import mock_open, patch
 from sloth.mmcif import (
@@ -29,12 +27,6 @@ from sloth.mmcif import (
     Item,
     ValidatorFactory,
     DataSourceFormat,
-    PDBMLConverter,
-    MappingGenerator,
-    DictionaryParser,
-    XSDParser,
-    CacheManager,
-    RelationshipResolver,
 )
 
 
