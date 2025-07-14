@@ -857,6 +857,365 @@ class MappingBuilder:
         if len(child_parts) == 2 and len(parent_parts) == 2:
             self.fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
 
+# ====================== DBML Precomputation ======================
+class DBMLExporter:
+    """Exports relationship mappings to DBML format for precomputation"""
+    
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
+    
+    def export_relationships_to_dbml(
+        self,
+        mapping_rules: Dict[str, Any],
+        output_path: Union[str, Path]
+    ) -> None:
+        """Export relationship mappings to DBML format"""
+        dbml_content = self._generate_dbml_content(mapping_rules)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(dbml_content)
+        
+        if not self.quiet:
+            print(f"📊 Exported relationship mappings to DBML: {output_path}")
+    
+    def _generate_dbml_content(self, mapping_rules: Dict[str, Any]) -> str:
+        """Generate DBML content from mapping rules"""
+        lines = []
+        lines.append("// Generated DBML for mmCIF relationship mappings")
+        lines.append(f"// Generated at: {self._get_timestamp()}")
+        lines.append("")
+        
+        # Add tables (categories)
+        category_mapping = mapping_rules.get(MappingDataKey.CATEGORY_MAPPING.value, {})
+        item_mapping = mapping_rules.get(MappingDataKey.ITEM_MAPPING.value, {})
+        primary_keys = mapping_rules.get(DictDataType.PRIMARY_KEYS.value, {})
+        
+        for cat_name, cat_data in category_mapping.items():
+            lines.append(f"Table {cat_name} {{")
+            
+            # Add fields
+            fields = cat_data.get(MappingDataKey.FIELDS.value, [])
+            cat_items = item_mapping.get(cat_name, {})
+            
+            for field_name in fields:
+                field_info = cat_items.get(field_name, {})
+                field_type = self._dbml_type_from_xsd(field_info.get('type', 'string'))
+                
+                # Mark primary key
+                pk_marker = ""
+                if cat_name in primary_keys:
+                    pk = primary_keys[cat_name]
+                    if (isinstance(pk, str) and field_name == pk) or \
+                       (isinstance(pk, list) and field_name in pk):
+                        pk_marker = " [pk]"
+                
+                # Add enum info if available
+                enum_info = ""
+                if field_info.get('enum'):
+                    enum_values = field_info['enum'][:3]  # First 3 values
+                    enum_info = f" // enum: {', '.join(enum_values)}"
+                
+                lines.append(f"  {field_name} {field_type}{pk_marker}{enum_info}")
+            
+            lines.append("}")
+            lines.append("")
+        
+        # Add relationships
+        fk_map = mapping_rules.get(MappingDataKey.FK_MAP.value, {})
+        if fk_map:
+            lines.append("// Relationships")
+            for (child_cat, child_field), (parent_cat, parent_field) in fk_map.items():
+                lines.append(f"Ref: {child_cat}.{child_field} > {parent_cat}.{parent_field}")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _dbml_type_from_xsd(self, xsd_type: str) -> str:
+        """Convert XSD type to DBML type"""
+        type_mapping = {
+            'xs:string': 'varchar',
+            'xs:int': 'int',
+            'xs:integer': 'int',
+            'xs:decimal': 'decimal',
+            'xs:double': 'double',
+            'xs:float': 'float',
+            'xs:boolean': 'boolean',
+            'xs:date': 'date',
+            'xs:dateTime': 'datetime'
+        }
+        return type_mapping.get(xsd_type, 'varchar')
+    
+    def _get_timestamp(self) -> str:
+        """Get current timestamp"""
+        from datetime import datetime
+        return datetime.now().isoformat()
+
+
+class DBMLImporter:
+    """Imports precomputed relationship mappings from DBML format"""
+    
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
+    
+    def import_relationships_from_dbml(self, dbml_path: Union[str, Path]) -> Dict[str, Any]:
+        """Import relationship mappings from DBML format"""
+        if not Path(dbml_path).exists():
+            raise FileNotFoundError(f"DBML file not found: {dbml_path}")
+        
+        with open(dbml_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        mapping_rules = self._parse_dbml_content(content)
+        
+        if not self.quiet:
+            print(f"📊 Imported relationship mappings from DBML: {dbml_path}")
+        
+        return mapping_rules
+    
+    def _parse_dbml_content(self, content: str) -> Dict[str, Any]:
+        """Parse DBML content into mapping rules"""
+        lines = content.split('\n')
+        
+        category_mapping = {}
+        item_mapping = {}
+        fk_map = {}
+        primary_keys = {}
+        
+        current_table = None
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Parse table definitions
+            if line.startswith('Table ') and line.endswith(' {'):
+                current_table = line[6:-2].strip()
+                category_mapping[current_table] = {MappingDataKey.FIELDS.value: []}
+                item_mapping[current_table] = {}
+                i += 1
+                continue
+            
+            # Parse table fields
+            if current_table and line and not line.startswith('//') and line != '}':
+                if line == '}':
+                    current_table = None
+                else:
+                    field_info = self._parse_field_line(line)
+                    if field_info:
+                        field_name, field_type, is_pk, enum_values = field_info
+                        category_mapping[current_table][MappingDataKey.FIELDS.value].append(field_name)
+                        item_mapping[current_table][field_name] = {
+                            'type': self._xsd_type_from_dbml(field_type),
+                            'enum': enum_values,
+                            'description': ''
+                        }
+                        if is_pk:
+                            if current_table not in primary_keys:
+                                primary_keys[current_table] = []
+                            if isinstance(primary_keys[current_table], list):
+                                primary_keys[current_table].append(field_name)
+                            else:
+                                primary_keys[current_table] = [primary_keys[current_table], field_name]
+                i += 1
+                continue
+            
+            # Parse relationships
+            if line.startswith('Ref:'):
+                rel_info = self._parse_relationship_line(line)
+                if rel_info:
+                    child_cat, child_field, parent_cat, parent_field = rel_info
+                    fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+                i += 1
+                continue
+            
+            i += 1
+        
+        # Convert single-item primary key lists to strings
+        for table, pk in primary_keys.items():
+            if isinstance(pk, list) and len(pk) == 1:
+                primary_keys[table] = pk[0]
+        
+        return {
+            MappingDataKey.CATEGORY_MAPPING.value: category_mapping,
+            MappingDataKey.ITEM_MAPPING.value: item_mapping,
+            MappingDataKey.FK_MAP.value: fk_map,
+            DictDataType.PRIMARY_KEYS.value: primary_keys
+        }
+    
+    def _parse_field_line(self, line: str) -> Optional[Tuple[str, str, bool, Optional[List[str]]]]:
+        """Parse a DBML field line"""
+        # Remove comments and extra whitespace
+        comment_pos = line.find('//')
+        if comment_pos != -1:
+            comment = line[comment_pos+2:].strip()
+            line = line[:comment_pos].strip()
+        else:
+            comment = ""
+        
+        # Parse field definition
+        parts = line.split()
+        if len(parts) < 2:
+            return None
+        
+        field_name = parts[0]
+        field_type = parts[1]
+        
+        # Check for primary key marker
+        is_pk = '[pk]' in line
+        
+        # Extract enum values from comment
+        enum_values = None
+        if comment.startswith('enum:'):
+            enum_str = comment[5:].strip()
+            enum_values = [v.strip() for v in enum_str.split(',')]
+        
+        return field_name, field_type, is_pk, enum_values
+    
+    def _parse_relationship_line(self, line: str) -> Optional[Tuple[str, str, str, str]]:
+        """Parse a DBML relationship line"""
+        # Format: Ref: child_cat.child_field > parent_cat.parent_field
+        if 'Ref:' not in line or '>' not in line:
+            return None
+        
+        rel_part = line.split('Ref:')[1].strip()
+        left, right = rel_part.split('>', 1)
+        
+        left = left.strip()
+        right = right.strip()
+        
+        if '.' not in left or '.' not in right:
+            return None
+        
+        child_cat, child_field = left.split('.', 1)
+        parent_cat, parent_field = right.split('.', 1)
+        
+        return child_cat.strip(), child_field.strip(), parent_cat.strip(), parent_field.strip()
+    
+    def _xsd_type_from_dbml(self, dbml_type: str) -> str:
+        """Convert DBML type to XSD type"""
+        type_mapping = {
+            'varchar': 'xs:string',
+            'int': 'xs:int',
+            'decimal': 'xs:decimal',
+            'double': 'xs:double',
+            'float': 'xs:float',
+            'boolean': 'xs:boolean',
+            'date': 'xs:date',
+            'datetime': 'xs:dateTime'
+        }
+        return type_mapping.get(dbml_type, 'xs:string')
+
+
+class PrecomputedMappingGenerator(MappingGenerator):
+    """Enhanced mapping generator with DBML precomputation support"""
+    
+    def __init__(
+        self,
+        dict_parser: DictionaryParser,
+        xsd_parser: XSDParser,
+        cache_manager: CacheManager,
+        quiet: bool = False,
+        precomputed: bool = False,
+        schemas_dir: Optional[Union[str, Path]] = None
+    ):
+        super().__init__(dict_parser, xsd_parser, cache_manager, quiet)
+        self.precomputed = precomputed
+        self.schemas_dir = Path(schemas_dir) if schemas_dir else self._get_default_schemas_dir()
+        self.dbml_exporter = DBMLExporter(quiet)
+        self.dbml_importer = DBMLImporter(quiet)
+    
+    def _get_default_schemas_dir(self) -> Path:
+        """Get default schemas directory"""
+        return Path(__file__).parent / "schemas"
+    
+    def get_mapping_rules(self) -> Dict[str, Any]:
+        """Get mapping rules with precomputation support"""
+        if self._mapping_rules is not None:
+            return self._mapping_rules
+        
+        if self.precomputed:
+            try:
+                self._mapping_rules = self._load_precomputed_mappings()
+                return self._mapping_rules
+            except Exception as e:
+                if not self.quiet:
+                    print(f"⚠️  Failed to load precomputed mappings: {e}")
+                    print("🔄 Falling back to runtime computation...")
+        
+        # Fallback to normal computation
+        self._mapping_rules = super().get_mapping_rules()
+        
+        # Export to DBML for future use
+        if not self.precomputed:
+            try:
+                self._export_computed_mappings()
+            except Exception as e:
+                if not self.quiet:
+                    print(f"⚠️  Failed to export mappings to DBML: {e}")
+        
+        return self._mapping_rules
+    
+    def _load_precomputed_mappings(self) -> Dict[str, Any]:
+        """Load precomputed mappings from DBML file"""
+        dbml_path = self._get_dbml_path()
+        
+        if not dbml_path.exists():
+            raise FileNotFoundError(f"Precomputed DBML file not found: {dbml_path}")
+        
+        # Check if DBML file is newer than source files
+        if not self._is_dbml_current(dbml_path):
+            raise ValueError("DBML file is outdated")
+        
+        return self.dbml_importer.import_relationships_from_dbml(dbml_path)
+    
+    def _export_computed_mappings(self) -> None:
+        """Export computed mappings to DBML file"""
+        dbml_path = self._get_dbml_path()
+        self.schemas_dir.mkdir(parents=True, exist_ok=True)
+        self.dbml_exporter.export_relationships_to_dbml(self._mapping_rules, dbml_path)
+    
+    def _get_dbml_path(self) -> Path:
+        """Get path for DBML file based on source files"""
+        # Use a clean, standard filename for the precomputed mappings
+        filename = "mmcif_to_pdbml_mappings.dbml"
+        return self.schemas_dir / filename
+    
+    def _is_dbml_current(self, dbml_path: Path) -> bool:
+        """Check if DBML file is newer than source files"""
+        if not dbml_path.exists():
+            return False
+        
+        dbml_mtime = dbml_path.stat().st_mtime
+        
+        # Check dictionary file
+        if self.dict_parser.source and Path(self.dict_parser.source).exists():
+            dict_mtime = Path(self.dict_parser.source).stat().st_mtime
+            if dict_mtime > dbml_mtime:
+                return False
+        
+        # Check XSD file
+        if self.xsd_parser.source and Path(self.xsd_parser.source).exists():
+            xsd_mtime = Path(self.xsd_parser.source).stat().st_mtime
+            if xsd_mtime > dbml_mtime:
+                return False
+        
+        return True
+    
+    def force_export_mappings(self) -> Path:
+        """Force export current mappings to DBML (useful for generating precomputed files)"""
+        if self._mapping_rules is None:
+            # Compute mappings first
+            super().get_mapping_rules()
+        
+        dbml_path = self._get_dbml_path()
+        self.schemas_dir.mkdir(parents=True, exist_ok=True)
+        self.dbml_exporter.export_relationships_to_dbml(self._mapping_rules, dbml_path)
+        
+        if not self.quiet:
+            print(f"✅ Force exported mappings to: {dbml_path}")
+        
+        return dbml_path
+
 
 # ====================== PDBML Converter ======================
 class PDBMLConverter:
@@ -1090,10 +1449,26 @@ class XMLGenerator:
 
 # ====================== Relationship Resolver ======================
 class RelationshipResolver:
-    """Resolves entity relationships for nested JSON output"""
-    def __init__(self, mapping_generator: MappingGenerator):
-        self.mapping_generator = mapping_generator
-        self.ownership_analyzer = OwnershipAnalyzer(mapping_generator)
+    """Resolves entity relationships for nested JSON output with precomputation support"""
+    def __init__(
+        self, 
+        mapping_generator: Union[MappingGenerator, PrecomputedMappingGenerator],
+        precomputed: bool = False
+    ):
+        # Use PrecomputedMappingGenerator if precomputed is requested
+        if precomputed and not isinstance(mapping_generator, PrecomputedMappingGenerator):
+            # Convert to precomputed version
+            self.mapping_generator = PrecomputedMappingGenerator(
+                mapping_generator.dict_parser,
+                mapping_generator.xsd_parser,
+                mapping_generator.cache_manager,
+                mapping_generator.quiet,
+                precomputed=True
+            )
+        else:
+            self.mapping_generator = mapping_generator
+        
+        self.ownership_analyzer = OwnershipAnalyzer(self.mapping_generator)
         self.nesting_builder = NestingBuilder()
         
     @property
@@ -1106,7 +1481,7 @@ class RelationshipResolver:
         flattener = XMLFlattener()
         flat = flattener.flatten(xml_content)
         
-        # Get mapping rules
+        # Get mapping rules (potentially from precomputed DBML)
         mapping = self.mapping_rules
         fk_map = mapping["fk_map"]
         primary_keys = mapping.get("primary_keys", {})

@@ -34,7 +34,8 @@ class JSONExporter(BaseExporter):
         xsd_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
         permissive: bool = False,
-        quiet: bool = False
+        quiet: bool = False,
+        precomputed: bool = True  # Add this parameter
     ):
         """
         Initialize the JSON exporter.
@@ -45,11 +46,15 @@ class JSONExporter(BaseExporter):
             cache_dir: Directory for caching
             permissive: If False, validates through PDBML XML against XSD schema
             quiet: Suppress output messages
+            precomputed: Use precomputed DBML relationship mappings for faster performance
         """
         super().__init__(dict_path, xsd_path, cache_dir, permissive, quiet)
         
-        # Set up JSON-specific components
-        from .serializer import RelationshipResolver, MappingGenerator, DictionaryParser, XSDParser, get_cache_manager
+        # Set up JSON-specific components with precomputation support
+        from .serializer import (
+            RelationshipResolver, PrecomputedMappingGenerator, 
+            DictionaryParser, XSDParser, get_cache_manager
+        )
         
         cache_manager = get_cache_manager(
             self.cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
@@ -61,9 +66,11 @@ class JSONExporter(BaseExporter):
         dict_parser.source = self.dict_path
         xsd_parser.source = self.xsd_path
         
-        # Set up mapping generator and relationship resolver
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, self.quiet)
-        self.resolver = RelationshipResolver(mapping_generator)
+        # Set up mapping generator with precomputation support
+        mapping_generator = PrecomputedMappingGenerator(
+            dict_parser, xsd_parser, cache_manager, self.quiet, precomputed=precomputed
+        )
+        self.resolver = RelationshipResolver(mapping_generator, precomputed=precomputed)
     
     def export_data(
         self, 
