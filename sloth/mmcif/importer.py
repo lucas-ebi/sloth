@@ -58,7 +58,6 @@ class XMLImporter(BaseImporter):
     def import_data(
         self, 
         data: Union[str, Dict[str, Any], Path], 
-        nested: bool = True,
         permissive: bool = None
     ) -> MMCIFDataContainer:
         """
@@ -66,7 +65,6 @@ class XMLImporter(BaseImporter):
         
         Args:
             data: PDBML XML data as string, dict, or file path
-            nested: Processing hint (not used for validation - PDBML XSD handles both)
             permissive: Override schema validation permissiveness (uses self.permissive if None)
             
         Returns:
@@ -101,9 +99,6 @@ class XMLImporter(BaseImporter):
         
         return container
     
-    # Remove _validate_xml_structure method entirely - not needed anymore
-    
-    # Keep the existing _convert_xml_to_mmcif method as is
     def _convert_xml_to_mmcif(self, xml_data: str) -> MMCIFDataContainer:
         """
         Convert PDBML XML data to mmCIF format.
@@ -212,15 +207,15 @@ class JSONImporter(BaseImporter):
     def import_data(
         self, 
         data: Union[str, Dict[str, Any], Path], 
-        nested: bool = True,
         permissive: bool = None
     ) -> MMCIFDataContainer:
         """
         Import JSON data back to mmCIF format.
         
+        JSON import always expects nested structure since that's our default export format.
+        
         Args:
             data: JSON data as string, dict, or file path
-            nested: Whether the JSON has nested structure
             permissive: Override schema validation permissiveness
             
         Returns:
@@ -232,10 +227,8 @@ class JSONImporter(BaseImporter):
         # Parse JSON input
         json_data = self._parse_json_input(data)
         
-        if nested:
-            return self._import_nested_json(json_data, permissive)
-        else:
-            return self._import_flat_json(json_data, permissive)
+        # Always use nested JSON import since that's our default format
+        return self._import_nested_json(json_data, permissive)
     
     def _parse_json_input(self, data: Union[str, Dict[str, Any], Path]) -> Dict[str, Any]:
         """Parse JSON input from various formats."""
@@ -266,34 +259,21 @@ class JSONImporter(BaseImporter):
         1. Flatten nested JSON to flat format
         2. Use flat JSON import logic (with validation if needed)
         """
+
+        validate = not (self.permissive if permissive is None else permissive)
+
         # Convert nested JSON to flat format first
         flat_structure = self._flatten_nested_json(json_data)
-        
-        # Reuse flat JSON import logic
-        return self._import_flat_json(flat_structure, permissive)
-    
-    def _import_flat_json(
-        self, 
-        json_data: Dict[str, Any], 
-        permissive: bool = None
-    ) -> MMCIFDataContainer:
-        """
-        Import flat JSON back to mmCIF format.
-        
-        For flat JSON, we can convert directly to mmCIF or optionally
-        validate through PDBML conversion if not permissive.
-        """
-        validate = not (self.permissive if permissive is None else permissive)
-        
+
         # Convert flat JSON to mmCIF container first
-        container = self._convert_flat_json_to_mmcif(json_data)
-        
+        container = self._convert_flat_json_to_mmcif(flat_structure)
+
         # If validation requested, convert container to PDBML and validate
         if validate and self.converter and self.validator:
             # Convert mmCIF container to PDBML for validation
             pdbml_xml = self.converter.convert_to_pdbml(container)
             self._validate_pdbml_content(pdbml_xml)
-        
+
         # Return the already-created container (no need to reconvert)
         return container
 
