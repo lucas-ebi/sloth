@@ -69,104 +69,32 @@ class JSONExporter(BaseExporter):
         self, 
         mmcif_data: MMCIFDataContainer,
         file_path: Optional[Union[str, Path]] = None,
-        nested: bool = True,
         permissive: bool = None,
         indent: int = 2
     ) -> Optional[str]:
         """
-        Export mmCIF data to JSON format.
+        Export mmCIF data to JSON format (always nested).
         
         Args:
             mmcif_data: The mmCIF data container to export
             file_path: Path to save the file (optional)
-            nested: Whether to use nested structure (True) or flat (False)
             permissive: Override permissive mode setting for schema validation
             indent: Number of spaces for indentation
             
         Returns:
             JSON string if no file_path provided, otherwise None
         """
-        if nested:
-            # Get nested JSON using relationship resolution
-            nested_data = self._to_nested_json(mmcif_data, permissive)
-            
-            # Convert to JSON string
-            json_str = json.dumps(nested_data, indent=indent, ensure_ascii=False)
-            
-            if file_path:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(json_str)
-                if not self.quiet:
-                    print(f"Exported nested JSON to: {file_path}")
-                return None
-            else:
-                return json_str
-        else:
-            # For flat format, export simple dictionary structure
-            return self._to_flat_json(mmcif_data, file_path, permissive, indent)
-    
-    def _to_flat_json(
-        self, 
-        mmcif_data: MMCIFDataContainer,
-        file_path: Optional[Union[str, Path]] = None,
-        permissive: bool = None,
-        indent: int = 2
-    ) -> Optional[str]:
-        """Export mmCIF data to flat JSON format."""
-        # Apply permissive setting - validate through PDBML conversion when not permissive
-        if permissive is None:
-            validate = not self.permissive
-        else:
-            validate = not permissive
-            
-        # If validation is requested, convert through PDBML first (like nested format)
-        if validate:
-            # Convert to PDBML XML using base class method for validation
-            pdbml_xml = self._convert_to_pdbml(mmcif_data)
-            
-            # Validate using base class method
-            self._validate_pdbml(pdbml_xml)
+        # Get nested JSON using relationship resolution
+        nested_data = self._to_nested_json(mmcif_data, permissive)
         
-        # Convert to simple dictionary structure (like old exporter)
-        result = {}
-        for block in mmcif_data:
-            block_dict = {}
-            for category_name in block.categories:
-                category = block[category_name]
-                items = category.data
-                
-                # Check if multi-row
-                if any(len(values) > 1 for values in items.values()):
-                    rows = []
-                    for i in range(category.row_count):
-                        row = {}
-                        for item_name, values in items.items():
-                            if i < len(values):
-                                row[item_name] = values[i]
-                        rows.append(row)
-                    # Use category name from external API (includes underscore prefix)
-                    block_dict[category_name] = rows
-                else:
-                    category_dict = {}
-                    for item_name, values in items.items():
-                        if values:
-                            category_dict[item_name] = values[0]
-                    # Use category name from external API (includes underscore prefix)
-                    block_dict[category_name] = category_dict
-            # Use block name directly from the block object
-            # Make sure to include the data_ prefix for external API consistency
-            block_name = block.name
-            if not block_name.startswith("data_"):
-                block_name = f"data_{block_name}"
-            result[block_name] = block_dict
-        
-        json_str = json.dumps(result, indent=indent, ensure_ascii=False)
+        # Convert to JSON string
+        json_str = json.dumps(nested_data, indent=indent, ensure_ascii=False)
         
         if file_path:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(json_str)
             if not self.quiet:
-                print(f"Exported flat JSON to: {file_path}")
+                print(f"Exported nested JSON to: {file_path}")
             return None
         else:
             return json_str
@@ -207,8 +135,8 @@ class JSONExporter(BaseExporter):
             pdbml_xml = self._convert_to_pdbml(single_block_container)
             
             # Validate if requested using base class method
-            if validate:
-                self._validate_pdbml(pdbml_xml)
+            if validate and self.converter and self.validator:
+                self._validate_pdbml_content(pdbml_xml)
             
             # Resolve relationships for this block only
             nested_categories = self.resolver.resolve_relationships(pdbml_xml)
@@ -231,7 +159,6 @@ class JSONExporter(BaseExporter):
             result[block_name] = prefixed_categories
         
         return result
-
 
 class XMLExporter(BaseExporter):
     """Export mmCIF data to PDBML XML format with optional validation."""
@@ -260,7 +187,6 @@ class XMLExporter(BaseExporter):
         self, 
         mmcif_data: MMCIFDataContainer,
         file_path: Optional[Union[str, Path]] = None,
-        nested: bool = True,
         permissive: bool = None,
         pretty_print: bool = True
     ) -> Optional[str]:
@@ -286,8 +212,8 @@ class XMLExporter(BaseExporter):
         pdbml_xml = self._convert_to_pdbml(mmcif_data)
         
         # Validate if requested using base class method
-        if validate:
-            self._validate_pdbml(pdbml_xml)
+        if validate and self.converter and self.validator:
+            self._validate_pdbml_content(pdbml_xml)
         
         # Pretty print if requested
         if pretty_print:
