@@ -80,7 +80,7 @@ def benchmark_parsing(file_path: str, categories: List[str] = None) -> Dict:
     
     # Time the parsing
     start_time = time.time()
-    mmcif = handler.parse(file_path, categories=categories)
+    mmcif = handler.read(file_path, categories=categories)
     parse_time = time.time() - start_time
     
     # Measure memory after parsing
