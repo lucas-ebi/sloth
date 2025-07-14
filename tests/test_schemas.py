@@ -141,30 +141,27 @@ class TestJSONSchemaValidation(unittest.TestCase):
         schema_file = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "sloth",
+            "mmcif",
             "schemas",
             "mmcif_json_nested_schema.json",
         )
         with open(schema_file, "r") as f:
             self.schema = json.load(f)
 
-        # Create valid test data with proper mmCIF structure
+        # Create valid test data with proper mmCIF structure - new format without "blocks" wrapper
         self.valid_data = {
-            "blocks": {
-                "DEMO": {
-                    "_entity": {"id": "1", "type": "polymer"},
-                    "_citation": [
-                        {"id": "1", "title": "Test Paper"},
-                        {"id": "2", "title": "Another Paper"},
-                    ],
-                }
+            "data_DEMO": {
+                "_entity": {"id": "1", "type": "polymer"},
+                "_citation": [
+                    {"id": "1", "title": "Test Paper"},
+                    {"id": "2", "title": "Another Paper"},
+                ],
             }
         }
 
         # Create invalid test data (category name not starting with underscore)
         self.invalid_data = {
-            "blocks": {
-                "DEMO": {"entity": {"id": "1"}}  # Invalid: category should start with _
-            }
+            "data_DEMO": {"entity": {"id": "1"}}  # Invalid: category should start with _
         }
 
         # Create JSON validator
@@ -210,9 +207,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
     def test_data_with_empty_array(self):
         """Test validation of data with empty arrays."""
         data_with_empty_array = {
-            "blocks": {
-                "DEMO": {"_entity": []}  # Empty array, violates minItems: 1
-            }
+            "data_DEMO": {"_entity": []}  # Empty array, violates minItems: 1
         }
 
         is_valid = self.validator.is_valid(data_with_empty_array)
@@ -241,7 +236,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
         # Test with valid data - use the new unified API
         handler = MMCIFHandler()
         valid_container = handler.import_data(
-            valid_json_path, format=ExportFormat.JSON, structure=StructureFormat.NESTED
+            valid_json_path, format_type=ExportFormat.JSON, structure=StructureFormat.NESTED
         )
         self.assertIsNotNone(
             valid_container, "Valid data should be imported successfully"
@@ -250,7 +245,7 @@ class TestJSONSchemaValidation(unittest.TestCase):
         # Test with invalid data - this may not raise an exception due to permissive mode
         # Just test that we can attempt to import it
         try:
-            handler.import_data(invalid_json_path, format=ExportFormat.JSON, structure=StructureFormat.NESTED)
+            handler.import_data(invalid_json_path, format_type=ExportFormat.JSON, structure=StructureFormat.NESTED)
         except Exception:
             # Expected for invalid data
             pass
@@ -262,21 +257,19 @@ class TestYAMLSchemaValidation(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.valid_yaml = """
-blocks:
-  DEMO:
-    _entity:
-      id: "1"
-      type: "polymer"
-    _citation:
-      - id: "1"
-        title: "Test Paper"
-      - id: "2"
-        title: "Another Paper"
+data_DEMO:
+  _entity:
+    id: "1"
+    type: "polymer"
+  _citation:
+    - id: "1"
+      title: "Test Paper"
+    - id: "2"
+      title: "Another Paper"
 """
         self.invalid_yaml = """
-blocks:
-  DEMO:
-    _entity: []  # Empty array, violates minItems: 1
+data_DEMO:
+  _entity: []  # Empty array, violates minItems: 1
 """
         # Create YAML validator
         self.validator = SchemaValidatorFactory.create_validator(DataSourceFormat.YAML)
