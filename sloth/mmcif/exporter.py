@@ -130,14 +130,21 @@ class JSONExporter(BaseExporter):
                             if i < len(values):
                                 row[item_name] = values[i]
                         rows.append(row)
+                    # Use category name from external API (includes underscore prefix)
                     block_dict[category_name] = rows
                 else:
                     category_dict = {}
                     for item_name, values in items.items():
                         if values:
                             category_dict[item_name] = values[0]
+                    # Use category name from external API (includes underscore prefix)
                     block_dict[category_name] = category_dict
-            result[block.name] = block_dict
+            # Use block name directly from the block object
+            # Make sure to include the data_ prefix for external API consistency
+            block_name = block.name
+            if not block_name.startswith("data_"):
+                block_name = f"data_{block_name}"
+            result[block_name] = block_dict
         
         json_str = json.dumps(result, indent=indent, ensure_ascii=False)
         
@@ -163,7 +170,7 @@ class JSONExporter(BaseExporter):
             permissive: Override permissive mode setting for schema validation
             
         Returns:
-            Nested JSON dictionary with resolved relationships
+            Nested JSON dictionary with resolved relationships and block structure
             
         Raises:
             ValidationError: If validation fails and not in permissive mode
@@ -181,9 +188,29 @@ class JSONExporter(BaseExporter):
             self._validate_pdbml(pdbml_xml)
         
         # Resolve relationships to create nested JSON
-        nested_json = self.resolver.resolve_relationships(pdbml_xml)
+        nested_categories = self.resolver.resolve_relationships(pdbml_xml)
         
-        return nested_json
+        # Add underscore prefix to category names for consistency with flat format and external API
+        prefixed_categories = {}
+        for category_name, category_data in nested_categories.items():
+            if not category_name.startswith("_"):
+                prefixed_name = f"_{category_name}"
+            else:
+                prefixed_name = category_name
+            prefixed_categories[prefixed_name] = category_data
+        
+        # Wrap in block structure to maintain consistency with flat format and external API
+        result = {}
+        for block in mmcif_data:
+            # Use block name directly from the block object
+            # Make sure to include the data_ prefix for external API consistency
+            block_name = block.name
+            if not block_name.startswith("data_"):
+                block_name = f"data_{block_name}"
+            result[block_name] = prefixed_categories
+            break  # Currently only handle first block since resolver doesn't preserve block structure
+        
+        return result
     
     def to_file(
         self, 
