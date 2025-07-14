@@ -53,7 +53,7 @@ _database_2.database_code    7XJP
             temp_file = f.name
 
         try:
-            mmcif = self.handler.parse(temp_file)
+            mmcif = self.handler.read(temp_file)
             self.assertEqual(len(mmcif), 1)
             self.assertIn("data_empty", mmcif.blocks)
         finally:
@@ -69,7 +69,7 @@ _database_2.database_code    7XJP
             temp_file = f.name
 
         try:
-            mmcif = self.handler.parse(temp_file, categories=["_database_2"])
+            mmcif = self.handler.read(temp_file, categories=["_database_2"])
             self.assertIn("data_7XJP", mmcif.blocks)
             data_block = mmcif["7XJP"]
             self.assertIn("_database_2", data_block.categories)
@@ -126,7 +126,7 @@ _database_2.database_code    7XJP
             temp_file = f.name
 
         try:
-            mmcif = self.handler.parse(temp_file, categories=["_database_2"])
+            mmcif = self.handler.read(temp_file, categories=["_database_2"])
             self.assertIn("data_7XJP", mmcif.blocks)
             data_block = mmcif["7XJP"]
             self.assertIn("_database_2", data_block.categories)
@@ -414,7 +414,7 @@ ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
         handler = MMCIFHandler()
 
         # Parse the test file
-        mmcif = handler.parse(self.temp_file.name)
+        mmcif = handler.read(self.temp_file.name)
 
         # Verify structure
         self.assertEqual(list(mmcif.blocks), ["data_TEST"])
@@ -432,8 +432,8 @@ ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
         """Test that parsing produces consistent results."""
         # Parse the same file multiple times
         handler = MMCIFHandler()
-        data1 = handler.parse(self.temp_file.name)
-        data2 = handler.parse(self.temp_file.name)
+        data1 = handler.read(self.temp_file.name)
+        data2 = handler.read(self.temp_file.name)
 
         # Should be consistent
         self.assertEqual(data1.blocks, data2.blocks)
@@ -474,7 +474,7 @@ ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
             # Time the parsing
             start_time = time.time()
             handler = MMCIFHandler()
-            data = handler.parse(large_file)
+            data = handler.read(large_file)
             parse_time = time.time() - start_time
             
             # Assert parsing completed in reasonable time (under 10 seconds for large files)
@@ -529,7 +529,7 @@ _atom_site.Cartn_z
             # Time the parsing
             start_time = time.time()
             handler = MMCIFHandler()
-            data = handler.parse(large_file)
+            data = handler.read(large_file)
             parse_time = time.time() - start_time
 
             # Should be reasonably fast (less than 1 second for 1000 atoms)
@@ -570,7 +570,7 @@ _test_data.value
 
         try:
             handler = MMCIFHandler()
-            data = handler.parse(memory_file)
+            data = handler.read(memory_file)
 
             block = data.data[0]
 
@@ -622,9 +622,8 @@ ATOM   3    C  12.345 22.678 32.901
             )
 
         # Parse the test file
-        handler = MMCIFHandler()
-        self.mmcif = handler.parse(self.test_cif_path)
-        self.exporter = MMCIFExporter(self.mmcif)
+        self.handler = MMCIFHandler(validator_factory=None)  # Use permissive mode for exports
+        self.mmcif = self.handler.read(self.test_cif_path)
 
     def tearDown(self):
         """Tear down test fixtures."""
@@ -747,37 +746,14 @@ ATOM   3    C  12.345 22.678 32.901
 
         # Parse the test file
         handler = MMCIFHandler()
-        self.mmcif = handler.parse(self.test_cif_path)
-        self.exporter = MMCIFExporter(self.mmcif)
+        self.mmcif = handler.read(self.test_cif_path)
 
         # Export data to different formats for import testing
         self.json_path = os.path.join(self.temp_dir, "test.json")
-        self.exporter.to_json(self.json_path)
-
+        handler.export(self.mmcif, format_type='json', file_path=self.json_path, permissive=True, structure='nested')
+        
         self.xml_path = os.path.join(self.temp_dir, "test.xml")
-        self.exporter.to_xml(self.xml_path)
-
-        self.pkl_path = os.path.join(self.temp_dir, "test.pkl")
-        self.exporter.to_pickle(self.pkl_path)
-
-        # Create YAML and CSV files if the dependencies are available
-        try:
-            self.yaml_path = os.path.join(self.temp_dir, "test.yaml")
-            self.exporter.to_yaml(self.yaml_path)
-            self.yaml_available = True
-        except ImportError:
-            self.yaml_available = False
-
-        try:
-            self.csv_dir = os.path.join(self.temp_dir, "csv_files")
-            os.makedirs(self.csv_dir, exist_ok=True)
-            self.exporter.to_csv(self.csv_dir)
-            self.pandas_available = True
-        except ImportError:
-            self.pandas_available = False
-
-        # Create the importer instance
-        self.importer = MMCIFImporter()
+        handler.export(self.mmcif, format_type='xml', file_path=self.xml_path, permissive=True)
 
     def tearDown(self):
         """Tear down test fixtures."""
