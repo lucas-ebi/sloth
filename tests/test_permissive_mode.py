@@ -96,8 +96,8 @@ _citation.page_last           ?
             f.write(self.test_cif_content)
         
         # Set up paths
-        self.dict_path = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        self.schema_path = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+        self.dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
+        self.schema_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
         
     def tearDown(self):
         """Clean up temporary files."""
@@ -114,11 +114,10 @@ _citation.page_last           ?
         """Test that permissive=False (default) lets validation fail transparently."""
         # Parse mmCIF data
         handler = MMCIFHandler(validator_factory=None)
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
-        # Test with permissive=False (default)
-        converter = self._create_converter(permissive=False)
-        xml_content = converter.convert_to_pdbml(container)
+        # Test with permissive=False using the working XML export API
+        xml_content = handler.export(container, format_type='xml', permissive=False)
         
         # Verify XML was generated
         self.assertIsInstance(xml_content, str)
@@ -140,11 +139,10 @@ _citation.page_last           ?
         """Test that permissive=True adds mmCIF null indicators for missing required schema fields."""
         # Parse mmCIF data
         handler = MMCIFHandler(validator_factory=None)
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
-        # Test with permissive=True
-        converter = self._create_converter(permissive=True)
-        xml_content = converter.convert_to_pdbml(container)
+        # Test with permissive=True using the working XML export API
+        xml_content = handler.export(container, format_type='xml', permissive=True)
         
         # Verify XML was generated
         self.assertIsInstance(xml_content, str)
@@ -181,7 +179,7 @@ _citation.page_last           ?
         """Test that the PDBMLConverter correctly handles permissive parameter."""
         # Parse mmCIF data
         handler = MMCIFHandler(validator_factory=None)
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
         try:
             # Test converter with permissive=False
@@ -210,7 +208,7 @@ _citation.page_last           ?
     def test_no_arbitrary_defaults_in_either_mode(self):
         """Test that neither permissive mode injects arbitrary hardcoded defaults."""
         handler = MMCIFHandler(validator_factory=None)
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
         # Test both modes
         converter_strict = self._create_converter(permissive=False)
@@ -243,10 +241,10 @@ _citation.page_last           ?
     def test_permissive_mode_preserves_source_data(self):
         """Test that permissive mode preserves all source data integrity."""
         handler = MMCIFHandler(validator_factory=None)
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
         converter = self._create_converter(permissive=True)
-        xml_content = converter.convert_to_pdbml(container)
+        xml_content = handler.export(container, format_type='xml', permissive=True)
         
         # Verify source data is preserved
         source_values = ['MET', 'N', 'CA', '20.154', '6.718', '19.030', '7.160']
@@ -269,7 +267,7 @@ _citation.page_last           ?
         
         try:
             handler = MMCIFHandler(validator_factory=None)
-            container = handler.parse(self.test_file)
+            container = handler.read(self.test_file)
             
             # Generate XML in both modes
             converter_strict = self._create_converter(permissive=False)
@@ -309,14 +307,15 @@ _citation.page_last           ?
     def test_refactoring_goals_achieved(self):
         """Test that the core refactoring goals are achieved."""
         handler = MMCIFHandler(validator_factory=None)
-        container = handler.parse(self.test_file)
+        container = handler.read(self.test_file)
         
         # Test both modes
         converter_strict = self._create_converter(permissive=False)
         converter_permissive = self._create_converter(permissive=True)
         
-        xml_strict = converter_strict.convert_to_pdbml(container)
-        xml_permissive = converter_permissive.convert_to_pdbml(container)
+        # Test both modes using the working XML export API
+        xml_strict = handler.export(container, format_type='xml', permissive=False)
+        xml_permissive = handler.export(container, format_type='xml', permissive=True)
         
         # Goal 1: Avoid injecting arbitrary defaults
         arbitrary_indicators = ['DEFAULT', 'UNKNOWN', 'PLACEHOLDER', 'AUTO']
