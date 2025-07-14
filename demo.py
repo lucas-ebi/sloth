@@ -10,12 +10,8 @@ import argparse
 import os
 import json
 import copy
-import sys
 import shutil
-import traceback
-import threading
-import hashlib
-import tempfile
+import xml.dom.minidom  # Add this import at the top
 from sloth.mmcif import (
     MMCIFHandler,
     MMCIFWriter,
@@ -33,10 +29,9 @@ from sloth.mmcif import (
     # Pipeline components
     XSDParser,
     MappingGenerator,
-    CacheManager,
     get_cache_manager,
 )
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, Optional, Any, Union
 from pathlib import Path
 
 # Comprehensive embedded demo mmCIF data - realistic protein complex structure
@@ -1597,12 +1592,19 @@ def demonstrate_complete_pdbml_pipeline():
         # Save outputs
         output_dir = Path("exports") / "complete_pdbml_demo"
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+                        
         # Save XML
         if result['pdbml_xml']:
             xml_file = output_dir / "complete_demo.xml"
+            # Pretty-print XML
+            try:
+                dom = xml.dom.minidom.parseString(result['pdbml_xml'])
+                pretty_xml = dom.toprettyxml(indent="  ")
+            except Exception:
+                # Fallback to raw XML if parsing fails
+                pretty_xml = result['pdbml_xml']
             with open(xml_file, 'w', encoding='utf-8') as f:
-                f.write(result['pdbml_xml'])
+                f.write(pretty_xml)
             print(f"   💾 XML saved: {xml_file}")
         
         # Save JSON
