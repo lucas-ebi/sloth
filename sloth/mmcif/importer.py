@@ -524,7 +524,7 @@ class XMLImporter(BaseImporter):
             
             # Choose appropriate schema based on structure type
             schema_path = self.xml_schema_nested_path if nested else self.xml_schema_flat_path
-            schema_type = "nested" if nested else "flat"
+            schema_type = StructureFormat.NESTED.value if nested else StructureFormat.FLAT.value
             
             # Load and parse schema
             with open(schema_path, 'r') as f:
@@ -541,8 +541,8 @@ class XMLImporter(BaseImporter):
         except etree.XMLSyntaxError as e:
             raise ValidationError(f"XML syntax error: {str(e)}")
         except etree.DocumentInvalid as e:
-            schema_type = "nested" if nested else "flat"
+            schema_type = StructureFormat.NESTED.value if nested else StructureFormat.FLAT.value
             raise ValidationError(f"XML {schema_type} structure validation failed: {str(e)}")
         except Exception as e:
-            schema_type = "nested" if nested else "flat"
+            schema_type = StructureFormat.NESTED.value if nested else StructureFormat.FLAT.value
             raise ValidationError(f"XML {schema_type} structure validation error: {str(e)}")
