@@ -231,27 +231,6 @@ class JSONExporter(BaseExporter):
             result[block_name] = prefixed_categories
         
         return result
-    
-    def to_file(
-        self, 
-        mmcif_data: MMCIFDataContainer,
-        file_path: Union[str, Path], 
-        indent: int = 2,
-        permissive: bool = None
-    ) -> None:
-        """
-        Export mmCIF data to a JSON file.
-        
-        Args:
-            mmcif_data: The mmCIF data container to export
-            file_path: Path to save the JSON file
-            indent: Number of spaces for indentation
-            permissive: Override permissive mode setting for schema validation
-            
-        Raises:
-            ValidationError: If validation fails and not in permissive mode
-        """
-        self.export_data(mmcif_data, file_path, nested=True, permissive=permissive, indent=indent)
 
 
 class XMLExporter(BaseExporter):
