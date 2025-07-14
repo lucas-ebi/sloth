@@ -67,3 +67,124 @@ def get_shared_converter(permissive: bool = False) -> PDBMLConverter:
     _GLOBAL_CONVERTERS[cache_key] = converter
     
     return converter
+
+
+# Shared schema validator instances for improved performance
+_GLOBAL_VALIDATORS: Dict[str, Any] = {}
+
+
+@lru_cache(maxsize=4)
+def get_shared_schema_validator(format_type: str):
+    """
+    Get a shared schema validator instance for the specified format.
+    
+    This function caches and reuses validator instances across all tests,
+    which improves test performance by avoiding repeated schema loading.
+    Uses the official PDBML schemas instead of custom mmCIF schemas.
+    
+    Args:
+        format_type: The format type ('XML', 'JSON').
+        
+    Returns:
+        A cached schema validator instance.
+    """
+    from sloth.mmcif.validator import XMLSchemaValidator, JSONSchemaValidator
+    
+    cache_key = f"validator_{format_type}"
+    
+    if cache_key in _GLOBAL_VALIDATORS:
+        return _GLOBAL_VALIDATORS[cache_key]
+    
+    # Create validator directly using official schemas
+    if format_type == 'XML':
+        # Use the official PDBML XSD schema
+        validator = XMLSchemaValidator(str(XSD_PATH))
+    elif format_type == 'JSON':
+        # Create a basic JSON schema for mmCIF data
+        basic_schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "patternProperties": {
+                "^data_[A-Z0-9_]+$": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^_[a-zA-Z0-9_]+$": {
+                            "anyOf": [
+                                {"type": "object"},
+                                {"type": "array"},
+                                {"type": "string"},
+                                {"type": "number"}
+                            ]
+                        }
+                    },
+                    "additionalProperties": False
+                }
+            },
+            "additionalProperties": False,
+            "minProperties": 1
+        }
+        validator = JSONSchemaValidator(basic_schema)
+    elif format_type == 'XML_SIMPLE':
+        # Create a simple XML validator for testing purposes
+        # This bypasses the complex PDBML schema for basic functionality testing
+        class SimpleXMLValidator:
+            def __init__(self):
+                pass
+            
+            def validate(self, xml_string):
+                """Simple validation - just check if it's well-formed XML."""
+                try:
+                    import xml.etree.ElementTree as ET
+                    ET.fromstring(xml_string)
+                    
+                    # Basic structure checks
+                    if 'datablockName' not in xml_string:
+                        raise ValueError("Missing required datablockName attribute")
+                    if 'xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd"' not in xml_string:
+                        raise ValueError("Missing or incorrect namespace")
+                    if xml_string.strip().endswith('></datablock>'):
+                        raise ValueError("Empty datablock")
+                        
+                    return {"valid": True, "errors": []}
+                except Exception as e:
+                    from sloth.mmcif.validator import ValidationError
+                    raise ValidationError(str(e))
+            
+            def is_valid(self, xml_string):
+                """Check if XML is valid without raising exceptions."""
+                try:
+                    self.validate(xml_string)
+                    return True
+                except:
+                    return False
+        
+        validator = SimpleXMLValidator()
+    else:
+        raise ValueError(f"Unsupported format type: {format_type}. Supported formats: XML, JSON, XML_SIMPLE")
+    
+    # Cache validator for future use
+    _GLOBAL_VALIDATORS[cache_key] = validator
+    
+    return validator
+
+
+def get_schema_paths():
+    """
+    Get the paths to the official PDBML schema files.
+    
+    Returns:
+        A dictionary with paths to dictionary and XSD schema files.
+    """
+    return {
+        'dict_path': DICT_PATH,
+        'xsd_path': XSD_PATH
+    }
+
+
+def cleanup_test_cache():
+    """Clean up test cache to free memory if needed."""
+    global _GLOBAL_CONVERTERS, _GLOBAL_VALIDATORS
+    _GLOBAL_CONVERTERS.clear()
+    _GLOBAL_VALIDATORS.clear()
+    if hasattr(GLOBAL_CACHE, 'clear_global_caches'):
+        GLOBAL_CACHE.clear_global_caches()
