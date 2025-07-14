@@ -402,7 +402,7 @@ class TabularDataParser:
         try:
             from .parser import MMCIFParser
             parser = MMCIFParser()
-            container = parser.parse_file(dict_path)
+            container = parser.parse(dict_path)
             
             self._process_item_types(container)
             self._process_linked_groups(container, processor)
