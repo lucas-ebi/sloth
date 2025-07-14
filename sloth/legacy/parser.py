@@ -80,9 +80,9 @@ class MMCIFParser(BaseParser):
         :return: The data container with parsed mmCIF data
         :rtype: MMCIFDataContainer
         """
-        return self.parse_file(file_path)
+        return self.parse(file_path)
 
-    def parse_file(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
+    def parse(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """Parse a file using memory mapping with lazy loading."""
         # Convert Path to string if needed
         file_path_str = str(file_path)
