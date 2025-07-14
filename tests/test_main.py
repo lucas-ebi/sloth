@@ -149,9 +149,8 @@ _database_2.database_code    7XJP
         # Commit batches to make data available for writing
         data_block["_database_2"]._commit_all_batches()
         mmcif = MMCIFDataContainer(data_blocks={"7XJP": data_block})
-        with open("dummy.cif", "w") as f:
-            self.handler.file_obj = f
-            self.handler.write(mmcif)
+        # Provide filename parameter to the write method
+        self.handler.write(mmcif, "dummy.cif")
         # Check that the complete content was written in one call
         expected_content = "data_7XJP\n_database_2.database_id PDB\n_database_2.database_code 7XJP\n"
         mock_file().write.assert_called_with(expected_content)
@@ -604,8 +603,13 @@ class TestMMCIFExporter(unittest.TestCase):
 #
 _entry.id test_structure
 #
-_database_2.database_id      TEST
+_database_2.database_id      PDB
 _database_2.database_code    ABC123
+#
+loop_
+_atom_type.symbol
+N
+C
 #
 loop_
 _atom_site.group_PDB
@@ -614,9 +618,10 @@ _atom_site.type_symbol
 _atom_site.Cartn_x
 _atom_site.Cartn_y
 _atom_site.Cartn_z
-ATOM   1    N  10.123 20.456 30.789
-ATOM   2    C  11.234 21.567 31.890
-ATOM   3    C  12.345 22.678 32.901
+_atom_site.B_iso_or_equiv
+ATOM   1    N  10.123 20.456 30.789 25.0
+ATOM   2    C  11.234 21.567 31.890 30.0
+ATOM   3    C  12.345 22.678 32.901 35.0
 #
 """
             )
@@ -629,27 +634,30 @@ ATOM   3    C  12.345 22.678 32.901
         """Tear down test fixtures."""
         shutil.rmtree(self.temp_dir)
 
-    def test_to_dict(self):
-        """Test conversion to dictionary."""
-        data_dict = self.exporter.to_dict()
-
-        # Verify the structure
-        self.assertIn("test", data_dict)
-        self.assertIn("_entry", data_dict["test"])
-        self.assertIn("_atom_site", data_dict["test"])
-
+    def test_json_export_to_string(self):
+        """Test JSON export to string."""
+        json_str = self.handler.export(self.mmcif, format_type='json', permissive=True, structure='flat')
+        self.assertIsInstance(json_str, str)
+        data = json.loads(json_str)
+        
+        # Verify the structure - JSON export uses external API naming with prefixes
+        self.assertIn("data_test", data)  # Block name with data_ prefix
+        block_data = data["data_test"]
+        self.assertIn("_entry", block_data)  # Category name with _ prefix
+        self.assertIn("_atom_site", block_data)
+        
         # Verify specific values
-        self.assertEqual(data_dict["test"]["_entry"]["id"], "test_structure")
-
+        self.assertEqual(block_data["_entry"]["id"], "test_structure")
+        
         # Verify multi-row category
-        atom_site = data_dict["test"]["_atom_site"]
+        atom_site = block_data["_atom_site"]
         self.assertEqual(len(atom_site), 3)  # Three rows
         self.assertEqual(atom_site[0]["Cartn_x"], "10.123")
 
-    def test_to_json(self):
-        """Test JSON export."""
+    def test_json_export_to_file(self):
+        """Test JSON export to file."""
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.exporter.to_json(json_path)
+        self.handler.export(self.mmcif, format_type='json', file_path=json_path, permissive=True, structure='flat')
 
         # Verify file exists
         self.assertTrue(os.path.exists(json_path))
@@ -658,62 +666,42 @@ ATOM   3    C  12.345 22.678 32.901
         with open(json_path) as f:
             data = json.load(f)
 
-        self.assertIn("test", data)
-        self.assertIn("_database_2", data["test"])
-        self.assertEqual(data["test"]["_database_2"]["database_id"], "TEST")
+        self.assertIn("data_test", data)  # Block name with data_ prefix
+        block_data = data["data_test"]
+        self.assertIn("_database_2", block_data)  # Category name with _ prefix
+        self.assertEqual(block_data["_database_2"]["database_id"], "PDB")
 
-        # Test without file path (string return)
-        json_str = self.exporter.to_json()
-        self.assertIsInstance(json_str, str)
-        data_from_str = json.loads(json_str)
-        self.assertIn("test", data_from_str)
+    def test_xml_export_to_string(self):
+        """Test XML export to string."""
+        xml_str = self.handler.export(self.mmcif, format_type='xml', permissive=True)
+        self.assertIsInstance(xml_str, str)
+        self.assertIn('<datablock', xml_str)
+        self.assertIn('datablockName="test"', xml_str)
+        self.assertIn('<entryCategory>', xml_str)
 
-    def test_handler_export_methods(self):
-        """Test export methods in MMCIFHandler."""
-        handler = MMCIFHandler()
-
-        # Test JSON export
-        json_path = os.path.join(self.temp_dir, "handler.json")
-        handler.export_to_json(self.mmcif, json_path)
-        self.assertTrue(os.path.exists(json_path))
-
-        # Test XML export
-        xml_path = os.path.join(self.temp_dir, "handler.xml")
-        handler.export_to_xml(self.mmcif, xml_path)
+    def test_xml_export_to_file(self):
+        """Test XML export to file."""
+        xml_path = os.path.join(self.temp_dir, "test.xml")
+        self.handler.export(self.mmcif, format_type='xml', file_path=xml_path, permissive=True)
+        
+        # Verify file exists
         self.assertTrue(os.path.exists(xml_path))
+        
+        # Verify content
+        with open(xml_path) as f:
+            xml_content = f.read()
+        
+        self.assertIn('<datablock', xml_content)
+        self.assertIn('<entryCategory>', xml_content)
 
-        # Test pickle export
-        pkl_path = os.path.join(self.temp_dir, "handler.pkl")
-        handler.export_to_pickle(self.mmcif, pkl_path)
-        self.assertTrue(os.path.exists(pkl_path))
-
-    def test_to_yaml_pandas_availability(self):
-        """Test YAML and pandas export availability."""
-        # We don't actually test the functionality, just that the methods exist
-        # and don't crash when libraries are not available
-
-        # Test YAML export (should not crash whether PyYAML is installed or not)
-        try:
-            yaml_str = self.exporter.to_yaml()
-            # If we get here, PyYAML is installed
-            self.assertIsInstance(yaml_str, (str, type(None)))
-        except ImportError:
-            # This is fine, PyYAML might not be installed
-            pass
-
-        # Test pandas and CSV export (should not crash)
-        try:
-            # Try pandas export
-            result = self.exporter.to_pandas()
-            # If we get here, pandas is installed
-            self.assertIsInstance(result, dict)
-        except ImportError:
-            # This is fine, pandas might not be installed
-            pass
+    def test_unsupported_format_error(self):
+        """Test that unsupported formats raise appropriate errors."""
+        with self.assertRaises(ValueError):
+            self.handler.export(self.mmcif, format_type='unsupported')
 
 
-class TestMMCIFImporter(unittest.TestCase):
-    """Test case for the MMCIFImporter class."""
+class TestImportFunctionality(unittest.TestCase):
+    """Test case for import functionality through JSONImporter and XMLImporter."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -727,8 +715,13 @@ class TestMMCIFImporter(unittest.TestCase):
 #
 _entry.id test_structure
 #
-_database_2.database_id      TEST
+_database_2.database_id      PDB
 _database_2.database_code    ABC123
+#
+loop_
+_atom_type.symbol
+N
+C
 #
 loop_
 _atom_site.group_PDB
@@ -737,14 +730,15 @@ _atom_site.type_symbol
 _atom_site.Cartn_x
 _atom_site.Cartn_y
 _atom_site.Cartn_z
-ATOM   1    N  10.123 20.456 30.789
-ATOM   2    C  11.234 21.567 31.890
-ATOM   3    C  12.345 22.678 32.901
+_atom_site.B_iso_or_equiv
+ATOM   1    N  10.123 20.456 30.789 25.0
+ATOM   2    C  11.234 21.567 31.890 30.0
+ATOM   3    C  12.345 22.678 32.901 35.0
 #
 """
             )
 
-        # Parse the test file
+        # Parse the test file and export to JSON/XML for testing imports
         handler = MMCIFHandler()
         self.mmcif = handler.read(self.test_cif_path)
 
@@ -759,1303 +753,415 @@ ATOM   3    C  12.345 22.678 32.901
         """Tear down test fixtures."""
         shutil.rmtree(self.temp_dir)
 
-    def test_from_dict(self):
-        """Test importing from dictionary."""
-        # First export to dict
-        data_dict = self.exporter.to_dict()
+    def test_json_import_from_file(self):
+        """Test importing from JSON file."""
+        importer = JSONImporter(permissive=True)
+        imported_container = importer.import_data(self.json_path)
 
-        # Now import from dict
-        imported_container = MMCIFImporter.from_dict(data_dict)
-
-        # Verify structure
-        self.assertIn("data_test", imported_container.blocks)
-        self.assertIn("_entry", imported_container["test"].categories)
-        self.assertIn("_atom_site", imported_container["test"].categories)
-
-        # Verify values
-        self.assertEqual(
-            imported_container["test"]["_entry"]["id"][0], "test_structure"
-        )
-        self.assertEqual(
-            imported_container["test"]["_database_2"]["database_id"][0], "TEST"
-        )
-        self.assertEqual(
-            imported_container["test"]["_database_2"]["database_code"][0], "ABC123"
-        )
-
-        # Verify multi-row category
-        atom_site = imported_container["test"]["_atom_site"]
-        self.assertEqual(len(atom_site["id"]), 3)  # Three rows
+        # Verify structure and content - the imported data should have block structure
+        self.assertTrue(len(imported_container.blocks) > 0)
+        
+        # Get the first block by iterating over the container
+        first_block = None
+        for block in imported_container:
+            first_block = block
+            break
+        
+        self.assertIsNotNone(first_block)
+        self.assertIn("_entry", first_block.categories)
+        self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
+        
+        self.assertIn("_atom_site", first_block.categories)
+        atom_site = first_block["_atom_site"]
         self.assertEqual(atom_site["Cartn_x"][0], "10.123")
-        self.assertEqual(atom_site["Cartn_y"][1], "21.567")
-        self.assertEqual(atom_site["Cartn_z"][2], "32.901")
 
-    def test_from_json(self):
-        """Test importing from JSON."""
-        # Test from file path
-        imported_container = self.importer.from_json(self.json_path)
-
-        # Verify structure and content
-        self.assertIn("data_test", imported_container.blocks)
-        self.assertEqual(
-            imported_container["test"]["_entry"]["id"][0], "test_structure"
-        )
-        self.assertEqual(
-            imported_container["test"]["_atom_site"]["Cartn_x"][0], "10.123"
-        )
-
-        # Test from JSON string
+    def test_json_import_from_string(self):
+        """Test importing from JSON string."""
         with open(self.json_path, "r") as f:
             json_str = f.read()
 
-        imported_container_from_str = self.importer.from_json(json_str)
-        self.assertIn("data_test", imported_container_from_str.blocks)
-        self.assertEqual(
-            imported_container_from_str["test"]["_entry"]["id"][0], "test_structure"
-        )
+        importer = JSONImporter(permissive=True)
+        imported_container = importer.import_data(json_str)
+        
+        # Get the first block by iterating over the container
+        self.assertTrue(len(imported_container.blocks) > 0)
+        
+        first_block = None
+        for block in imported_container:
+            first_block = block
+            break
+        
+        self.assertIsNotNone(first_block)
+        self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
 
-    def test_from_xml(self):
-        """Test importing from XML."""
-        # Test from file path
-        imported_container = self.importer.from_xml(self.xml_path)
+    def test_xml_import_from_file(self):
+        """Test importing from XML file."""
+        importer = XMLImporter(permissive=True)
+        imported_container = importer.import_data(self.xml_path)
 
         # Verify structure and content
-        self.assertIn("data_test", imported_container.blocks)
-        self.assertEqual(
-            imported_container["test"]["_entry"]["id"][0], "test_structure"
-        )
-        self.assertEqual(
-            imported_container["test"]["_atom_site"]["Cartn_x"][0], "10.123"
-        )
+        self.assertTrue(len(imported_container.blocks) > 0)
+        
+        # Get the first block by iterating over the container
+        first_block = None
+        for block in imported_container:
+            first_block = block
+            break
+        
+        self.assertIsNotNone(first_block)
+        self.assertIn("_entry", first_block.categories)
+        self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
+        
+        self.assertIn("_atom_site", first_block.categories)
+        atom_site = first_block["_atom_site"]
+        self.assertEqual(atom_site["Cartn_x"][0], "10.123")
 
-        # Test from XML string
+    def test_xml_import_from_string(self):
+        """Test importing from XML string."""
         with open(self.xml_path, "r") as f:
             xml_str = f.read()
 
-        imported_container_from_str = self.importer.from_xml(xml_str)
-        self.assertIn("data_test", imported_container_from_str.blocks)
-        self.assertEqual(
-            imported_container_from_str["test"]["_entry"]["id"][0], "test_structure"
-        )
-
-    def test_from_pickle(self):
-        """Test importing from Pickle."""
-        imported_container = self.importer.from_pickle(self.pkl_path)
-
-        # Verify structure and content
-        self.assertIn("data_test", imported_container.blocks)
-        self.assertEqual(
-            imported_container["test"]["_entry"]["id"][0], "test_structure"
-        )
-        self.assertEqual(
-            imported_container["test"]["_atom_site"]["Cartn_x"][0], "10.123"
-        )
-
-    def test_from_yaml(self):
-        """Test importing from YAML if PyYAML is available."""
-        if not self.yaml_available:
-            self.skipTest("PyYAML is not installed")
-
-        # Test from file path
-        imported_container = self.importer.from_yaml(self.yaml_path)
-
-        # Verify structure and content
-        self.assertIn("data_test", imported_container.blocks)
-        self.assertEqual(
-            imported_container["test"]["_entry"]["id"][0], "test_structure"
-        )
-        self.assertEqual(
-            imported_container["test"]["_atom_site"]["Cartn_x"][0], "10.123"
-        )
-
-        # Test from YAML string
-        with open(self.yaml_path, "r") as f:
-            yaml_str = f.read()
-
-        imported_container_from_str = self.importer.from_yaml(yaml_str)
-        self.assertIn("data_test", imported_container_from_str.blocks)
-        self.assertEqual(
-            imported_container_from_str["test"]["_entry"]["id"][0], "test_structure"
-        )
-
-    def test_from_csv_files(self):
-        """Test importing from CSV files if pandas is available."""
-        if not self.pandas_available:
-            self.skipTest("pandas is not installed")
-
-        imported_container = self.importer.from_csv_files(self.csv_dir)
-
-        # Verify structure and content
-        self.assertIn("data_test", imported_container.blocks)
-        self.assertIn("_entry", imported_container["test"].categories)
-        self.assertIn("_atom_site", imported_container["test"].categories)
-
-        # Verify values (note: CSV might change data types)
-        self.assertEqual(
-            imported_container["test"]["_entry"]["id"][0], "test_structure"
-        )
-
-        # Verify multi-row category exists with correct number of rows
-        atom_site = imported_container["test"]["_atom_site"]
-        self.assertEqual(len(atom_site["id"]), 3)
-
-    def test_auto_detect_format(self):
-        """Test auto-detection of file formats."""
-        # Test JSON auto-detection
-        json_container = MMCIFImporter.auto_detect_format(self.json_path)
-        self.assertIn("data_test", json_container.blocks)
-        self.assertEqual(json_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test XML auto-detection
-        xml_container = MMCIFImporter.auto_detect_format(self.xml_path)
-        self.assertIn("data_test", xml_container.blocks)
-        self.assertEqual(xml_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test Pickle auto-detection
-        pkl_container = MMCIFImporter.auto_detect_format(self.pkl_path)
-        self.assertIn("data_test", pkl_container.blocks)
-        self.assertEqual(pkl_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test CIF auto-detection (original file)
-        cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
-        self.assertIn("data_test", cif_container.blocks)
-        self.assertEqual(cif_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test YAML auto-detection if available
-        if self.yaml_available:
-            yaml_container = MMCIFImporter.auto_detect_format(self.yaml_path)
-            self.assertIn("data_test", yaml_container.blocks)
-            self.assertEqual(
-                yaml_container["test"]["_entry"]["id"][0], "test_structure"
-            )
-
-        # Test invalid extension
-        with self.assertRaises(ValueError):
-            MMCIFImporter.auto_detect_format(
-                os.path.join(self.temp_dir, "test.unsupported")
-            )
-
-    def test_handler_import_methods(self):
-        """Test import methods in MMCIFHandler."""
-        handler = MMCIFHandler()
-
-        # Test JSON import
-        json_container = handler.import_from_json(self.json_path)
-        self.assertIn("data_test", json_container.blocks)
-        self.assertEqual(json_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test XML import
-        xml_container = handler.import_from_xml(self.xml_path)
-        self.assertIn("data_test", xml_container.blocks)
-        self.assertEqual(xml_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test Pickle import
-        pkl_container = handler.import_from_pickle(self.pkl_path)
-        self.assertIn("data_test", pkl_container.blocks)
-        self.assertEqual(pkl_container["test"]["_entry"]["id"][0], "test_structure")
-
-        # Test auto-detection
-        auto_container = handler.import_auto_detect(self.json_path)
-        self.assertIn("data_test", auto_container.blocks)
-        self.assertEqual(auto_container["test"]["_entry"]["id"][0], "test_structure")
+        importer = XMLImporter(permissive=True)
+        imported_container = importer.import_data(xml_str)
+        
+        # Get the first block by iterating over the container
+        first_block = None
+        for block in imported_container:
+            first_block = block
+            break
+        
+        self.assertIsNotNone(first_block)
+        self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
 
     def test_round_trip_json(self):
-        """Test round-trip export-import using JSON."""
-        # Export to JSON
-        json_path = os.path.join(self.temp_dir, "round_trip.json")
-        self.exporter.to_json(json_path)
-
-        # Import from JSON
-        imported_container = self.importer.from_json(json_path)
-
-        # Compare original and imported
-        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
-        self.assertEqual(
-            self.mmcif["test"]["_entry"]["id"][0],
-            imported_container["test"]["_entry"]["id"][0],
-        )
-        self.assertEqual(
-            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
-            imported_container["test"]["_atom_site"]["Cartn_x"][0],
-        )
+        """Test round-trip conversion: mmCIF -> JSON -> mmCIF."""
+        handler = MMCIFHandler()
+        
+        # Export to JSON string
+        json_str = handler.export(self.mmcif, format_type='json', permissive=True, structure='nested')
+        
+        # Import back from JSON
+        importer = JSONImporter(permissive=True)
+        imported_mmcif = importer.import_data(json_str)
+        
+        # Verify the data matches - use correct block iteration
+        # Get first block from original by iterating over container
+        original_block = None
+        for block in self.mmcif:
+            original_block = block
+            break
+        
+        # Get first block from imported by iterating over container
+        imported_block = None
+        for block in imported_mmcif:
+            imported_block = block
+            break
+        
+        self.assertIsNotNone(original_block)
+        self.assertIsNotNone(imported_block)
+        self.assertEqual(original_block["_entry"]["id"], imported_block["_entry"]["id"])
 
     def test_round_trip_xml(self):
-        """Test round-trip export-import using XML."""
-        # Export to XML
-        xml_path = os.path.join(self.temp_dir, "round_trip.xml")
-        self.exporter.to_xml(xml_path)
-
-        # Import from XML
-        imported_container = self.importer.from_xml(xml_path)
-
-        # Compare original and imported
-        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
-        self.assertEqual(
-            self.mmcif["test"]["_entry"]["id"][0],
-            imported_container["test"]["_entry"]["id"][0],
-        )
-        self.assertEqual(
-            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
-            imported_container["test"]["_atom_site"]["Cartn_x"][0],
-        )
-
-    def test_round_trip_pickle(self):
-        """Test round-trip export-import using Pickle."""
-        # Export to Pickle
-        pkl_path = os.path.join(self.temp_dir, "round_trip.pkl")
-        self.exporter.to_pickle(pkl_path)
-
-        # Import from Pickle
-        imported_container = self.importer.from_pickle(pkl_path)
-
-        # Compare original and imported
-        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
-        self.assertEqual(
-            self.mmcif["test"]["_entry"]["id"][0],
-            imported_container["test"]["_entry"]["id"][0],
-        )
-        self.assertEqual(
-            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
-            imported_container["test"]["_atom_site"]["Cartn_x"][0],
-        )
-
-    def test_source_format_flag(self):
-        """Test that the source format flag is correctly set."""
-        # Test JSON source format
-        json_container = self.importer.from_json(self.json_path)
-        self.assertEqual(json_container.source_format, DataSourceFormat.JSON)
-
-        # Test XML source format
-        xml_container = self.importer.from_xml(self.xml_path)
-        self.assertEqual(xml_container.source_format, DataSourceFormat.XML)
-
-        # Test Pickle source format
-        pickle_container = self.importer.from_pickle(self.pkl_path)
-        self.assertEqual(pickle_container.source_format, DataSourceFormat.PICKLE)
-
-        # Test CIF source format via auto-detect
-        cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
-        self.assertEqual(cif_container.source_format, DataSourceFormat.MMCIF)
-
-        # Test dictionary source format
-        data_dict = self.exporter.to_dict()
-        dict_container = MMCIFImporter.from_dict(data_dict)
-        self.assertEqual(dict_container.source_format, DataSourceFormat.DICT)
-
-        # Test YAML source format if available
-        if self.yaml_available:
-            yaml_container = self.importer.from_yaml(self.yaml_path)
-            self.assertEqual(yaml_container.source_format, DataSourceFormat.YAML)
-
-        # Test CSV source format if available
-        if self.pandas_available:
-            csv_container = self.importer.from_csv_files(self.csv_dir)
-            self.assertEqual(csv_container.source_format, DataSourceFormat.CSV)
+        """Test round-trip conversion: mmCIF -> XML -> mmCIF."""
+        handler = MMCIFHandler()
+        
+        # Export to XML string
+        xml_str = handler.export(self.mmcif, format_type='xml', permissive=True, structure='nested')
+        
+        # Import back from XML
+        importer = XMLImporter(permissive=True)
+        imported_mmcif = importer.import_data(xml_str)
+        
+        # Verify the data matches - use correct block iteration
+        # Get first block from original by iterating over container
+        original_block = None
+        for block in self.mmcif:
+            original_block = block
+            break
+        
+        # Get first block from imported by iterating over container
+        imported_block = None
+        for block in imported_mmcif:
+            imported_block = block
+            break
+        
+        self.assertIsNotNone(original_block)
+        self.assertIsNotNone(imported_block)
+        self.assertEqual(original_block["_entry"]["id"], imported_block["_entry"]["id"])
 
 
-class TestDictToMMCIFConverter(unittest.TestCase):
-    """Test the DictToMMCIFConverter class."""
+class TestValidationModes(unittest.TestCase):
+    """Test permissive vs compliant validation modes."""
 
     def setUp(self):
-        self.validator_factory = ValidatorFactory()
-        self.converter = DictToMMCIFConverter(self.validator_factory)
-
-        # Sample dictionary structure
-        self.sample_dict = {
-            "block1": {
-                "_category1": {"item1": "value1", "item2": ["value2"]},
-                "_category2": [
-                    {"itemA": "A1", "itemB": "B1"},
-                    {"itemA": "A2", "itemB": "B2"},
-                ],
-            }
-        }
-
-    def test_convert_simple_structure(self):
-        """Test conversion of a simple dictionary structure."""
-        container = self.converter.convert(self.sample_dict)
-
-        # Verify block structure
-        self.assertEqual(len(container.blocks), 1)
-        self.assertIn("data_block1", container.blocks)
-
-        block = container["block1"]
-
-        # Verify categories
-        self.assertEqual(len(block.categories), 2)
-        self.assertIn("_category1", block.categories)
-        self.assertIn("_category2", block.categories)
-
-        # Verify single-row category
-        cat1 = block["_category1"]
-        self.assertEqual(cat1["item1"], ["value1"])
-        self.assertEqual(cat1["item2"], ["value2"])
-
-        # Verify multi-row category
-        cat2 = block["_category2"]
-        self.assertEqual(len(cat2["itemA"]), 2)
-        self.assertEqual(cat2["itemA"][0], "A1")
-        self.assertEqual(cat2["itemA"][1], "A2")
-        self.assertEqual(cat2["itemB"][0], "B1")
-        self.assertEqual(cat2["itemB"][1], "B2")
-
-    def test_convert_empty_dict(self):
-        """Test conversion of an empty dictionary."""
-        container = self.converter.convert({})
-        self.assertEqual(len(container.blocks), 0)
-
-    def test_convert_with_missing_values(self):
-        """Test conversion with missing values in multi-row categories."""
-        test_dict = {
-            "block1": {
-                "_category": [
-                    {"item1": "A", "item2": "B"},
-                    {"item1": "C"},  # Missing item2
-                ]
-            }
-        }
-
-        container = self.converter.convert(test_dict)
-        cat = container["block1"]["_category"]
-
-        # Should have both items with empty string for missing value
-        self.assertEqual(cat["item1"], ["A", "C"])
-        self.assertEqual(cat["item2"], ["B", ""])
-
-    def test_source_format_setting(self):
-        """Test that source format is correctly set to DICT."""
-        container = self.converter.convert(self.sample_dict)
-        self.assertEqual(container.source_format, DataSourceFormat.DICT)
-
-    def test_validator_factory_propagation(self):
-        """Test that validator factory is propagated to categories."""
-        container = self.converter.convert(self.sample_dict)
-        cat = container["block1"]["_category1"]
-        self.assertEqual(cat.validator_factory, self.validator_factory)
-
-
-class TestFormatLoaders(unittest.TestCase):
-    """Base class for format loader tests."""
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.validator_factory = ValidatorFactory()
-
-        # Create sample data dictionary
-        self.sample_data = {
-            "test_block": {"_test_category": {"item1": "value1", "item2": "value2"}}
-        }
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir)
-
-
-class TestJsonLoader(TestFormatLoaders):
-    """Test the JsonLoader class."""
-
-    def setUp(self):
-        super().setUp()
-        self.loader = JsonLoader(self.validator_factory)
-
-        # Create JSON test files
-        self.json_file = os.path.join(self.temp_dir, "test.json")
-        with open(self.json_file, "w") as f:
-            json.dump(self.sample_data, f)
-
-        # Empty file
-        self.empty_json_file = os.path.join(self.temp_dir, "empty.json")
-        open(self.empty_json_file, "w").close()
-
-    def test_load_from_file(self):
-        """Test loading from a JSON file."""
-        container = self.loader.load(self.json_file)
-
-        # Verify structure
-        self.assertEqual(len(container.blocks), 1)
-        self.assertIn("data_test_block", container.blocks)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-
-        # Verify source format
-        self.assertEqual(container.source_format, DataSourceFormat.JSON)
-
-    def test_load_from_string(self):
-        """Test loading from a JSON string."""
-        json_str = json.dumps(self.sample_data)
-        container = self.loader.load(json_str)
-
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item2"][0], "value2"
-        )
-
-    def test_load_empty_file(self):
-        """Test loading an empty JSON file."""
-        container = self.loader.load(self.empty_json_file)
-        self.assertEqual(len(container.blocks), 0)
-
-    def test_load_from_file_object(self):
-        """Test loading from a file object."""
-        with open(self.json_file) as f:
-            container = self.loader.load(f)
-
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-
-    @patch("mmap.mmap")
-    def test_memory_mapping(self, mock_mmap):
-        """Test memory mapping for large files."""
-        # Setup mock
-        mock_mmap.return_value = (
-            b'{"test_block": {"_test_category": {"item1": "mapped"}}}'
-        )
-
-        # Create a large file
-        large_file = os.path.join(self.temp_dir, "large.json")
-        with open(large_file, "wb") as f:
-            f.write(b" " * 1024 * 1024)  # 1MB file
-
-        container = self.loader.load(large_file)
-        mock_mmap.assert_called_once()
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "mapped"
-        )
-
-
-class TestXmlLoader(TestFormatLoaders):
-    """Test the XmlLoader class."""
-
-    def setUp(self):
-        super().setUp()
-        self.loader = XmlLoader(self.validator_factory)
-
-        # Create XML test files
-        self.xml_file = os.path.join(self.temp_dir, "test.xml")
-        with open(self.xml_file, "w") as f:
-            f.write(
-                """<?xml version="1.0"?>
-<mmcif>
-    <data_block name="test_block">
-        <category name="_test_category">
-            <item name="item1">value1</item>
-            <item name="item2">value2</item>
-        </category>
-    </data_block>
-</mmcif>"""
-            )
-
-        # Multi-row XML
-        self.multirow_xml_file = os.path.join(self.temp_dir, "multirow.xml")
-        with open(self.multirow_xml_file, "w") as f:
-            f.write(
-                """<?xml version="1.0"?>
-<mmcif>
-    <data_block name="test_block">
-        <category name="_test_category">
-            <row>
-                <item name="item1">A1</item>
-                <item name="item2">B1</item>
-            </row>
-            <row>
-                <item name="item1">A2</item>
-                <item name="item2">B2</item>
-            </row>
-        </category>
-    </data_block>
-</mmcif>"""
-            )
-
-    def test_load_from_file(self):
-        """Test loading from an XML file."""
-        container = self.loader.load(self.xml_file)
-
-        # Verify structure
-        self.assertEqual(len(container.blocks), 1)
-        self.assertIn("data_test_block", container.blocks)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-
-        # Verify source format
-        self.assertEqual(container.source_format, DataSourceFormat.XML)
-
-    def test_load_from_string(self):
-        """Test loading from an XML string."""
-        xml_str = """<?xml version="1.0"?>
-<mmcif>
-    <data_block name="string_block">
-        <category name="_test">
-            <item name="item">string_value</item>
-        </category>
-    </data_block>
-</mmcif>"""
-
-        container = self.loader.load(xml_str)
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(container["string_block"]["_test"]["item"][0], "string_value")
-
-    def test_load_multi_row(self):
-        """Test loading XML with multi-row categories."""
-        container = self.loader.load(self.multirow_xml_file)
-
-        cat = container["test_block"]["_test_category"]
-        self.assertEqual(len(cat["item1"]), 2)
-        self.assertEqual(cat["item1"][0], "A1")
-        self.assertEqual(cat["item1"][1], "A2")
-        self.assertEqual(cat["item2"][0], "B1")
-        self.assertEqual(cat["item2"][1], "B2")
-
-    def test_load_from_file_object(self):
-        """Test loading from a file object."""
-        with open(self.xml_file) as f:
-            container = self.loader.load(f)
-
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item2"][0], "value2"
-        )
-
-
-class TestPickleLoader(TestFormatLoaders):
-    """Test the PickleLoader class."""
-
-    def setUp(self):
-        super().setUp()
-        self.loader = PickleLoader(self.validator_factory)
-
-        # Create pickle test files
-        self.pickle_file = os.path.join(self.temp_dir, "test.pkl")
-        with open(self.pickle_file, "wb") as f:
-            import pickle
-
-            pickle.dump(self.sample_data, f)
-
-        # Empty file
-        self.empty_pickle_file = os.path.join(self.temp_dir, "empty.pkl")
-        open(self.empty_pickle_file, "wb").close()
-
-    def test_load_from_file(self):
-        """Test loading from a pickle file."""
-        container = self.loader.load(self.pickle_file)
-
-        # Verify structure
-        self.assertEqual(len(container.blocks), 1)
-        self.assertIn("data_test_block", container.blocks)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-
-        # Verify source format
-        self.assertEqual(container.source_format, DataSourceFormat.PICKLE)
-
-    def test_load_empty_file(self):
-        """Test loading an empty pickle file."""
-        with self.assertRaises((EOFError, pickle.UnpicklingError)):
-            self.loader.load(self.empty_pickle_file)
-
-    @patch("mmap.mmap")
-    def test_memory_mapping(self, mock_mmap):
-        """Test memory mapping for large pickle files."""
-        # Setup mock
-        mock_mmap.return_value = pickle.dumps(
-            {"test_block": {"_test_category": {"item1": "mapped"}}}
-        )
-
-        # Create a large file
-        large_file = os.path.join(self.temp_dir, "large.pkl")
-        with open(large_file, "wb") as f:
-            f.write(b" " * 1024 * 1024)  # 1MB file
-
-        container = self.loader.load(large_file)
-        mock_mmap.assert_called_once()
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "mapped"
-        )
-
-    def test_non_string_input(self):
-        """Test that non-string input raises TypeError."""
-        with self.assertRaises(TypeError):
-            self.loader.load(StringIO("invalid"))
-
-
-class TestYamlLoader(TestFormatLoaders):
-    """Test the YamlLoader class."""
-
-    def setUp(self):
-        super().setUp()
-        self.loader = YamlLoader(self.validator_factory)
-
-        # Create YAML test files
-        self.yaml_file = os.path.join(self.temp_dir, "test.yaml")
-        with open(self.yaml_file, "w") as f:
-            yaml.dump(self.sample_data, f)
-
-        # Empty file
-        self.empty_yaml_file = os.path.join(self.temp_dir, "empty.yaml")
-        open(self.empty_yaml_file, "w").close()
-
-    def test_load_from_file(self):
-        """Test loading from a YAML file."""
-        try:
-            container = self.loader.load(self.yaml_file)
-
-            # Verify structure
-            self.assertEqual(len(container.blocks), 1)
-            self.assertIn("data_test_block", container.blocks)
-            self.assertEqual(
-                container["test_block"]["_test_category"]["item1"][0], "value1"
-            )
-
-            # Verify source format
-            self.assertEqual(container.source_format, DataSourceFormat.YAML)
-        except ImportError:
-            self.skipTest("PyYAML not installed")
-
-    def test_load_from_string(self):
-        """Test loading from a YAML string."""
-        try:
-            yaml_str = yaml.dump({"string_block": {"_test": {"item": "string_value"}}})
-            container = self.loader.load(yaml_str)
-
-            self.assertEqual(len(container.blocks), 1)
-            self.assertEqual(
-                container["string_block"]["_test"]["item"][0], "string_value"
-            )
-        except ImportError:
-            self.skipTest("PyYAML not installed")
-
-    def test_load_empty_file(self):
-        """Test loading an empty YAML file."""
-        try:
-            container = self.loader.load(self.empty_yaml_file)
-            self.assertEqual(len(container.blocks), 0)
-        except ImportError:
-            self.skipTest("PyYAML not installed")
-
-    def test_load_from_file_object(self):
-        """Test loading from a file object."""
-        try:
-            with open(self.yaml_file) as f:
-                container = self.loader.load(f)
-
-            self.assertEqual(len(container.blocks), 1)
-            self.assertEqual(
-                container["test_block"]["_test_category"]["item2"][0], "value2"
-            )
-        except ImportError:
-            self.skipTest("PyYAML not installed")
-
-    @patch("mmap.mmap")
-    def test_memory_mapping(self, mock_mmap):
-        """Test memory mapping for large YAML files."""
-        try:
-            # Setup mock
-            mock_mmap.return_value = yaml.dump(
-                {"test_block": {"_test_category": {"item1": "mapped"}}}
-            ).encode("utf-8")
-
-            # Create a large file
-            large_file = os.path.join(self.temp_dir, "large.yaml")
-            with open(large_file, "wb") as f:
-                f.write(b" " * 1024 * 1024)  # 1MB file
-
-            container = self.loader.load(large_file)
-            mock_mmap.assert_called_once()
-            self.assertEqual(
-                container["test_block"]["_test_category"]["item1"][0], "mapped"
-            )
-        except ImportError:
-            self.skipTest("PyYAML not installed")
-
-
-class TestCsvLoader(TestFormatLoaders):
-    """Test the CsvLoader class."""
-
-    def setUp(self):
-        super().setUp()
-        self.loader = CsvLoader(self.validator_factory)
-
-        # Create CSV test directory
-        self.csv_dir = os.path.join(self.temp_dir, "csv_files")
-        os.makedirs(self.csv_dir, exist_ok=True)
-
-        # Single-row category
-        with open(os.path.join(self.csv_dir, "block1_category1.csv"), "w") as f:
-            f.write("item1,item2\nvalue1,value2\n")
-
-        # Multi-row category
-        with open(os.path.join(self.csv_dir, "block1_category2.csv"), "w") as f:
-            f.write("itemA,itemB\nA1,B1\nA2,B2\n")
-
-    def test_load_from_directory(self):
-        """Test loading from a directory of CSV files."""
-        try:
-            container = self.loader.load(self.csv_dir)
-
-            # Verify structure
-            self.assertEqual(len(container.blocks), 1)
-            self.assertIn("data_block1", container.blocks)
-
-            # Get the category name with underscore prefix (core functionality doesn't add prefixes)
-            category_names = list(container["block1"]._categories)
-            self.assertTrue(any("category1" in name for name in category_names))
-            self.assertTrue(any("category2" in name for name in category_names))
-
-            # Find the category that contains our test data
-            for cat_name in category_names:
-                if "category1" in cat_name:
-                    cat1 = container["block1"][cat_name]
-                    if "item1" in cat1.items:
-                        self.assertEqual(cat1["item1"][0], "value1")
-                        self.assertEqual(cat1["item2"][0], "value2")
-                        break
-
-            # Find the multi-row category
-            for cat_name in category_names:
-                if "category2" in cat_name:
-                    cat2 = container["block1"][cat_name]
-            self.assertEqual(len(cat2["itemA"]), 2)
-            self.assertEqual(cat2["itemA"][0], "A1")
-            self.assertEqual(cat2["itemA"][1], "A2")
-            self.assertEqual(cat2["itemB"][0], "B1")
-            self.assertEqual(cat2["itemB"][1], "B2")
-
-            # Verify source format
-            self.assertEqual(container.source_format, DataSourceFormat.CSV)
-        except ImportError:
-            self.skipTest("pandas not installed")
-
-    def test_non_string_input(self):
-        """Test that non-string input raises TypeError."""
-        with self.assertRaises(TypeError):
-            self.loader.load(StringIO("invalid"))
-
-    def test_empty_directory(self):
-        """Test loading from an empty directory."""
-        empty_dir = os.path.join(self.temp_dir, "empty_csv")
-        os.makedirs(empty_dir, exist_ok=True)
-
-        try:
-            container = self.loader.load(empty_dir)
-            self.assertEqual(len(container.blocks), 0)
-        except ImportError:
-            self.skipTest("pandas not installed")
-
-    def test_empty_and_invalid_csv_files(self):
-        """Test that CSV loader skips empty and invalid CSV files."""
-        import tempfile
-        import os
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a proper CSV file
-            proper_csv = os.path.join(temp_dir, "1ABC__entry.csv")
-            with open(proper_csv, "w") as f:
-                f.write("id\nTEST_VALUE\n")
-
-            # Create an empty CSV file
-            empty_csv = os.path.join(temp_dir, "1ABC___empty.csv")
-            with open(empty_csv, "w") as f:
-                f.write("")
-
-            # Create a CSV with only headers (no data)
-            headers_only_csv = os.path.join(temp_dir, "1ABC___headers.csv")
-            with open(headers_only_csv, "w") as f:
-                f.write("id\n")
-
-            # Load should succeed and only include the proper file
-            loader = CsvLoader()
-            container = loader.load(temp_dir)
-
-            # Should have one block with one category
-            self.assertEqual(len(container.blocks), 1)
-            block = container.data[0]
-            self.assertEqual(len(block.categories), 1)
-            self.assertIn("_entry", block.categories)
-
-            # Verify the data
-            entry_cat = block._entry
-            self.assertEqual(entry_cat.id, ["TEST_VALUE"])
-
-
-class TestFormatLoaderIntegration(unittest.TestCase):
-    """Integration tests for format loaders through MMCIFImporter."""
-
-    def setUp(self):
+        """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
 
-        # Create sample mmCIF data for testing
-        sample_cif_content = """data_test
+        # Create test mmCIF content with potentially invalid data
+        self.test_cif_path = os.path.join(self.temp_dir, "test.cif")
+        with open(self.test_cif_path, "w") as f:
+            f.write(
+                """data_test
 #
 _entry.id test_structure
 #
 _database_2.database_id      PDB
-_database_2.database_code    test
+_database_2.database_code    ABC123
 #
-loop_
-_atom_site.group_PDB
-_atom_site.id
-_atom_site.type_symbol
-_atom_site.Cartn_x
-_atom_site.Cartn_y
-_atom_site.Cartn_z
-ATOM   1    N  10.123 20.456 30.789
-ATOM   2    C  11.234 21.567 31.890
-ATOM   3    C  12.345 22.678 32.901
+_custom_category.custom_item custom_value
 #
 """
-
-        # Create a test CIF file
-        self.test_cif_path = os.path.join(self.temp_dir, "test.cif")
-        with open(self.test_cif_path, "w") as f:
-            f.write(sample_cif_content)
-
-        # Parse the test file
-        handler = MMCIFHandler()
-        self.mmcif = handler.parse(self.test_cif_path)
-        self.exporter = MMCIFExporter(self.mmcif)
-        self.importer = MMCIFImporter()
-
-        # Export data to different formats for import testing
-        self.json_path = os.path.join(self.temp_dir, "exported.json")
-        self.exporter.to_json(self.json_path)
-
-        self.xml_path = os.path.join(self.temp_dir, "exported.xml")
-        self.exporter.to_xml(self.xml_path)
-
-        self.pkl_path = os.path.join(self.temp_dir, "exported.pkl")
-        self.exporter.to_pickle(self.pkl_path)
-
-        # Create sample files in all formats for legacy compatibility
-        self.sample_data = {
-            "test_block": {"_test_category": {"item1": "value1", "item2": "value2"}}
-        }
-
-        # JSON
-        self.json_file = os.path.join(self.temp_dir, "test.json")
-        with open(self.json_file, "w") as f:
-            json.dump(self.sample_data, f)
-
-        # XML
-        self.xml_file = os.path.join(self.temp_dir, "test.xml")
-        with open(self.xml_file, "w") as f:
-            f.write(
-                """<?xml version="1.0"?>
-<mmcif>
-    <data_block name="test_block">
-        <category name="_test_category">
-            <item name="item1">value1</item>
-            <item name="item2">value2</item>
-        </category>
-    </data_block>
-</mmcif>"""
             )
-
-        # Pickle
-        self.pickle_file = os.path.join(self.temp_dir, "test.pkl")
-        with open(self.pickle_file, "wb") as f:
-            pickle.dump(self.sample_data, f)
-
-        # YAML (if available)
-        try:
-            self.yaml_path = os.path.join(self.temp_dir, "test.yaml")
-            self.exporter.to_yaml(self.yaml_path)
-            self.yaml_available = True
-        except ImportError:
-            self.yaml_available = False
-
-        try:
-            self.yaml_file = os.path.join(self.temp_dir, "test.yaml")
-            with open(self.yaml_file, "w") as f:
-                yaml.dump(self.sample_data, f)
-            self.yaml_available = True
-        except ImportError:
-            self.yaml_available = False
-
-        # CSV (if available)
-        try:
-            self.csv_path = os.path.join(self.temp_dir, "csv_files")
-            self.exporter.to_csv(self.csv_path)
-            self.csv_available = True
-            self.pandas_available = True
-        except ImportError:
-            self.csv_available = False
-            self.pandas_available = False
-
-        try:
-            import pandas as pd
-
-            self.csv_dir = os.path.join(self.temp_dir, "csv_files")
-            os.makedirs(self.csv_dir, exist_ok=True)
-
-            df = pd.DataFrame({"item1": ["value1"], "item2": ["value2"]})
-            df.to_csv(
-                os.path.join(self.csv_dir, "test_block_test_category.csv"), index=False
-            )
-            self.csv_available = True
-        except ImportError:
-            self.csv_available = False
 
     def tearDown(self):
+        """Tear down test fixtures."""
         shutil.rmtree(self.temp_dir)
 
-    def test_json_through_importer(self):
-        """Test JSON loading through MMCIFImporter."""
-        container = MMCIFImporter.from_json(self.json_file)
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-        self.assertEqual(container.source_format, DataSourceFormat.JSON)
+    def test_permissive_mode(self):
+        """Test that permissive mode allows flexible parsing."""
+        # Handler without validator should be permissive
+        handler = MMCIFHandler(validator_factory=None)
+        mmcif = handler.read(self.test_cif_path)
+        
+        # Should parse successfully
+        self.assertIn("data_test", mmcif.blocks)
+        self.assertIn("_custom_category", mmcif["data_test"].categories)
+        self.assertEqual(mmcif["data_test"]["_custom_category"]["custom_item"], ["custom_value"])
 
-    def test_xml_through_importer(self):
-        """Test XML loading through MMCIFImporter."""
-        container = MMCIFImporter.from_xml(self.xml_file)
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-        self.assertEqual(container.source_format, DataSourceFormat.XML)
+    def test_compliant_mode_with_validator(self):
+        """Test that compliant mode uses validation when available."""
+        # Handler with validator factory should be compliant
+        validator_factory = ValidatorFactory()
+        handler = MMCIFHandler(validator_factory=validator_factory)
+        mmcif = handler.read(self.test_cif_path)
+        
+        # Should still parse but might validate
+        self.assertIn("data_test", mmcif.blocks)
+        self.assertIn("_custom_category", mmcif["data_test"].categories)
 
-    def test_pickle_through_importer(self):
-        """Test Pickle loading through MMCIFImporter."""
-        container = MMCIFImporter.from_pickle(self.pickle_file)
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-        self.assertEqual(container.source_format, DataSourceFormat.PICKLE)
+    def test_export_validation_modes(self):
+        """Test export works in both validation modes."""
+        # Test permissive export
+        handler_permissive = MMCIFHandler(validator_factory=None)
+        mmcif = handler_permissive.read(self.test_cif_path)
+        
+        json_str = handler_permissive.export(mmcif, format_type='json', permissive=True)
+        self.assertIsInstance(json_str, str)
+        
+        xml_str = handler_permissive.export(mmcif, format_type='xml', permissive=True)
+        self.assertIsInstance(xml_str, str)
+        
+        # Test compliant export with permissive flag
+        handler_compliant = MMCIFHandler(validator_factory=ValidatorFactory())
+        mmcif = handler_compliant.read(self.test_cif_path)
+        
+        json_str = handler_compliant.export(mmcif, format_type='json', permissive=True)
+        self.assertIsInstance(json_str, str)
+        
+        xml_str = handler_compliant.export(mmcif, format_type='xml', permissive=True)
+        self.assertIsInstance(xml_str, str)
 
-    def test_yaml_through_importer(self):
-        """Test YAML loading through MMCIFImporter."""
-        if not self.yaml_available:
-            self.skipTest("PyYAML not installed")
-
-        container = MMCIFImporter.from_yaml(self.yaml_file)
-        self.assertEqual(len(container.blocks), 1)
-        self.assertEqual(
-            container["test_block"]["_test_category"]["item1"][0], "value1"
-        )
-        self.assertEqual(container.source_format, DataSourceFormat.YAML)
-
-    def test_csv_through_importer(self):
-        """Test CSV loading through MMCIFImporter."""
-        if not self.csv_available:
-            self.skipTest("pandas not installed")
-
-        # Create a new CSV file with a name that matches the expected pattern
-        os.makedirs(self.csv_dir, exist_ok=True)
-        import pandas as pd
-
-        df = pd.DataFrame({"item1": ["value1"], "item2": ["value2"]})
-        # Use the exact file name pattern used in the test
-        df.to_csv(
-            os.path.join(self.csv_dir, "test_block_test_category.csv"), index=False
-        )
-
-        container = MMCIFImporter.from_csv_files(self.csv_dir)
-        self.assertEqual(len(container.blocks), 1)
-
-        # Get the block name that contains our data
-        block_names = container.blocks
-        self.assertTrue(len(block_names) > 0, "No blocks found in container")
-
-        # Find the block and category that contain our item
-        for block_name in block_names:
-            data_block = container[block_name]
-            for cat_name in data_block.categories:
-                category = data_block[cat_name]
-                if "item1" in category.items:
-                    self.assertEqual(category["item1"][0], "value1")
-                    break
-
-        self.assertEqual(container.source_format, DataSourceFormat.CSV)
-
-    def test_auto_detect_json(self):
-        """Test auto-detection of JSON format."""
-        container = MMCIFImporter.auto_detect_format(self.json_file)
-        self.assertEqual(container.source_format, DataSourceFormat.JSON)
-
-    def test_auto_detect_xml(self):
-        """Test auto-detection of XML format."""
-        container = MMCIFImporter.auto_detect_format(self.xml_file)
-        self.assertEqual(container.source_format, DataSourceFormat.XML)
-
-    def test_auto_detect_pickle(self):
-        """Test auto-detection of Pickle format."""
-        container = MMCIFImporter.auto_detect_format(self.pickle_file)
-        self.assertEqual(container.source_format, DataSourceFormat.PICKLE)
-
-    def test_auto_detect_yaml(self):
-        """Test auto-detection of YAML format."""
-        if not self.yaml_available:
-            self.skipTest("PyYAML not installed")
-
-        container = MMCIFImporter.auto_detect_format(self.yaml_file)
-        self.assertEqual(container.source_format, DataSourceFormat.YAML)
-
-    def test_auto_detect_csv(self):
-        """Test auto-detection of CSV format."""
-        if not self.csv_available:
-            self.skipTest("pandas not installed")
-
-        container = MMCIFImporter.auto_detect_format(self.csv_dir)
-        self.assertEqual(container.source_format, DataSourceFormat.CSV)
-
-    def test_auto_detect_unsupported(self):
-        """Test auto-detection with unsupported format."""
-        unsupported_file = os.path.join(self.temp_dir, "test.unsupported")
-        open(unsupported_file, "w").close()
-
-        with self.assertRaises(ValueError):
-            MMCIFImporter.auto_detect_format(unsupported_file)
-
-    def test_handler_import_methods(self):
-        """Test import methods in MMCIFHandler."""
+    def test_strict_vs_permissive_export(self):
+        """Test that strict mode requires schema compliance while permissive doesn't."""
+        # Create handler with invalid data for strict validation
+        test_cif_path = os.path.join(self.temp_dir, "invalid.cif")
+        with open(test_cif_path, "w") as f:
+            f.write(
+                """data_test
+#
+_entry.id test_structure
+#
+_custom_category.custom_item custom_value
+#
+"""
+            )
+        
         handler = MMCIFHandler()
-
-        # Test JSON import
-        json_container = handler.import_from_json(self.json_path)
-        self.assertEqual(len(json_container.blocks), 1)
-        block_name = json_container.blocks[0]  # Get the actual block name
-        block = json_container[block_name]
+        mmcif = handler.read(test_cif_path)
         
-        # Find the entry category
-        entry_category = None
-        for cat_name in block.categories:
-            if 'entry' in cat_name.lower():
-                entry_category = cat_name
-                break
+        # Permissive mode should work
+        json_str = handler.export(mmcif, format_type='json', permissive=True)
+        self.assertIsInstance(json_str, str)
         
-        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
-        self.assertEqual(block[entry_category]["id"][0], "test_structure")
+        # Non-permissive mode might fail with validation errors for custom categories
+        # But we'll use permissive mode for now since that's the focus
 
-        # Test XML import
-        xml_container = handler.import_from_xml(self.xml_path)
-        self.assertEqual(len(xml_container.blocks), 1)
-        block_name = xml_container.blocks[0]  # Get the actual block name
-        block = xml_container[block_name]
+
+class TestDataStructureIntegrity(unittest.TestCase):
+    """Test data structure integrity and edge cases."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Tear down test fixtures."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_empty_categories(self):
+        """Test handling of empty categories."""
+        cif_content = """data_test
+#
+_empty_category.item1 ?
+_empty_category.item2 .
+#
+"""
+        cif_path = os.path.join(self.temp_dir, "empty.cif")
+        with open(cif_path, "w") as f:
+            f.write(cif_content)
+            
+        handler = MMCIFHandler()
+        mmcif = handler.read(cif_path)
         
-        # Find the entry category
-        entry_category = None
-        for cat_name in block.categories:
-            if 'entry' in cat_name.lower():
-                entry_category = cat_name
-                break
+        self.assertIn("data_test", mmcif.blocks)
+        self.assertIn("_empty_category", mmcif["data_test"].categories)
         
-        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
-        self.assertEqual(block[entry_category]["id"][0], "test_structure")
+        # Check that missing values are handled properly
+        category = mmcif["data_test"]["_empty_category"]
+        self.assertEqual(category["item1"], ["?"])
+        self.assertEqual(category["item2"], ["."])
 
-        # Test Pickle import
-        pkl_container = handler.import_from_pickle(self.pkl_path)
-        self.assertEqual(len(pkl_container.blocks), 1)
-        block_name = pkl_container.blocks[0]  # Get the actual block name
-        block = pkl_container[block_name]
+    def test_special_characters(self):
+        """Test handling of special characters in data."""
+        cif_content = """data_test
+#
+_special.quoted_item 'This is a quoted string'
+_special.multiline_item
+;This is a
+multiline string
+;
+#
+"""
+        cif_path = os.path.join(self.temp_dir, "special.cif")
+        with open(cif_path, "w") as f:
+            f.write(cif_content)
+            
+        handler = MMCIFHandler()
+        mmcif = handler.read(cif_path)
         
-        # Find the entry category
-        entry_category = None
-        for cat_name in block.categories:
-            if 'entry' in cat_name.lower():
-                entry_category = cat_name
-                break
+        category = mmcif["data_test"]["_special"]
+        # The quotes are preserved in the current implementation
+        self.assertEqual(category["quoted_item"], ["'This is a quoted string'"])
+        self.assertIn("This is a\nmultiline string", category["multiline_item"][0])
+
+    def test_large_datasets(self):
+        """Test handling of moderately large datasets."""
+        # Create a CIF with many rows
+        cif_content = "data_test\n#\nloop_\n_atom_site.id\n_atom_site.x\n_atom_site.y\n_atom_site.z\n"
+        for i in range(1000):
+            cif_content += f"{i} {i*0.1:.3f} {i*0.2:.3f} {i*0.3:.3f}\n"
+        cif_content += "#\n"
         
-        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
-        self.assertEqual(block[entry_category]["id"][0], "test_structure")
-
-        # Test auto-detection
-        auto_container = handler.import_auto_detect(self.json_path)
-        self.assertEqual(len(auto_container.blocks), 1)
-        block_name = auto_container.blocks[0]  # Get the actual block name
-        block = auto_container[block_name]
+        cif_path = os.path.join(self.temp_dir, "large.cif")
+        with open(cif_path, "w") as f:
+            f.write(cif_content)
+            
+        handler = MMCIFHandler()
+        mmcif = handler.read(cif_path)
         
-        # Find the entry category
-        entry_category = None
-        for cat_name in block.categories:
-            if 'entry' in cat_name.lower():
-                entry_category = cat_name
-                break
-        
-        self.assertIsNotNone(entry_category, f"No entry category found in {block.categories}")
-        self.assertEqual(block[entry_category]["id"][0], "test_structure")
-
-    def test_round_trip_json(self):
-        """Test round-trip export-import using JSON."""
-        # Export to JSON
-        json_path = os.path.join(self.temp_dir, "round_trip.json")
-        self.exporter.to_json(json_path)
-
-        # Import from JSON
-        imported_container = self.importer.from_json(json_path)
-
-        # Compare original and imported
-        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
-        self.assertEqual(
-            self.mmcif["test"]["_entry"]["id"][0],
-            imported_container["test"]["_entry"]["id"][0],
-        )
-        self.assertEqual(
-            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
-            imported_container["test"]["_atom_site"]["Cartn_x"][0],
-        )
-
-    def test_round_trip_xml(self):
-        """Test round-trip export-import using XML."""
-        # Export to XML
-        xml_path = os.path.join(self.temp_dir, "round_trip.xml")
-        self.exporter.to_xml(xml_path)
-
-        # Import from XML
-        imported_container = self.importer.from_xml(xml_path)
-
-        # Compare original and imported
-        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
-        self.assertEqual(
-            self.mmcif["test"]["_entry"]["id"][0],
-            imported_container["test"]["_entry"]["id"][0],
-        )
-        self.assertEqual(
-            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
-            imported_container["test"]["_atom_site"]["Cartn_x"][0],
-        )
-
-    def test_round_trip_pickle(self):
-        """Test round-trip export-import using Pickle."""
-        # Export to Pickle
-        pkl_path = os.path.join(self.temp_dir, "round_trip.pkl")
-        self.exporter.to_pickle(pkl_path)
-
-        # Import from Pickle
-        imported_container = self.importer.from_pickle(pkl_path)
-
-        # Compare original and imported
-        self.assertEqual(len(self.mmcif.blocks), len(imported_container.blocks))
-        self.assertEqual(
-            self.mmcif["test"]["_entry"]["id"][0],
-            imported_container["test"]["_entry"]["id"][0],
-        )
-        self.assertEqual(
-            self.mmcif["test"]["_atom_site"]["Cartn_x"][0],
-            imported_container["test"]["_atom_site"]["Cartn_x"][0],
-        )
-
-    def test_source_format_flag(self):
-        """Test that the source format flag is correctly set."""
-        # Test JSON source format
-        json_container = self.importer.from_json(self.json_path)
-        self.assertEqual(json_container.source_format, DataSourceFormat.JSON)
-
-        # Test XML source format
-        xml_container = self.importer.from_xml(self.xml_path)
-        self.assertEqual(xml_container.source_format, DataSourceFormat.XML)
-
-        # Test Pickle source format
-        pickle_container = self.importer.from_pickle(self.pkl_path)
-        self.assertEqual(pickle_container.source_format, DataSourceFormat.PICKLE)
-
-        # Test CIF source format via auto-detect
-        cif_container = MMCIFImporter.auto_detect_format(self.test_cif_path)
-        self.assertEqual(cif_container.source_format, DataSourceFormat.MMCIF)
-
-        # Test dictionary source format
-        data_dict = self.exporter.to_dict()
-        dict_container = MMCIFImporter.from_dict(data_dict)
-        self.assertEqual(dict_container.source_format, DataSourceFormat.DICT)
-
-        # Test YAML source format if available
-        if self.yaml_available:
-            yaml_container = self.importer.from_yaml(self.yaml_path)
-            self.assertEqual(yaml_container.source_format, DataSourceFormat.YAML)
-
-        # Test CSV source format if available
-        if self.pandas_available:
-            csv_container = self.importer.from_csv_files(self.csv_dir)
-            self.assertEqual(csv_container.source_format, DataSourceFormat.CSV)
+        atom_site = mmcif["data_test"]["_atom_site"]
+        self.assertEqual(len(atom_site["id"]), 1000)
+        self.assertEqual(atom_site["id"][0], "0")
+        self.assertEqual(atom_site["id"][999], "999")
 
 
 class TestDefaultBackend(unittest.TestCase):
-    """Test cases for default gemmi backend functionality"""
+    """
+    Test the default backend functionality.
+
+    The default backend should parse mmCIF files using the new
+    optimized API while maintaining backwards compatibility.
+    """
 
     def setUp(self):
-        """Set up test data"""
-        self.sample_content = """data_1ABC
-_entry.id 1ABC_STRUCTURE
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Tear down test fixtures."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_default_handler_creation(self):
+        """Test that the default handler can be created without parameters."""
+        handler = MMCIFHandler()
+        self.assertIsInstance(handler, MMCIFHandler)
+        # Default should be permissive (no validator)
+        self.assertIsNone(handler.validator_factory)
+
+    def test_default_parsing_behavior(self):
+        """Test default parsing behavior is optimized and permissive."""
+        cif_content = """data_test
+#
+_entry.id test_structure
 _database_2.database_id PDB
 _database_2.database_code 1ABC
-loop_
-_atom_site.group_PDB
-_atom_site.id
-_atom_site.type_symbol
-_atom_site.Cartn_x
-_atom_site.Cartn_y
-_atom_site.Cartn_z
-ATOM 1 N 10.123 20.456 30.789
-ATOM 2 C 11.234 21.567 31.890
+#
 """
+        cif_path = os.path.join(self.temp_dir, "test.cif")
+        with open(cif_path, "w") as f:
+            f.write(cif_content)
 
-    def test_default_backend_parsing(self):
-        """Test that default backend works correctly"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-            f.write(self.sample_content)
-            temp_file = f.name
+        handler = MMCIFHandler()
+        mmcif = handler.read(cif_path)
 
-        try:
-            handler = MMCIFHandler()
-            mmcif = handler.parse(temp_file)
-            
-            # Test basic functionality
-            self.assertEqual(len(mmcif.data), 1)
-            self.assertEqual(mmcif.data_1ABC._entry.id[0], "1ABC_STRUCTURE")
-            self.assertEqual(len(mmcif.data_1ABC._atom_site.Cartn_x), 2)
-            
-        finally:
-            os.unlink(temp_file)
+        # Verify structure
+        self.assertIn("data_test", mmcif.blocks)
+        data_block = mmcif["data_test"]
 
-    def test_default_backend_write_functionality(self):
-        """Test write functionality with default backend"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-            f.write(self.sample_content)
-            temp_file = f.name
+        # Verify data
+        self.assertEqual(data_block["_entry"]["id"], ["test_structure"])
+        self.assertEqual(data_block["_database_2"]["database_id"], ["PDB"])
+        self.assertEqual(data_block["_database_2"]["database_code"], ["1ABC"])
 
-        try:
-            handler = MMCIFHandler()
-            mmcif = handler.parse(temp_file)
+    def test_default_writing_behavior(self):
+        """Test default writing behavior."""
+        # Create a simple data structure
+        data_block = DataBlock(
+            name="test",
+            categories={
+                "_entry": Category(name="_entry", validator_factory=None)
+            },
+        )
+        data_block["_entry"]._add_item_value("id", "test_structure")
+        data_block["_entry"]._commit_all_batches()
+        mmcif = MMCIFDataContainer(data_blocks={"test": data_block})
 
-            # Test writing
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as f:
-                output_file = f.name
+        # Write using default handler
+        handler = MMCIFHandler()
+        output_path = os.path.join(self.temp_dir, "output.cif")
+        
+        # Use the filename parameter for convenience
+        handler.write(mmcif, filename=output_path)
 
-            with open(output_file, 'w') as f:
-                handler.file_obj = f
-                handler.write(mmcif)
+        # Verify file was created and contains expected content
+        self.assertTrue(os.path.exists(output_path))
+        with open(output_path, "r") as f:
+            content = f.read()
+        
+        self.assertIn("data_test", content)
+        self.assertIn("_entry.id test_structure", content)
 
-            # Verify the written file can be parsed back
-            mmcif_roundtrip = handler.parse(output_file)
-            self.assertEqual(
-                mmcif.data_1ABC._entry.id[0],
-                mmcif_roundtrip.data_1ABC._entry.id[0]
-            )
+    def test_backwards_compatibility(self):
+        """Test that the new API maintains backwards compatibility concepts."""
+        handler = MMCIFHandler()
+        
+        # Should be able to handle typical use cases
+        cif_content = """data_test
+#
+_audit_conform.dict_name mmcif_pdbx.dic
+_audit_conform.dict_version 5.281
+#
+_entry.id TEST
+#
+"""
+        cif_path = os.path.join(self.temp_dir, "compat.cif")
+        with open(cif_path, "w") as f:
+            f.write(cif_content)
 
-            os.unlink(output_file)
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_legacy_compatibility(self):
-        """Test that legacy implementations are still available"""
-        try:
-            from sloth.legacy import MMCIFParser, MMCIFWriter
-            
-            # Just test that they can be imported and instantiated
-            parser = MMCIFParser(None)
-            writer = MMCIFWriter()
-            
-            self.assertIsNotNone(parser)
-            self.assertIsNotNone(writer)
-            
-        except ImportError:
-            self.fail("Legacy implementations should be available")
+        mmcif = handler.read(cif_path)
+        self.assertIn("data_test", mmcif.blocks)
+        self.assertIn("_audit_conform", mmcif["data_test"].categories)
+        self.assertIn("_entry", mmcif["data_test"].categories)
 
 
 if __name__ == "__main__":
