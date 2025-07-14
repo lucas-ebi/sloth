@@ -50,26 +50,21 @@ class TestParameterRefactoring(unittest.TestCase):
         # Create test XML file
         self.xml_file = os.path.join(self.temp_dir, "test.xml")
         xml_content = """<?xml version="1.0" encoding="UTF-8"?>
-<mmcif_data xmlns="urn:sloth:schemas:mmcif_nested">
-    <blocks>
-        <block name="DEMO">
-            <category name="_entity">
-                <item name="id">1</item>
-                <item name="type">polymer</item>
-            </category>
-            <category name="_citation">
-                <row>
-                    <item name="id">1</item>
-                    <item name="title">Test Paper</item>
-                </row>
-                <row>
-                    <item name="id">2</item>
-                    <item name="title">Another Paper</item>
-                </row>
-            </category>
-        </block>
-    </blocks>
-</mmcif_data>
+<datablock xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd" xsi:schemaLocation="http://pdbml.pdb.org/schema/pdbx-v50.xsd pdbx-v50.xsd" datablockName="DEMO">
+    <entityCategory>
+        <entity id="1">
+            <type>polymer</type>
+        </entity>
+    </entityCategory>
+    <citationCategory>
+        <citation id="1">
+            <title>Test Paper</title>
+        </citation>
+        <citation id="2">
+            <title>Another Paper</title>
+        </citation>
+    </citationCategory>
+</datablock>
 """
         with open(self.xml_file, "w") as f:
             f.write(xml_content)
