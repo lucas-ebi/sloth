@@ -18,6 +18,7 @@ import hashlib
 import tempfile
 from sloth.mmcif import (
     MMCIFHandler,
+    MMCIFWriter,
     ValidatorFactory,
     DataSourceFormat,
     SchemaValidator,
@@ -587,7 +588,7 @@ def parse_embedded_demo_data():
     try:
         # Parse the temporary file
         handler = MMCIFHandler()
-        mmcif = handler.parse(tmp_filename)
+        mmcif = handler.read(tmp_filename)
         return mmcif
     finally:
         # Clean up the temporary file
@@ -723,12 +724,12 @@ def demonstrate_export_functionality(mmcif, output_dir):
 
     # Export to JSON
     json_path = os.path.join(output_dir, "exported_data.json")
-    handler.export_to_json(mmcif, json_path)
+    handler.export(mmcif, format_type="json", file_path=json_path)
     print(f"   ✅ Exported to JSON: {json_path}")
 
     # Export to XML
     xml_path = os.path.join(output_dir, "exported_data.xml")
-    handler.export_to_xml(mmcif, xml_path)
+    handler.export(mmcif, format_type="xml", file_path=xml_path)
     print(f"   ✅ Exported to XML: {xml_path}")
 
     # Export to Pickle
@@ -1195,9 +1196,9 @@ ATOM 2 C 11.234 21.567 31.890
         # Write using SLOTH
         programmatic_file = "sample_programmatic.cif"
         handler = MMCIFHandler()
+        writer = MMCIFWriter()
         with open(programmatic_file, "w") as f:
-            handler.file_obj = f
-            handler.write(mmcif)
+            writer.write(f, mmcif)
         print(f"   ✅ Created programmatic sample: {programmatic_file}")
 
         # Method 3: NEW! Auto-creation with Elegant Dot Notation (README example)
@@ -1226,15 +1227,15 @@ ATOM 2 C 11.234 21.567 31.890
 
         # Write using SLOTH (just like in the README)
         dot_notation_file = "sample_dot_notation.cif"
+        writer = MMCIFWriter()
         with open(dot_notation_file, "w") as f:
-            handler.file_obj = f
-            handler.write(mmcif)
+            writer.write(f, mmcif)
         print(f"   ✅ Created dot notation sample: {dot_notation_file}")
 
         # Parse all files to verify they work
-        manual_mmcif = handler.parse(manual_file)
-        programmatic_mmcif = handler.parse(programmatic_file)
-        auto_creation_mmcif = handler.parse(dot_notation_file)
+        manual_mmcif = handler.read(manual_file)
+        programmatic_mmcif = handler.read(programmatic_file)
+        auto_creation_mmcif = handler.read(dot_notation_file)
 
         print(f"\n🔍 Verification:")
         print(f"   Manual approach: {len(manual_mmcif.data[0].categories)} categories")
@@ -1324,16 +1325,16 @@ def demonstrate_auto_creation():
 
         # Write using SLOTH
         print(f"\n💾 Writing to file...")
-        handler = MMCIFHandler()
+        writer = MMCIFWriter()
         output_file = "auto_creation_demo.cif"
         with open(output_file, "w") as f:
-            handler.file_obj = f
-            handler.write(mmcif)
+            writer.write(f, mmcif)
         print(f"   ✅ Saved to: {output_file}")
 
         # Parse it back to verify
         print(f"\n🔄 Verifying by parsing the file back...")
-        parsed = handler.parse(output_file)
+        handler = MMCIFHandler()
+        parsed = handler.read(output_file)
         print(f"   ✅ Successfully parsed {len(parsed)} block(s)")
         print(f"   ✅ Entry ID matches: {parsed.data_1ABC._entry.id[0]}")
         print(f"   ✅ Atom count: {len(parsed.data_1ABC._atom_site.type_symbol)} atoms")
@@ -1910,7 +1911,7 @@ def main():
 
         # Parse the file
         print("⚡ Parsing file...")
-        mmcif = handler.parse(args.input, categories=args.categories)
+        mmcif = handler.read(args.input, categories=args.categories)
 
     try:
         # Show file information
@@ -1977,15 +1978,15 @@ def main():
 
         # Write output
         print(f"\n💾 Writing to: {args.output}")
+        writer = MMCIFWriter()
         with open(args.output, "w") as f:
-            handler.file_obj = f
-            handler.write(mmcif)
+            writer.write(f, mmcif)
 
         print(f"✅ Successfully processed!")
 
         # Verify the output
         print(f"\n🔍 Verifying output...")
-        verify_data = handler.parse(args.output)
+        verify_data = handler.read(args.output)
         print(f"✅ Output file contains {len(verify_data.data)} data block(s)")
 
         # Demonstrate 2D slicing if available
