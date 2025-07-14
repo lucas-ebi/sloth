@@ -21,8 +21,8 @@ from sloth.mmcif.serializer import (
 _GLOBAL_CONVERTERS: Dict[str, PDBMLConverter] = {}
 
 # Global paths for schemas
-DICT_PATH = Path(__file__).parent.parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-XSD_PATH = Path(__file__).parent.parent / "sloth" / "schemas" / "pdbx-v50.xsd"
+DICT_PATH = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
+XSD_PATH = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
 
 # Global cache directory
 CACHE_DIR = os.path.join(tempfile.gettempdir(), "sloth_test_cache")
