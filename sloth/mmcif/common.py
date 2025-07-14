@@ -194,15 +194,11 @@ class BaseImporter(ABC):
             self.converter = None
             self.validator = None
     
-    def _validate_content_via_pdbml(self, container: "MMCIFDataContainer") -> None:
-        """Validate container content by converting to PDBML and checking against XSD."""
+    def _validate_pdbml_content(self, pdbml_xml: str) -> None:
+        """Validate PDBML XML content against XSD schema."""
         try:
             if not self.quiet:
-                print("🔍 Starting PDBML XSD content validation...")
-            
-            # Convert to PDBML XML
-            pdbml_xml = self.converter.convert_to_pdbml(container)
-            
+                print("🔍 Validating PDBML XML content against XSD schema...")        
             # Validate against XSD
             validation_result = self.validator.validate(pdbml_xml)
             
