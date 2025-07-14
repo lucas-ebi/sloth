@@ -23,7 +23,10 @@ class MMCIFHandler:
         self._file_obj = None
 
     def read(
-        self, filename: str, categories: Optional[List[str]] = None
+        self, 
+        filename: str, 
+        categories: Optional[List[str]] = None,
+        permissive: bool = True
     ) -> MMCIFDataContainer:
         """
         Parse an mmCIF file and returns a data container using gemmi's high-performance backend.
@@ -32,13 +35,26 @@ class MMCIFHandler:
         :type filename: str
         :param categories: The categories to parse. If None, all categories are included.
         :type categories: Optional[List[str]]
+        :param permissive: Whether to skip XSD schema validation after parsing
+        :type permissive: bool
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
         self._parser = MMCIFParser(self.validator_factory, categories)
-        return self._parser.parse(filename)
+        container = self._parser.parse(filename)
+        
+        # Validate against XSD schema if not in permissive mode
+        if not permissive:
+            self._validate_container_against_xsd(container)
+        
+        return container
 
-    def write(self, mmcif: MMCIFDataContainer, filename: Optional[str] = None) -> None:
+    def write(
+        self, 
+        mmcif: MMCIFDataContainer, 
+        filename: Optional[str] = None,
+        permissive: bool = True
+    ) -> None:
         """
         Writes a data container to a file using gemmi's high-performance backend.
 
@@ -46,9 +62,15 @@ class MMCIFHandler:
         :type mmcif: MMCIFDataContainer
         :param filename: Optional filename to write to. If not provided, uses pre-set file object.
         :type filename: Optional[str]
+        :param permissive: Whether to skip XSD schema validation before writing
+        :type permissive: bool
         :return: None
         """
-        self._writer = MMCIFWriter()
+        # Validate against XSD schema if not in permissive mode
+        if not permissive:
+            self._validate_container_against_xsd(mmcif)
+        
+        self._writer = MMCIFWriter(permissive=permissive)
         
         if filename:
             # Write to specified filename
@@ -173,3 +195,20 @@ class MMCIFHandler:
         container = importer.import_data(file_path, permissive)
         container.source_format = DataSourceFormat.XML
         return container
+
+    def _validate_container_against_xsd(self, mmcif: MMCIFDataContainer) -> None:
+        """Validate an MMCIFDataContainer against XSD schema by converting to PDBML XML."""
+        try:
+            # Use XMLExporter with validation enabled to perform the XSD check
+            xml_exporter = XMLExporter(permissive=False)  # Force validation
+            
+            # Convert to PDBML XML (this triggers validation)
+            xml_exporter.export_data(mmcif, file_path=None, permissive=False)
+            
+            # If we get here without exception, validation passed
+            if not getattr(xml_exporter, 'quiet', False):
+                pass  # Validation messages are already printed by the exporter
+                
+        except Exception as e:
+            # Re-raise validation errors with context
+            raise ValueError(f"XSD schema validation failed: {e}") from e
