@@ -788,8 +788,8 @@ def demonstrate_import_functionality(output_dir):
 
     print(f"\n🔍 Available import methods:")
     print(f"   ✅ mmCIF files: handler.read(file_path) - Full support")
-    print(f"   ⚠️ JSON files: handler.import_data(file_path, format_type='json') - Schema validation required")
-    print(f"   ⚠️ XML files: handler.import_data(file_path, format_type='xml') - PDBML format expected")
+    print(f"   ⚠️ JSON files: handler.load(file_path, format_type='json') - Schema validation required")
+    print(f"   ⚠️ XML files: handler.load(file_path, format_type='xml') - PDBML format expected")
     
     print(f"\n📋 Current limitations:")
     print(f"   • JSON import requires strict schema compliance (no None values)")
