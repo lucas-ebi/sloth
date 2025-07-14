@@ -1,6 +1,7 @@
 # SLOTH – *S*tructural *L*oader with *O*n-demand *T*raversal *H*andling
 
 > *Lazy by design. Fast by default.*
+<img width="1024" height="1024" alt="FECBDA06-926E-4621-BAF3-597B65A5F3C3" src="https://github.com/lucas-ebi/sloth/blob/main/logo.png" />
 
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/lucas-ebi/sloth/releases)
