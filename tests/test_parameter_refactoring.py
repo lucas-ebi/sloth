@@ -31,16 +31,14 @@ class TestParameterRefactoring(unittest.TestCase):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
         
-        # Create test data
+        # Create test data - using new format without "blocks" wrapper
         self.test_data = {
-            "blocks": {
-                "DEMO": {
-                    "_entity": {"id": "1", "type": "polymer"},
-                    "_citation": [
-                        {"id": "1", "title": "Test Paper"},
-                        {"id": "2", "title": "Another Paper"},
-                    ],
-                }
+            "data_DEMO": {
+                "_entity": {"id": "1", "type": "polymer"},
+                "_citation": [
+                    {"id": "1", "title": "Test Paper"},
+                    {"id": "2", "title": "Another Paper"},
+                ],
             }
         }
         
