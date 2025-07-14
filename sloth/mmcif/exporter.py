@@ -103,16 +103,30 @@ class JSONExporter(BaseExporter):
                 return json_str
         else:
             # For flat format, export simple dictionary structure
-            return self._to_flat_json(mmcif_data, file_path, indent, permissive)
+            return self._to_flat_json(mmcif_data, file_path, permissive, indent)
     
     def _to_flat_json(
         self, 
         mmcif_data: MMCIFDataContainer,
         file_path: Optional[Union[str, Path]] = None,
-        indent: int = 2,
-        permissive: bool = None
+        permissive: bool = None,
+        indent: int = 2
     ) -> Optional[str]:
         """Export mmCIF data to flat JSON format."""
+        # Apply permissive setting - validate through PDBML conversion when not permissive
+        if permissive is None:
+            validate = not self.permissive
+        else:
+            validate = not permissive
+            
+        # If validation is requested, convert through PDBML first (like nested format)
+        if validate:
+            # Convert to PDBML XML using base class method for validation
+            pdbml_xml = self._convert_to_pdbml(mmcif_data)
+            
+            # Validate using base class method
+            self._validate_pdbml(pdbml_xml)
+        
         # Convert to simple dictionary structure (like old exporter)
         result = {}
         for block in mmcif_data:
@@ -179,36 +193,42 @@ class JSONExporter(BaseExporter):
             validate = not self.permissive
         else:
             validate = not permissive
-            
-        # Convert mmCIF to PDBML XML using base class method
-        pdbml_xml = self._convert_to_pdbml(mmcif_data)
         
-        # Validate if requested using base class method
-        if validate:
-            self._validate_pdbml(pdbml_xml)
-        
-        # Resolve relationships to create nested JSON
-        nested_categories = self.resolver.resolve_relationships(pdbml_xml)
-        
-        # Add underscore prefix to category names for consistency with flat format and external API
-        prefixed_categories = {}
-        for category_name, category_data in nested_categories.items():
-            if not category_name.startswith("_"):
-                prefixed_name = f"_{category_name}"
-            else:
-                prefixed_name = category_name
-            prefixed_categories[prefixed_name] = category_data
-        
-        # Wrap in block structure to maintain consistency with flat format and external API
+        # Handle multiple blocks by processing each separately to preserve block boundaries
         result = {}
+        
         for block in mmcif_data:
+            # Create a temporary container with just this block
+            from .models import MMCIFDataContainer
+            single_block_container = MMCIFDataContainer()
+            single_block_container.data[block.name] = block
+            
+            # Convert this single block to PDBML XML using base class method
+            pdbml_xml = self._convert_to_pdbml(single_block_container)
+            
+            # Validate if requested using base class method
+            if validate:
+                self._validate_pdbml(pdbml_xml)
+            
+            # Resolve relationships for this block only
+            nested_categories = self.resolver.resolve_relationships(pdbml_xml)
+            
+            # Add underscore prefix to category names for consistency with flat format and external API
+            prefixed_categories = {}
+            for category_name, category_data in nested_categories.items():
+                if not category_name.startswith("_"):
+                    prefixed_name = f"_{category_name}"
+                else:
+                    prefixed_name = category_name
+                prefixed_categories[prefixed_name] = category_data
+            
             # Use block name directly from the block object
             # Make sure to include the data_ prefix for external API consistency
             block_name = block.name
             if not block_name.startswith("data_"):
                 block_name = f"data_{block_name}"
+            
             result[block_name] = prefixed_categories
-            break  # Currently only handle first block since resolver doesn't preserve block structure
         
         return result
     
