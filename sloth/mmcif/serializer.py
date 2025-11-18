@@ -1376,6 +1376,8 @@ class XMLGenerator:
             
             self._create_category_element(root, cat_name_clean, category, mapping)
         
+        # Pretty print the XML for better readability and parser compatibility
+        self._indent_xml(root)
         xml_string = ET.tostring(root, encoding=XMLConstant.ENCODING.value).decode(XMLConstant.ENCODING.value)
         return XMLConstant.XML_VERSION.value + xml_string
 
@@ -1440,11 +1442,53 @@ class XMLGenerator:
             return DataValue.EMPTY_STRING.value
         
         str_value = str(value)
+        
+        # Handle quoted strings
         if len(str_value) >= 2:
             if (str_value.startswith(FileOperation.DOUBLE_QUOTE.value) and str_value.endswith(FileOperation.DOUBLE_QUOTE.value)) or \
                (str_value.startswith(FileOperation.SINGLE_QUOTE.value) and str_value.endswith(FileOperation.SINGLE_QUOTE.value)):
-                return str_value[1:-1]
+                str_value = str_value[1:-1]
+        
+        # Handle mmCIF multi-line text format
+        # mmCIF multi-line text starts with a newline and ends with ';' on its own line
+        # We need to clean this up for XML
+        if str_value.endswith('\n;'):
+            # Remove the trailing newline and semicolon that mark end of multi-line text
+            str_value = str_value[:-2]
+        elif str_value.endswith(';') and '\n' in str_value:
+            # Handle case where there might not be a newline before the final semicolon
+            lines = str_value.split('\n')
+            if lines[-1] == ';':
+                # Remove the final line containing just the semicolon
+                str_value = '\n'.join(lines[:-1])
+        
+        # Strip leading/trailing whitespace from multi-line content
+        str_value = str_value.strip()
+        
+        # Escape XML special characters to ensure well-formed XML
+        str_value = str_value.replace('&', '&amp;')  # Must be first
+        str_value = str_value.replace('<', '&lt;')
+        str_value = str_value.replace('>', '&gt;')
+        str_value = str_value.replace('"', '&quot;')
+        str_value = str_value.replace("'", '&apos;')
+        
         return str_value
+
+    def _indent_xml(self, elem: ET.Element, level: int = 0) -> None:
+        """Add pretty printing to XML elements with proper indentation"""
+        indent = "  " * level  # 2 spaces per level
+        if len(elem):
+            if not elem.text or not elem.text.strip():
+                elem.text = f"\n{indent}  "
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = f"\n{indent}"
+            for child in elem:
+                self._indent_xml(child, level + 1)
+            if not child.tail or not child.tail.strip():
+                child.tail = f"\n{indent}"
+        else:
+            if level and (not elem.tail or not elem.tail.strip()):
+                elem.tail = f"\n{indent}"
 
 
 # ====================== Relationship Resolver ======================
