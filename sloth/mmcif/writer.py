@@ -124,20 +124,20 @@ class MMCIFWriter(BaseWriter):
                 full_tag_names = [f"{category_name}.{field_name}" for field_name in field_names]
                 loop = gemmi_block.init_loop("", full_tag_names)
                 
-                # Add rows
+                # Add rows - let gemmi handle the quoting
                 for i in range(max_length):
                     row = []
                     for values in item_values:
                         if i < len(values):
-                            row.append(self._cif_quote_value(values[i]))
+                            row.append(str(values[i]))
                         else:
                             row.append('.')
                     loop.add_row(row)
             else:
-                # Add as single items
+                # Add as single items - let gemmi handle the quoting
                 for field_name, values in zip(field_names, item_values):
                     tag = f"{category_name}.{field_name}"
-                    value = self._cif_quote_value(values[0]) if values else '.'
+                    value = str(values[0]) if values else '.'
                     gemmi_block.set_pair(tag, value)
         
         return gemmi_block

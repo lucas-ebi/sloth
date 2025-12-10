@@ -5,7 +5,7 @@
 <img width="256" height="256" alt="logo" src="logo.png" />
 
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/lucas-ebi/sloth/releases)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue)](https://github.com/lucas-ebi/sloth/releases)
 [![Python](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
 [![License](https://img.shields.io/github/license/lucas-ebi/sloth.svg)](https://github.com/lucas-ebi/sloth/blob/main/LICENSE)
 
@@ -48,7 +48,7 @@
 * Lazy construction of row and item objects for memory efficiency
 * Pythonic, dot-notation access to mmCIF data
 * Pluggable custom validation system
-* Export and import in JSON format (nested and flat structures)
+* Export and import in nested JSON format with automatic relationship resolution
 
 ---
 
@@ -195,44 +195,82 @@ mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
 ### Export
 
 ```python
-from sloth import StructureFormat
+# Export to nested JSON format (with resolved parent-child relationships)
+# Returns JSON string
+json_str = handler.export(mmcif, indent=2)
 
-# Export to JSON nested format (default, pretty-printed)
-json_nested = handler.export(mmcif, structure_format=StructureFormat.NESTED, indent=2)
-handler.export(mmcif, structure_format=StructureFormat.NESTED, file_path="out_nested.json", indent=2)
-
-# Export to JSON flat format (optimized for large datasets)
-json_flat = handler.export(mmcif, structure_format=StructureFormat.FLAT, indent=2)
-handler.export(mmcif, structure_format=StructureFormat.FLAT, file_path="out_flat.json", indent=2)
+# Export to file (pretty-printed)
+handler.export(mmcif, file_path="out_nested.json", indent=2)
 
 # Compact JSON (no indentation)
-handler.export(mmcif, structure_format=StructureFormat.NESTED, file_path="out_compact.json")
+handler.export(mmcif, file_path="out_compact.json")
 ```
+
+**Nested JSON Structure:**
+
+SLOTH automatically resolves mmCIF dictionary relationships when exporting to JSON. Child categories are nested within their parent categories, creating a hierarchical structure:
+
+```json
+{
+  "data_DEMO": {
+    "_entry": [...],
+    "_entity": [
+      {
+        "id": "1",
+        "type": "polymer",
+        "_entity_poly": [
+          {
+            "entity_id": "1",
+            "_entity_poly_seq": [...]
+          }
+        ],
+        "_struct_asym": [
+          {
+            "id": "A",
+            "_atom_site": [...]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Note: All category names maintain the `_` prefix convention, whether at the top level or nested.
 
 ### Import
 
 ```python
-# Auto-detect structure format from JSON file
+# Import from JSON file (automatically flattens nested structure back to mmCIF)
 mmcif = handler.load("out_nested.json")
 
-# Or specify format explicitly
-from sloth import DataSourceFormat
-
-mmcif = handler.load("out_flat.json", format_type=DataSourceFormat.JSON)
+# Access data using standard mmCIF notation
+print(mmcif.data[0]._entity.id)
+print(mmcif.data[0]._atom_site.Cartn_x)
 ```
 
 ### Round-trip validation
 
 ```python
-def verify_round_trip(orig, imported, fmt):
-    ob = orig.data[0]
-    ib = imported.data[0]
-    if len(ob.categories) == len(ib.categories):
-        print(f"{fmt}: Categories OK")
-    if "_atom_site" in ob.categories:
-        n1 = len(ob._atom_site.Cartn_x)
-        n2 = len(ib._atom_site.Cartn_x)
-        print(f"{fmt}: Atoms {'OK' if n1 == n2 else 'Mismatch'}")
+def verify_round_trip(original, imported):
+    """Verify data integrity after JSON export/import round-trip."""
+    orig_block = original.data[0]
+    imp_block = imported.data[0]
+    
+    # Check categories preserved
+    if set(orig_block.categories) == set(imp_block.categories):
+        print("✅ Categories: OK")
+    
+    # Check atom data preserved
+    if "_atom_site" in orig_block.categories:
+        orig_count = len(orig_block._atom_site.Cartn_x)
+        imp_count = len(imp_block._atom_site.Cartn_x)
+        print(f"✅ Atoms: {'OK' if orig_count == imp_count else 'Mismatch'}")
+
+# Test round-trip
+handler.export(mmcif, file_path="test.json")
+imported = handler.load("test.json")
+verify_round_trip(mmcif, imported)
 ```
 
 ---
@@ -268,8 +306,8 @@ The cookbook covers:
 * Validating mmCIF data
 * Modifying data elegantly
 * Creating sample data (manual, programmatic, and auto-creation)
-* Exporting to JSON (nested and flat structures)
-* Importing from JSON
+* Exporting to nested JSON with automatic relationship resolution
+* Importing from JSON with automatic flattening
 * Round-trip validation
 * Writing modified mmCIF files
 * Complete workflow examples

@@ -597,7 +597,7 @@ class TestMMCIFExporter(unittest.TestCase):
         self.test_cif_path = os.path.join(self.temp_dir, "test.cif")
         with open(self.test_cif_path, "w") as f:
             f.write(
-                """data_test
+                """data_TEST
 #
 _entry.id test_structure
 #
@@ -634,13 +634,13 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
     def test_json_export_to_string(self):
         """Test JSON export to string."""
-        json_str = self.handler.export(self.mmcif, format_type='json')
+        json_str = self.handler.export(self.mmcif)
         self.assertIsInstance(json_str, str)
         data = json.loads(json_str)
         
         # Verify the structure - JSON export uses external API naming with prefixes
-        self.assertIn("data_test", data)  # Block name with data_ prefix
-        block_data = data["data_test"]
+        self.assertIn("data_TEST", data)  # Block name with data_ prefix
+        block_data = data["data_TEST"]
         self.assertIn("_entry", block_data)  # Category name with _ prefix
         self.assertIn("_atom_site", block_data)
         
@@ -656,7 +656,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
     def test_json_export_to_file(self):
         """Test JSON export to file."""
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path)
+        self.handler.export(self.mmcif, file_path=json_path)
 
         # Verify file exists
         self.assertTrue(os.path.exists(json_path))
@@ -665,17 +665,22 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         with open(json_path) as f:
             data = json.load(f)
 
-        self.assertIn("data_test", data)  # Block name with data_ prefix
-        block_data = data["data_test"]
+        self.assertIn("data_TEST", data)  # Block name with data_ prefix
+        block_data = data["data_TEST"]
         self.assertIn("_database_2", block_data)  # Category name with _ prefix
         # In nested structure, _database_2 is a list of objects
         self.assertIsInstance(block_data["_database_2"], list)
         self.assertEqual(block_data["_database_2"][0]["database_id"], "PDB")
 
-    def test_unsupported_format_error(self):
-        """Test that unsupported formats raise appropriate errors."""
-        with self.assertRaises(ValueError):
-            self.handler.export(self.mmcif, format_type='unsupported')
+    def test_export_without_file_path(self):
+        """Test that export returns JSON string when no file_path is provided."""
+        result = self.handler.export(self.mmcif)
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, str)
+        # Verify it's valid JSON
+        import json
+        data = json.loads(result)
+        self.assertIn('data_TEST', data)
 
 
 class TestImportFunctionality(unittest.TestCase):
@@ -722,7 +727,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
         # Export data to JSON for import testing
         self.json_path = os.path.join(self.temp_dir, "test.json")
-        handler.export(self.mmcif, format_type='json', file_path=self.json_path)
+        handler.export(self.mmcif, file_path=self.json_path)
 
     def tearDown(self):
         """Tear down test fixtures."""
@@ -774,7 +779,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         handler = MMCIFHandler()
         
         # Export to JSON string
-        json_str = handler.export(self.mmcif, format_type='json')
+        json_str = handler.export(self.mmcif)
         
         # Import back from JSON
         importer = JSONImporter()
@@ -853,7 +858,7 @@ _custom_category.custom_item custom_value
         handler_no_validator = MMCIFHandler(validator_factory=None)
         mmcif = handler_no_validator.read(self.test_cif_path)
         
-        json_str = handler_no_validator.export(mmcif, format_type='json')
+        json_str = handler_no_validator.export(mmcif)
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
         
@@ -861,7 +866,7 @@ _custom_category.custom_item custom_value
         handler_with_validator = MMCIFHandler(validator_factory=ValidatorFactory())
         mmcif = handler_with_validator.read(self.test_cif_path)
         
-        json_str = handler_with_validator.export(mmcif, format_type='json')
+        json_str = handler_with_validator.export(mmcif)
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
 
@@ -884,7 +889,7 @@ _custom_category.custom_item custom_value
         mmcif = handler.read(test_cif_path)
         
         # Export should work
-        json_str = handler.export(mmcif, format_type='json')
+        json_str = handler.export(mmcif)
         self.assertIsInstance(json_str, str)
 
 

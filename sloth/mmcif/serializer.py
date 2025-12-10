@@ -973,7 +973,9 @@ class NestingBuilder:
             for _child_pk, row in indexed.get(child_cat, {}).items():
                 if fk := row.get(child_col):
                     if parent := indexed.get(parent_cat, {}).get(str(fk)):
-                        parent.setdefault(child_cat, []).append(row)
+                        # Ensure nested category names have underscore prefix
+                        nested_cat_name = f"_{child_cat}" if not child_cat.startswith("_") else child_cat
+                        parent.setdefault(nested_cat_name, []).append(row)
 
     def _build_top_level(self, indexed: Dict[str, Any]) -> Dict[str, Any]:
         """Build top-level structure from indexed data"""
@@ -990,8 +992,10 @@ class NestingBuilder:
         for entity_dict in indexed.values():
             for entity_data in entity_dict.values():
                 for key in entity_data.keys():
-                    if key in indexed and isinstance(entity_data.get(key), list):
-                        actually_nested_cats.add(key)
+                    # Remove underscore prefix to match indexed keys
+                    key_without_prefix = key[1:] if key.startswith('_') else key
+                    if key_without_prefix in indexed and isinstance(entity_data.get(key), list):
+                        actually_nested_cats.add(key_without_prefix)
         return actually_nested_cats
 
 

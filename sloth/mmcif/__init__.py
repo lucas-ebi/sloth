@@ -6,10 +6,10 @@ Lazy by design. Fast by default.
 A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
 Gemmi is now the default backend for optimal performance.
 
-Version: 0.3.0
+Version: 0.3.1
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "Lucas Carrijo de Oliveira"
 __email__ = "lucas@ebi.ac.uk"
 __license__ = "MIT"
@@ -31,7 +31,6 @@ from .exporter import JSONExporter
 from .importer import JSONImporter
 from .handler import MMCIFHandler
 from .common import BaseImporter, BaseExporter
-from .defaults import StructureFormat, ExportFormat
 from .plugins import ValidatorFactory
 from .validator import ValidationError, ValidationSeverity
 from .serializer import (
@@ -60,9 +59,6 @@ __all__ = [
     # Base classes
     "BaseImporter",
     "BaseExporter",
-    # Enums
-    "StructureFormat",
-    "ExportFormat",
     # Validation components
     "ValidatorFactory",
     "ValidationError",

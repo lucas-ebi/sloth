@@ -55,8 +55,8 @@ class TestRelationshipResolution(unittest.TestCase):
         self.assertEqual(entity['type'], 'polymer')
         
         # Check nested entity_poly
-        self.assertIn('entity_poly', entity)
-        entity_poly = entity['entity_poly']
+        self.assertIn('_entity_poly', entity)
+        entity_poly = entity['_entity_poly']
         self.assertIsInstance(entity_poly, list)
         self.assertEqual(len(entity_poly), 1)
         
@@ -69,11 +69,11 @@ class TestRelationshipResolution(unittest.TestCase):
     def test_entity_poly_seq_nesting(self):
         """Test entity_poly -> entity_poly_seq relationship resolution."""
         entity = self.block_data['_entity'][0]
-        entity_poly = entity['entity_poly'][0]
+        entity_poly = entity['_entity_poly'][0]
         
         # Check nested entity_poly_seq
-        self.assertIn('entity_poly_seq', entity_poly)
-        poly_seq = entity_poly['entity_poly_seq']
+        self.assertIn('_entity_poly_seq', entity_poly)
+        poly_seq = entity_poly['_entity_poly_seq']
         self.assertIsInstance(poly_seq, list)
         self.assertEqual(len(poly_seq), 2)
         
@@ -94,8 +94,8 @@ class TestRelationshipResolution(unittest.TestCase):
         entity = self.block_data['_entity'][0]
         
         # Check nested struct_asym
-        self.assertIn('struct_asym', entity)
-        struct_asym = entity['struct_asym']
+        self.assertIn('_struct_asym', entity)
+        struct_asym = entity['_struct_asym']
         self.assertIsInstance(struct_asym, list)
         self.assertEqual(len(struct_asym), 1)
         
@@ -107,11 +107,11 @@ class TestRelationshipResolution(unittest.TestCase):
     def test_atom_site_nesting(self):
         """Test struct_asym -> atom_site relationship resolution."""
         entity = self.block_data['_entity'][0]
-        struct_asym = entity['struct_asym'][0]
+        struct_asym = entity['_struct_asym'][0]
         
         # Check nested atom_site
-        self.assertIn('atom_site', struct_asym)
-        atom_sites = struct_asym['atom_site']
+        self.assertIn('_atom_site', struct_asym)
+        atom_sites = struct_asym['_atom_site']
         self.assertIsInstance(atom_sites, list)
         self.assertEqual(len(atom_sites), 2)
         
@@ -134,8 +134,8 @@ class TestRelationshipResolution(unittest.TestCase):
         """Test complete 4-level nesting: entity -> entity_poly -> entity_poly_seq."""
         # Navigate down the hierarchy
         entity = self.block_data['_entity'][0]
-        entity_poly = entity['entity_poly'][0]
-        entity_poly_seq = entity_poly['entity_poly_seq']
+        entity_poly = entity['_entity_poly'][0]
+        entity_poly_seq = entity_poly['_entity_poly_seq']
         
         # Verify we successfully navigated 3 levels
         self.assertEqual(entity['id'], '1')
@@ -149,20 +149,20 @@ class TestRelationshipResolution(unittest.TestCase):
         entity = self.block_data['_entity'][0]
         
         # Both branches should exist
-        self.assertIn('entity_poly', entity)
-        self.assertIn('struct_asym', entity)
+        self.assertIn('_entity_poly', entity)
+        self.assertIn('_struct_asym', entity)
         
         # Verify entity_poly branch
-        entity_poly = entity['entity_poly'][0]
-        self.assertIn('entity_poly_seq', entity_poly)
+        entity_poly = entity['_entity_poly'][0]
+        self.assertIn('_entity_poly_seq', entity_poly)
         
         # Verify struct_asym branch
-        struct_asym = entity['struct_asym'][0]
-        self.assertIn('atom_site', struct_asym)
+        struct_asym = entity['_struct_asym'][0]
+        self.assertIn('_atom_site', struct_asym)
         
         # Both branches should have data
-        self.assertGreater(len(entity_poly['entity_poly_seq']), 0)
-        self.assertGreater(len(struct_asym['atom_site']), 0)
+        self.assertGreater(len(entity_poly['_entity_poly_seq']), 0)
+        self.assertGreater(len(struct_asym['_atom_site']), 0)
     
     def test_second_entity_non_polymer(self):
         """Test that second entity (non-polymer) is handled correctly."""
@@ -176,10 +176,10 @@ class TestRelationshipResolution(unittest.TestCase):
         self.assertTrue('type' in entity2)
         
         # Non-polymer should not have entity_poly
-        self.assertNotIn('entity_poly', entity2)
+        self.assertNotIn('_entity_poly', entity2)
         
         # But should have struct_asym
-        self.assertIn('struct_asym', entity2)
+        self.assertIn('_struct_asym', entity2)
     
     def test_relationship_consistency(self):
         """Test that foreign key relationships are consistent throughout the hierarchy."""
@@ -187,20 +187,20 @@ class TestRelationshipResolution(unittest.TestCase):
         entity_id = entity['id']
         
         # Check entity_poly references
-        entity_poly = entity['entity_poly'][0]
+        entity_poly = entity['_entity_poly'][0]
         self.assertEqual(entity_poly['entity_id'], entity_id)
         
         # Check entity_poly_seq references
-        for seq in entity_poly['entity_poly_seq']:
+        for seq in entity_poly['_entity_poly_seq']:
             self.assertEqual(seq['entity_id'], entity_id)
         
         # Check struct_asym references
-        struct_asym = entity['struct_asym'][0]
+        struct_asym = entity['_struct_asym'][0]
         self.assertEqual(struct_asym['entity_id'], entity_id)
         asym_id = struct_asym['id']
         
         # Check atom_site references
-        for atom in struct_asym['atom_site']:
+        for atom in struct_asym['_atom_site']:
             self.assertEqual(atom['label_entity_id'], entity_id)
             self.assertEqual(atom['label_asym_id'], asym_id)
     
