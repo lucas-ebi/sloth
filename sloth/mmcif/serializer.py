@@ -43,7 +43,8 @@ class RelationshipMetadata:
         parent_field: str,
         relationship_type: str = RelationshipType.UNKNOWN,
         cardinality: Tuple[str, str] = ("1", "*"),
-        description: str = ""
+        description: str = "",
+        actual_cardinality: Optional[Tuple[str, str]] = None  # Measured from data
     ):
         self.child_cat = child_cat
         self.child_field = child_field
@@ -51,10 +52,12 @@ class RelationshipMetadata:
         self.parent_field = parent_field
         self.relationship_type = relationship_type
         self.cardinality = cardinality  # (min, max) for child occurrences per parent
+        self.actual_cardinality = actual_cardinality  # Measured from actual data
         self.description = description
     
     def __repr__(self) -> str:
-        return f"RelationshipMetadata({self.child_cat}.{self.child_field} -> {self.parent_cat}.{self.parent_field}, type={self.relationship_type})"
+        card_str = f", card={self.actual_cardinality}" if self.actual_cardinality else ""
+        return f"RelationshipMetadata({self.child_cat}.{self.child_field} -> {self.parent_cat}.{self.parent_field}, type={self.relationship_type}{card_str})"
 
 
 class RelationshipConstraint:
@@ -79,6 +82,62 @@ class RelationshipConstraint:
         parent_values.discard(None)
         
         return child_values.issubset(parent_values) if child_values and parent_values else False
+
+
+class CardinalityAnalyzer:
+    """Deterministic analysis of relationship cardinality from actual data"""
+    
+    @staticmethod
+    def analyze_cardinality(
+        child_data: List[Dict],
+        child_field: str,
+        parent_data: List[Dict],
+        parent_field: str
+    ) -> Tuple[str, str]:
+        """
+        Analyze cardinality: (child_min, child_max) per parent
+        
+        Returns deterministic cardinality like:
+        - ("0", "1"): Zero or one child per parent (optional one-to-one)
+        - ("1", "1"): Exactly one child per parent (mandatory one-to-one)
+        - ("0", "*"): Zero or more children per parent (optional one-to-many)
+        - ("1", "*"): One or more children per parent (mandatory one-to-many)
+        """
+        if not child_data or not parent_data:
+            return ("0", "*")
+        
+        # Count children per parent
+        parent_to_children = {}
+        for child_row in child_data:
+            fk_value = child_row.get(child_field)
+            if fk_value is not None:
+                parent_to_children.setdefault(str(fk_value), []).append(child_row)
+        
+        if not parent_to_children:
+            return ("0", "0")  # No relationships exist
+        
+        # Analyze distribution
+        child_counts = [len(children) for children in parent_to_children.values()]
+        max_children = max(child_counts)
+        min_children = min(child_counts)
+        
+        # Check if ALL parents have at least one child
+        parent_values = {str(row.get(parent_field)) for row in parent_data if row.get(parent_field) is not None}
+        all_parents_have_children = parent_values.issubset(set(parent_to_children.keys()))
+        
+        # Determine cardinality deterministically
+        if max_children == 1:
+            # One-to-one relationship
+            if all_parents_have_children and min_children == 1:
+                return ("1", "1")  # Mandatory one-to-one
+            else:
+                return ("0", "1")  # Optional one-to-one
+        else:
+            # One-to-many relationship
+            if all_parents_have_children and min_children >= 1:
+                return ("1", "*")  # Mandatory one-to-many
+            else:
+                return ("0", "*")  # Optional one-to-many
 
 
 # ====================== Unified High-Performance Caching ======================
@@ -691,10 +750,16 @@ class RelationshipResolver:
     """Resolves entity relationships for nested JSON output from mmCIF data"""
     def __init__(
         self, 
-        mapping_generator: MappingGenerator
+        mapping_generator: MappingGenerator,
+        enable_semantic_fallbacks: bool = False,
+        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None
     ):
         self.mapping_generator = mapping_generator
-        self.ownership_analyzer = OwnershipAnalyzer(self.mapping_generator)
+        self.ownership_analyzer = OwnershipAnalyzer(
+            self.mapping_generator, 
+            enable_semantic_fallbacks=enable_semantic_fallbacks,
+            domain_overrides=domain_overrides
+        )
         self.nesting_builder = NestingBuilder()
         
     @property
@@ -718,6 +783,23 @@ class RelationshipResolver:
         # Build nested structure
         return self.nesting_builder.build_nested_structure(flat, ownership_fk_map, primary_keys)
     
+    def get_decision_report(self) -> Dict[str, Any]:
+        """Get report on how ownership relationships were determined"""
+        return self.ownership_analyzer.get_decision_report()
+    
+    def get_cardinality_report(self) -> Dict[str, Dict[str, Any]]:
+        """Get report on measured cardinalities for all relationships"""
+        report = {}
+        for constraint in self.ownership_analyzer.constraints:
+            if constraint.metadata.actual_cardinality:
+                key = f"{constraint.metadata.child_cat}.{constraint.metadata.child_field} -> {constraint.metadata.parent_cat}.{constraint.metadata.parent_field}"
+                report[key] = {
+                    "cardinality": constraint.metadata.actual_cardinality,
+                    "relationship_type": constraint.metadata.relationship_type,
+                    "validated": constraint.is_validated
+                }
+        return report
+    
     def _flatten_mmcif(self, mmcif_data: MMCIFDataContainer) -> Dict[str, Any]:
         """Convert mmCIF container to flat dictionary structure"""
         flat = {}
@@ -737,8 +819,9 @@ class RelationshipResolver:
 
 class ConstraintExtractor:
     """Extracts formal relationship constraints from dictionary metadata"""
-    def __init__(self, dict_meta: Dict[str, Any]):
+    def __init__(self, dict_meta: Dict[str, Any], data: Optional[Dict[str, Any]] = None):
         self.dict_meta = dict_meta
+        self.data = data  # Actual data for cardinality analysis
     
     def extract_constraints(self) -> List[RelationshipConstraint]:
         """Extract formal relationship constraints from dictionary"""
@@ -780,13 +863,24 @@ class ConstraintExtractor:
         # Determine relationship type from dictionary metadata
         rel_type = self._determine_relationship_type(rel, child_cat, child_field, parent_cat)
         
+        # Analyze actual cardinality if data is available
+        actual_cardinality = None
+        if self.data:
+            child_data = self.data.get(child_cat, [])
+            parent_data = self.data.get(parent_cat, [])
+            if child_data and parent_data:
+                actual_cardinality = CardinalityAnalyzer.analyze_cardinality(
+                    child_data, child_field, parent_data, parent_field
+                )
+        
         return RelationshipMetadata(
             child_cat=child_cat,
             child_field=child_field,
             parent_cat=parent_cat,
             parent_field=parent_field,
             relationship_type=rel_type,
-            description=rel.get('description', '')
+            description=rel.get('description', ''),
+            actual_cardinality=actual_cardinality
         )
     
     def _extract_field_name(self, name: str) -> str:
@@ -906,11 +1000,18 @@ class RelationshipGraph:
 
 class OwnershipAnalyzer:
     """Analyzes relationships to determine ownership using structural algorithms"""
-    def __init__(self, mapping_generator: MappingGenerator, enable_semantic_fallbacks: bool = False):
+    def __init__(
+        self, 
+        mapping_generator: MappingGenerator, 
+        enable_semantic_fallbacks: bool = False,
+        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None
+    ):
         self.mapping_generator = mapping_generator
         self.enable_semantic_fallbacks = enable_semantic_fallbacks
+        self.domain_overrides = domain_overrides or {}  # (child_cat, child_field, parent_cat, parent_field) -> is_ownership
         self.graph: Optional[RelationshipGraph] = None
         self.constraints: List[RelationshipConstraint] = []
+        self.decision_log: List[Dict[str, Any]] = []  # Audit trail of decisions
 
     def filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> Dict:
         """Filter FK map to include only ownership relationships using structural analysis"""
@@ -920,8 +1021,8 @@ class OwnershipAnalyzer:
         )
         primary_keys = dict_meta.get(DictDataType.PRIMARY_KEYS.value, {})
         
-        # Extract formal constraints from dictionary
-        extractor = ConstraintExtractor(dict_meta)
+        # Extract formal constraints from dictionary with actual data for cardinality analysis
+        extractor = ConstraintExtractor(dict_meta, data)
         self.constraints = extractor.extract_constraints()
         
         # Validate constraints against actual data
@@ -971,23 +1072,40 @@ class OwnershipAnalyzer:
         Determine ownership using structural analysis of the schema.
         
         Ownership is defined structurally:
-        1. Child's PK extends parent's PK (key structure hierarchy)
-        2. Child has single FK and no outgoing references (detail table)
-        3. FK field is mandatory and references parent's PK (strong dependency)
-        4. (Optional) Semantic patterns from dictionary metadata
+        1. Domain overrides (expert knowledge)
+        2. Child's PK extends parent's PK (key structure hierarchy)
+        3. Child has single FK and no outgoing references (detail table)
+        4. FK field is mandatory and references parent's PK (strong dependency)
+        5. Explicit relationship type from validated constraints
+        6. (Optional) Semantic patterns from dictionary metadata
         
         All rules are generic and derived from the dictionary schema.
         """
+        decision_key = (child_cat, child_field, parent_cat, parent_field)
+        
+        # Rule 0: Domain overrides take precedence
+        if decision_key in self.domain_overrides:
+            decision = self.domain_overrides[decision_key]
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             decision, "domain_override")
+            return decision
+        
         # Rule 1: Structural ownership via key extension
         if self._is_ownership_structural(child_cat, child_field, parent_cat, parent_field, primary_keys):
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             True, "pk_extension")
             return True
         
         # Rule 2: Single-FK child ownership (detail/dependent table)
         if self._is_single_fk_child_ownership(child_cat, child_field, parent_cat, fk_map, primary_keys):
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             True, "single_fk_child")
             return True
         
         # Rule 3: Strong FK dependency (mandatory FK to parent's PK)
         if self._is_strong_fk_dependency(child_cat, child_field, parent_cat, parent_field, primary_keys, dict_meta):
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             True, "strong_fk_dependency")
             return True
         
         # Rule 4: Check explicit relationship type from validated constraints
@@ -996,14 +1114,47 @@ class OwnershipAnalyzer:
             if (meta.child_cat == child_cat and meta.child_field == child_field and
                 meta.parent_cat == parent_cat and meta.parent_field == parent_field):
                 if constraint.is_validated:
-                    return meta.relationship_type == RelationshipType.COMPOSITIONAL
+                    decision = meta.relationship_type == RelationshipType.COMPOSITIONAL
+                    self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                                     decision, f"explicit_constraint_{meta.relationship_type}")
+                    return decision
         
         # Optional semantic fallbacks (explicitly marked as heuristic)
         if self.enable_semantic_fallbacks:
-            return self._apply_semantic_fallbacks(child_cat, child_field, parent_cat, dict_meta)
+            decision = self._apply_semantic_fallbacks(child_cat, child_field, parent_cat, dict_meta)
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             decision, "semantic_fallback")
+            return decision
         
         # Default: not ownership
+        self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                         False, "default_referential")
         return False
+    
+    def _log_decision(self, child_cat: str, child_field: str, parent_cat: str, 
+                     parent_field: str, decision: bool, rule: str):
+        """Log ownership decision for audit trail"""
+        self.decision_log.append({
+            "relationship": f"{child_cat}.{child_field} -> {parent_cat}.{parent_field}",
+            "is_ownership": decision,
+            "rule_applied": rule
+        })
+    
+    def get_decision_report(self) -> Dict[str, Any]:
+        """Generate report on how relationships were determined"""
+        report = {
+            "total_decisions": len(self.decision_log),
+            "ownership_count": sum(1 for d in self.decision_log if d["is_ownership"]),
+            "referential_count": sum(1 for d in self.decision_log if not d["is_ownership"]),
+            "rules_applied": {}
+        }
+        
+        for decision in self.decision_log:
+            rule = decision["rule_applied"]
+            report["rules_applied"].setdefault(rule, 0)
+            report["rules_applied"][rule] += 1
+        
+        return report
     
     def _is_ownership_structural(
         self,
