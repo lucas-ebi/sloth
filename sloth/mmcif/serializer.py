@@ -12,15 +12,131 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple, Set
 from abc import ABC, abstractmethod
 
-from .models import MMCIFDataContainer, Category
-from .parser import MMCIFParser
+from .models import MMCIFDataContainer
 from .defaults import (
     CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
-    SchemaDataType, TypeSuffix, MappingDataKey,
+    MappingDataKey,
     # Consolidated classes
-    DataValue, DataType, SemanticPattern, FileOperation
+    DataValue, FileOperation
 )
+
+
+# ====================== Formal Relationship Type Definitions ======================
+class RelationshipType:
+    """Formal relationship type definitions"""
+    COMPOSITIONAL = "compositional"  # Child is part of parent (ownership)
+    REFERENTIAL = "referential"      # Child references parent (lookup)
+    AGGREGATION = "aggregation"      # Child aggregates parent data
+    HIERARCHICAL = "hierarchical"    # Parent-child hierarchy
+    UNKNOWN = "unknown"              # Cannot be determined
+
+
+class RelationshipMetadata:
+    """Formal relationship metadata extracted from dictionary"""
+    def __init__(
+        self,
+        child_cat: str,
+        child_field: str,
+        parent_cat: str,
+        parent_field: str,
+        relationship_type: str = RelationshipType.UNKNOWN,
+        cardinality: Tuple[str, str] = ("1", "*"),
+        description: str = "",
+        actual_cardinality: Optional[Tuple[str, str]] = None  # Measured from data
+    ):
+        self.child_cat = child_cat
+        self.child_field = child_field
+        self.parent_cat = parent_cat
+        self.parent_field = parent_field
+        self.relationship_type = relationship_type
+        self.cardinality = cardinality  # (min, max) for child occurrences per parent
+        self.actual_cardinality = actual_cardinality  # Measured from actual data
+        self.description = description
+    
+    def __repr__(self) -> str:
+        card_str = f", card={self.actual_cardinality}" if self.actual_cardinality else ""
+        return f"RelationshipMetadata({self.child_cat}.{self.child_field} -> {self.parent_cat}.{self.parent_field}, type={self.relationship_type}{card_str})"
+
+
+class RelationshipConstraint:
+    """Represents a formal constraint on relationships"""
+    def __init__(self, metadata: RelationshipMetadata, is_validated: bool = False):
+        self.metadata = metadata
+        self.is_validated = is_validated
+    
+    def validate(self, data: Dict[str, Any]) -> bool:
+        """Validate constraint against actual data"""
+        child_data = data.get(self.metadata.child_cat, [])
+        parent_data = data.get(self.metadata.parent_cat, [])
+        
+        if not child_data or not parent_data:
+            return False
+        
+        # Check if child field values are subset of parent field values
+        child_values = {row.get(self.metadata.child_field) for row in child_data}
+        child_values.discard(None)
+        
+        parent_values = {row.get(self.metadata.parent_field) for row in parent_data}
+        parent_values.discard(None)
+        
+        return child_values.issubset(parent_values) if child_values and parent_values else False
+
+
+class CardinalityAnalyzer:
+    """Deterministic analysis of relationship cardinality from actual data"""
+    
+    @staticmethod
+    def analyze_cardinality(
+        child_data: List[Dict],
+        child_field: str,
+        parent_data: List[Dict],
+        parent_field: str
+    ) -> Tuple[str, str]:
+        """
+        Analyze cardinality: (child_min, child_max) per parent
+        
+        Returns deterministic cardinality like:
+        - ("0", "1"): Zero or one child per parent (optional one-to-one)
+        - ("1", "1"): Exactly one child per parent (mandatory one-to-one)
+        - ("0", "*"): Zero or more children per parent (optional one-to-many)
+        - ("1", "*"): One or more children per parent (mandatory one-to-many)
+        """
+        if not child_data or not parent_data:
+            return ("0", "*")
+        
+        # Count children per parent
+        parent_to_children = {}
+        for child_row in child_data:
+            fk_value = child_row.get(child_field)
+            if fk_value is not None:
+                parent_to_children.setdefault(str(fk_value), []).append(child_row)
+        
+        if not parent_to_children:
+            return ("0", "0")  # No relationships exist
+        
+        # Analyze distribution
+        child_counts = [len(children) for children in parent_to_children.values()]
+        max_children = max(child_counts)
+        min_children = min(child_counts)
+        
+        # Check if ALL parents have at least one child
+        parent_values = {str(row.get(parent_field)) for row in parent_data if row.get(parent_field) is not None}
+        all_parents_have_children = parent_values.issubset(set(parent_to_children.keys()))
+        
+        # Determine cardinality deterministically
+        if max_children == 1:
+            # One-to-one relationship
+            if all_parents_have_children and min_children == 1:
+                return ("1", "1")  # Mandatory one-to-one
+            else:
+                return ("0", "1")  # Optional one-to-one
+        else:
+            # One-to-many relationship
+            if all_parents_have_children and min_children >= 1:
+                return ("1", "*")  # Mandatory one-to-many
+            else:
+                return ("0", "*")  # Optional one-to-many
 
 
 # ====================== Unified High-Performance Caching ======================
@@ -633,10 +749,18 @@ class RelationshipResolver:
     """Resolves entity relationships for nested JSON output from mmCIF data"""
     def __init__(
         self, 
-        mapping_generator: MappingGenerator
+        mapping_generator: MappingGenerator,
+        enable_semantic_fallbacks: bool = False,
+        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None,
+        strict_structural_only: bool = False
     ):
         self.mapping_generator = mapping_generator
-        self.ownership_analyzer = OwnershipAnalyzer(self.mapping_generator)
+        self.ownership_analyzer = OwnershipAnalyzer(
+            self.mapping_generator, 
+            enable_semantic_fallbacks=enable_semantic_fallbacks,
+            domain_overrides=domain_overrides,
+            strict_structural_only=strict_structural_only
+        )
         self.nesting_builder = NestingBuilder()
         
     @property
@@ -660,6 +784,23 @@ class RelationshipResolver:
         # Build nested structure
         return self.nesting_builder.build_nested_structure(flat, ownership_fk_map, primary_keys)
     
+    def get_decision_report(self) -> Dict[str, Any]:
+        """Get report on how ownership relationships were determined"""
+        return self.ownership_analyzer.get_decision_report()
+    
+    def get_cardinality_report(self) -> Dict[str, Dict[str, Any]]:
+        """Get report on measured cardinalities for all relationships"""
+        report = {}
+        for constraint in self.ownership_analyzer.constraints:
+            if constraint.metadata.actual_cardinality:
+                key = f"{constraint.metadata.child_cat}.{constraint.metadata.child_field} -> {constraint.metadata.parent_cat}.{constraint.metadata.parent_field}"
+                report[key] = {
+                    "cardinality": constraint.metadata.actual_cardinality,
+                    "relationship_type": constraint.metadata.relationship_type,
+                    "validated": constraint.is_validated
+                }
+        return report
+    
     def _flatten_mmcif(self, mmcif_data: MMCIFDataContainer) -> Dict[str, Any]:
         """Convert mmCIF container to flat dictionary structure"""
         flat = {}
@@ -677,28 +818,263 @@ class RelationshipResolver:
         return flat
 
 
+class ConstraintExtractor:
+    """Extracts formal relationship constraints from dictionary metadata"""
+    def __init__(self, dict_meta: Dict[str, Any], data: Optional[Dict[str, Any]] = None):
+        self.dict_meta = dict_meta
+        self.data = data  # Actual data for cardinality analysis
+    
+    def extract_constraints(self) -> List[RelationshipConstraint]:
+        """Extract formal relationship constraints from dictionary"""
+        constraints = []
+        
+        for rel in self.dict_meta.get('relationships', []):
+            metadata = self._build_relationship_metadata(rel)
+            if metadata:
+                constraints.append(RelationshipConstraint(metadata))
+        
+        return constraints
+    
+    def _build_relationship_metadata(self, rel: Dict[str, Any]) -> Optional[RelationshipMetadata]:
+        """Build relationship metadata from dictionary entry"""
+        # Extract relationship data
+        child_name = rel.get("item_linked.child_name") or rel.get("child_name")
+        parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
+        child_cat = rel.get("child_category")
+        parent_cat = rel.get("parent_category")
+        
+        if not child_name or not parent_name:
+            return None
+        
+        # Extract field names
+        if child_cat and parent_cat:
+            child_field = self._extract_field_name(child_name)
+            parent_field = self._extract_field_name(parent_name)
+        else:
+            # Legacy format
+            child_parts = child_name.strip("_").split(".")
+            parent_parts = parent_name.strip("_").split(".")
+            
+            if len(child_parts) != 2 or len(parent_parts) != 2:
+                return None
+            
+            child_cat, child_field = child_parts
+            parent_cat, parent_field = parent_parts
+        
+        # Determine relationship type from dictionary metadata
+        rel_type = self._determine_relationship_type(rel, child_cat, child_field, parent_cat)
+        
+        # Analyze actual cardinality if data is available
+        actual_cardinality = None
+        if self.data:
+            child_data = self.data.get(child_cat, [])
+            parent_data = self.data.get(parent_cat, [])
+            if child_data and parent_data:
+                actual_cardinality = CardinalityAnalyzer.analyze_cardinality(
+                    child_data, child_field, parent_data, parent_field
+                )
+        
+        return RelationshipMetadata(
+            child_cat=child_cat,
+            child_field=child_field,
+            parent_cat=parent_cat,
+            parent_field=parent_field,
+            relationship_type=rel_type,
+            description=rel.get('description', ''),
+            actual_cardinality=actual_cardinality
+        )
+    
+    def _extract_field_name(self, name: str) -> str:
+        """Extract field name from full item name"""
+        return name.strip("_").split(".")[-1] if "." in name else name
+    
+    def _determine_relationship_type(self, rel: Dict, child_cat: str, 
+                                    child_field: str, parent_cat: str) -> str:
+        """Determine relationship type using explicit dictionary metadata and deterministic rules"""
+        description = rel.get('description', '').lower()
+        
+        # Rule 1: Check explicit ownership indicators in dictionary
+        ownership_terms = ['belongs to', 'owned by', 'part of', 'contained in', 'member of']
+        if any(term in description for term in ownership_terms):
+            return RelationshipType.COMPOSITIONAL
+        
+        # Rule 2: Check explicit reference indicators in dictionary
+        reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for', 'category of']
+        if any(term in description for term in reference_terms):
+            return RelationshipType.REFERENTIAL
+        
+        # Rule 3: Deterministic naming pattern analysis
+        # Pattern: field named <parent_cat>_id indicates compositional
+        if child_field == f'{parent_cat}_id' or child_field == parent_cat:
+            return RelationshipType.COMPOSITIONAL
+        
+        # Pattern: field ending with _type, _code, _symbol indicates referential
+        if any(child_field.endswith(suffix) for suffix in ['_type', '_code', '_symbol', '_method', '_class']):
+            return RelationshipType.REFERENTIAL
+        
+        # Rule 4: Category hierarchy - child contains parent name
+        if parent_cat in child_cat and parent_cat != child_cat:
+            return RelationshipType.COMPOSITIONAL
+        
+        # Rule 5: Lookup table patterns (deterministic category name patterns)
+        lookup_patterns = ['_type', '_class', '_method', '_status', '_code', '_symbol', 
+                          '_enum', '_dict', '_list', '_table', '_ref']
+        if any(pattern in parent_cat for pattern in lookup_patterns):
+            return RelationshipType.REFERENTIAL
+        
+        return RelationshipType.UNKNOWN
+
+
+class RelationshipGraph:
+    """Formal graph representation of relationships"""
+    def __init__(self):
+        self.nodes: Set[str] = set()
+        self.edges: Dict[str, List[Tuple[str, str]]] = {}  # parent -> [(child, edge_type)]
+        self.reverse_edges: Dict[str, List[Tuple[str, str]]] = {}  # child -> [(parent, edge_type)]
+    
+    def add_edge(self, parent: str, child: str, edge_type: str):
+        """Add directed edge from parent to child"""
+        self.nodes.add(parent)
+        self.nodes.add(child)
+        
+        if parent not in self.edges:
+            self.edges[parent] = []
+        self.edges[parent].append((child, edge_type))
+        
+        if child not in self.reverse_edges:
+            self.reverse_edges[child] = []
+        self.reverse_edges[child].append((parent, edge_type))
+    
+    def get_children(self, node: str, edge_type: Optional[str] = None) -> List[str]:
+        """Get children of a node, optionally filtered by edge type"""
+        children = self.edges.get(node, [])
+        if edge_type:
+            return [child for child, et in children if et == edge_type]
+        return [child for child, _ in children]
+    
+    def get_parents(self, node: str, edge_type: Optional[str] = None) -> List[str]:
+        """Get parents of a node, optionally filtered by edge type"""
+        parents = self.reverse_edges.get(node, [])
+        if edge_type:
+            return [parent for parent, et in parents if et == edge_type]
+        return [parent for parent, _ in parents]
+    
+    def find_roots(self, edge_type: Optional[str] = None) -> Set[str]:
+        """Find root nodes (nodes with no parents) for given edge type"""
+        all_children = set()
+        all_parents = set()
+        
+        for parent, children in self.edges.items():
+            for child, et in children:
+                if edge_type is None or et == edge_type:
+                    all_children.add(child)
+                    all_parents.add(parent)
+        
+        return all_parents - all_children
+    
+    def has_cycle(self) -> bool:
+        """Check if graph has cycles using DFS"""
+        visited = set()
+        rec_stack = set()
+        
+        def visit(node: str) -> bool:
+            visited.add(node)
+            rec_stack.add(node)
+            
+            for child, _ in self.edges.get(node, []):
+                if child not in visited:
+                    if visit(child):
+                        return True
+                elif child in rec_stack:
+                    return True
+            
+            rec_stack.remove(node)
+            return False
+        
+        for node in self.nodes:
+            if node not in visited:
+                if visit(node):
+                    return True
+        
+        return False
+
+
 class OwnershipAnalyzer:
-    """Analyzes relationships to determine ownership"""
-    def __init__(self, mapping_generator: MappingGenerator):
+    """
+    Analyzes relationships to determine ownership using structural algorithms.
+    
+    Rule Hierarchy (applied in order):
+    0. Domain overrides (explicit expert knowledge)
+    1. PK extension (CORE STRUCTURAL - child PK extends parent PK)
+    2. Single-FK child (CORE STRUCTURAL - detail table with one FK)
+    3. Strong FK dependency (STRUCTURAL/SEMANTIC - mandatory FK + name tokens)
+    4. Explicit constraint type (dictionary metadata)
+    5. Semantic fallbacks (HEURISTIC - optional, disabled in strict mode)
+    
+    Modes:
+    - strict_structural_only=True: Only rules 0, 1, 2 (pure PK/FK structure)
+    - strict_structural_only=False: Rules 0-4 (includes strong FK dependency)
+    - enable_semantic_fallbacks=True: All rules including heuristics
+    """
+    def __init__(
+        self, 
+        mapping_generator: MappingGenerator, 
+        enable_semantic_fallbacks: bool = False,
+        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None,
+        strict_structural_only: bool = False
+    ):
         self.mapping_generator = mapping_generator
+        self.enable_semantic_fallbacks = enable_semantic_fallbacks
+        self.strict_structural_only = strict_structural_only
+        self.domain_overrides = domain_overrides or {}  # (child_cat, child_field, parent_cat, parent_field) -> is_ownership
+        self.graph: Optional[RelationshipGraph] = None
+        self.constraints: List[RelationshipConstraint] = []
+        self.decision_log: List[Dict[str, Any]] = []  # Audit trail of decisions
 
     def filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> Dict:
-        """Filter FK map to include only ownership relationships"""
-        # Get dictionary metadata for relationship analysis
+        """Filter FK map to include only ownership relationships using structural analysis"""
+        # Get dictionary metadata for structural analysis
         dict_meta = self.mapping_generator.dict_parser.parse(
             self.mapping_generator.dict_parser.source
         )
+        primary_keys = dict_meta.get(DictDataType.PRIMARY_KEYS.value, {})
         
+        # Extract formal constraints from dictionary with actual data for cardinality analysis
+        extractor = ConstraintExtractor(dict_meta, data)
+        self.constraints = extractor.extract_constraints()
+        
+        # Validate constraints against actual data
+        for constraint in self.constraints:
+            constraint.is_validated = constraint.validate(data)
+        
+        # Build relationship graph
+        self.graph = self._build_relationship_graph()
+        
+        # Filter FK map based on structural ownership analysis
         ownership_fk_map = {}
         
         for (child_cat, child_field), (parent_cat, parent_field) in fk_map.items():
             if self._is_ownership_relationship(
-                child_cat, child_field, parent_cat, parent_field, 
-                dict_meta, data
+                child_cat, child_field, parent_cat, parent_field, fk_map, primary_keys, dict_meta
             ):
                 ownership_fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
         
         return ownership_fk_map
+    
+    def _build_relationship_graph(self) -> RelationshipGraph:
+        """Build formal relationship graph from validated constraints"""
+        graph = RelationshipGraph()
+        
+        for constraint in self.constraints:
+            if constraint.is_validated:
+                meta = constraint.metadata
+                graph.add_edge(
+                    parent=meta.parent_cat,
+                    child=meta.child_cat,
+                    edge_type=meta.relationship_type
+                )
+        
+        return graph
     
     def _is_ownership_relationship(
         self, 
@@ -706,198 +1082,339 @@ class OwnershipAnalyzer:
         child_field: str, 
         parent_cat: str, 
         parent_field: str,
-        dict_meta: Dict,
-        data: Dict
-    ) -> bool:
-        """Determine if a relationship represents ownership"""
-        # Check for explicit indicators in dictionary metadata
-        for rel in dict_meta.get('relationships', []):
-            if self._matches_relationship(rel, child_cat, child_field, parent_cat, parent_field):
-                if self._has_ownership_indicators(rel):
-                    return True
-                if self._has_reference_indicators(rel):
-                    return False
-        
-        # Analyze relationship characteristics
-        cardinality_score = self._analyze_cardinality(
-            child_cat, child_field, parent_cat, parent_field, data
-        )
-        semantic_score = self._analyze_semantic_patterns(
-            child_cat, child_field, parent_cat, dict_meta
-        )
-        hierarchy_score = self._analyze_category_hierarchy(
-            child_cat, parent_cat, dict_meta
-        )
-        
-        return cardinality_score + semantic_score + hierarchy_score > 0
-    
-    def _matches_relationship(self, rel: Dict, child_cat: str, child_field: str, 
-                            parent_cat: str, parent_field: str) -> bool:
-        """Check if relationship metadata matches current relationship"""
-        rel_child_name = rel.get('child_name', '').strip('_')
-        rel_parent_name = rel.get('parent_name', '').strip('_')
-        return (rel_child_name.endswith(f'{child_cat}.{child_field}') and 
-               rel_parent_name.endswith(f'{parent_cat}.{parent_field}'))
-    
-    def _has_ownership_indicators(self, rel: Dict) -> bool:
-        """Check for ownership indicators in relationship metadata"""
-        description = rel.get('description', '').lower()
-        ownership_terms = ['belongs to', 'owned by', 'part of', 'contained in', 'member of']
-        return any(term in description for term in ownership_terms)
-    
-    def _has_reference_indicators(self, rel: Dict) -> bool:
-        """Check for reference indicators in relationship metadata"""
-        description = rel.get('description', '').lower()
-        reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for']
-        return any(term in description for term in reference_terms)
-    
-    def _analyze_cardinality(
-        self, 
-        child_cat: str, 
-        child_field: str, 
-        parent_cat: str, 
-        _parent_field: str, 
-        data: Dict
-    ) -> float:
-        """Analyze relationship cardinality from actual data"""
-        if child_cat not in data or parent_cat not in data:
-            return 0.0
-        
-        child_data = data[child_cat]
-        parent_data = data[parent_cat]
-        
-        if not child_data or not parent_data:
-            return 0.0
-        
-        # Check for lookup/reference table patterns
-        lookup_table_patterns = [
-            SemanticPattern.TYPE.value, SemanticPattern.CLASS.value, SemanticPattern.METHOD.value, 
-            SemanticPattern.STATUS.value, SemanticPattern.CODE.value, SemanticPattern.SYMBOL.value,
-            SemanticPattern.ENUM.value, SemanticPattern.DICT.value, SemanticPattern.LIST.value, 
-            SemanticPattern.TABLE.value, SemanticPattern.REF.value
-        ]
-        if (any(pattern in parent_cat.lower() for pattern in lookup_table_patterns) or
-            any(pattern in child_field.lower() for pattern in lookup_table_patterns)):
-            return -30.0
-        
-        # Analyze parent-child relationships
-        parent_to_children = {}
-        for child_row in child_data:
-            if fk_value := child_row.get(child_field):
-                parent_to_children.setdefault(fk_value, 0)
-                parent_to_children[fk_value] += 1
-        
-        if not parent_to_children:
-            return 0.0
-        
-        # Calculate coverage ratio
-        parent_count = len(parent_data)
-        referenced_parent_count = len(parent_to_children)
-        coverage_ratio = referenced_parent_count / parent_count if parent_count > 0 else 0
-        if coverage_ratio < 0.3:
-            return -20.0
-        
-        # Calculate average children per parent
-        avg_children = sum(parent_to_children.values()) / len(parent_to_children)
-        if avg_children > 10:
-            return -15.0
-        elif avg_children > 5:
-            return -5.0
-        elif avg_children > 2:
-            return 10.0
-        else:
-            return 20.0
-    
-    def _analyze_semantic_patterns(
-        self, 
-        child_cat: str, 
-        child_field: str, 
-        parent_cat: str, 
+        fk_map: Dict,
+        primary_keys: Dict[str, Union[str, List[str]]],
         dict_meta: Dict
-    ) -> float:
-        """Analyze semantic naming patterns from dictionary item definitions"""
+    ) -> bool:
+        """
+        Determine ownership using structural analysis of the schema.
+        
+        Ownership is defined structurally:
+        1. Domain overrides (expert knowledge)
+        2. Child's PK extends parent's PK (key structure hierarchy)
+        3. Child has single FK and no outgoing references (detail table)
+        4. FK field is mandatory and references parent's PK (strong dependency)
+        5. Explicit relationship type from validated constraints
+        6. (Optional) Semantic patterns from dictionary metadata
+        
+        All rules are generic and derived from the dictionary schema.
+        """
+        decision_key = (child_cat, child_field, parent_cat, parent_field)
+        
+        # Rule 0: Domain overrides take precedence
+        if decision_key in self.domain_overrides:
+            decision = self.domain_overrides[decision_key]
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             decision, "domain_override")
+            return decision
+        
+        # Rule 1: Structural ownership via key extension
+        if self._is_ownership_structural(child_cat, child_field, parent_cat, parent_field, primary_keys):
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             True, "pk_extension")
+            return True
+        
+        # Rule 2: Single-FK child ownership (detail/dependent table)
+        # CORE STRUCTURAL RULE
+        if self._is_single_fk_child_ownership(child_cat, child_field, parent_cat, fk_map, primary_keys):
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             True, "single_fk_child", confidence="high")
+            return True
+        
+        # In strict structural mode, stop here (only PK/FK structure rules)
+        if self.strict_structural_only:
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             False, "strict_structural_default", confidence="high")
+            return False
+        
+        # Rule 3: Strong FK dependency (mandatory FK to parent's PK)
+        # STRUCTURAL/SEMANTIC RULE (uses mandatory flag + name tokens)
+        if self._is_strong_fk_dependency(child_cat, child_field, parent_cat, parent_field, primary_keys, dict_meta):
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             True, "strong_fk_dependency", confidence="medium")
+            return True
+        
+        # Rule 4: Check explicit relationship type from validated constraints
+        for constraint in self.constraints:
+            meta = constraint.metadata
+            if (meta.child_cat == child_cat and meta.child_field == child_field and
+                meta.parent_cat == parent_cat and meta.parent_field == parent_field):
+                if constraint.is_validated:
+                    decision = meta.relationship_type == RelationshipType.COMPOSITIONAL
+                    self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                                     decision, f"explicit_constraint_{meta.relationship_type}")
+                    return decision
+        
+        # Optional semantic fallbacks (explicitly marked as heuristic)
+        if self.enable_semantic_fallbacks:
+            decision = self._apply_semantic_fallbacks(child_cat, child_field, parent_cat, dict_meta)
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             decision, "semantic_fallback")
+            return decision
+        
+        # Default: not ownership
+        self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                         False, "default_referential")
+        return False
+    
+    def _log_decision(self, child_cat: str, child_field: str, parent_cat: str, 
+                     parent_field: str, decision: bool, rule: str, confidence: str = "medium"):
+        """Log ownership decision for audit trail with confidence level"""
+        self.decision_log.append({
+            "relationship": f"{child_cat}.{child_field} -> {parent_cat}.{parent_field}",
+            "is_ownership": decision,
+            "rule_applied": rule,
+            "confidence": confidence  # "high" (structural), "medium" (structural/semantic), "low" (heuristic)
+        })
+    
+    def get_decision_report(self) -> Dict[str, Any]:
+        """Generate report on how relationships were determined"""
+        report = {
+            "total_decisions": len(self.decision_log),
+            "ownership_count": sum(1 for d in self.decision_log if d["is_ownership"]),
+            "referential_count": sum(1 for d in self.decision_log if not d["is_ownership"]),
+            "rules_applied": {},
+            "confidence_levels": {
+                "high": 0,
+                "medium": 0,
+                "low": 0
+            },
+            "mode": "strict_structural" if self.strict_structural_only else ("heuristic" if self.enable_semantic_fallbacks else "standard")
+        }
+        
+        for decision in self.decision_log:
+            rule = decision["rule_applied"]
+            report["rules_applied"].setdefault(rule, 0)
+            report["rules_applied"][rule] += 1
+            
+            confidence = decision.get("confidence", "medium")
+            report["confidence_levels"][confidence] += 1
+        
+        return report
+    
+    def _is_ownership_structural(
+        self,
+        child_cat: str,
+        child_field: str,
+        parent_cat: str,
+        parent_field: str,
+        primary_keys: Dict[str, Union[str, List[str]]]
+    ) -> bool:
+        """
+        CORE STRUCTURAL RULE: Child's PK extends parent's PK.
+        Confidence: HIGH (pure PK/FK structure analysis)
+        
+        Example: parent PK = {id}, child PK = {id, ordinal}
+        This indicates child is a detail/component of parent.
+        
+        Algorithm:
+        1. Normalize PKs to sets
+        2. Verify FK references parent's PK
+        3. Verify FK is part of child's PK
+        4. Verify parent PK ⊆ child PK and parent PK ≠ child PK
+        
+        Pure structural analysis - no category names, no hardcoding.
+        Deterministic for a given dictionary.
+        """
+        # Normalize PKs to sets
+        def norm_pk(pk):
+            if pk is None:
+                return set()
+            if isinstance(pk, str):
+                return {pk}
+            return set(pk)
+        
+        pk_child = norm_pk(primary_keys.get(child_cat))
+        pk_parent = norm_pk(primary_keys.get(parent_cat))
+        
+        # No primary key info → can't determine structurally
+        if not pk_child or not pk_parent:
+            return False
+        
+        # The FK must hit the parent's PK
+        if parent_field not in pk_parent:
+            return False
+        
+        # The child FK must be part of the child's PK
+        if child_field not in pk_child:
+            return False
+        
+        # Ownership: child's PK extends parent's PK
+        # Parent's PK is subset of child's PK, and they're not identical
+        return pk_parent.issubset(pk_child) and pk_child != pk_parent
+    
+    def _is_single_fk_child_ownership(
+        self,
+        child_cat: str,
+        child_field: str,
+        parent_cat: str,
+        fk_map: Dict[Tuple[str, str], Tuple[str, str]],
+        primary_keys: Dict[str, Union[str, List[str]]]
+    ) -> bool:
+        """
+        CORE STRUCTURAL RULE: Category with exactly one FK is owned by that parent.
+        Confidence: HIGH (pure FK/PK graph structure)
+        
+        Algorithm:
+        1. Count FKs where child_cat is the child (must be exactly 1)
+        2. Verify it's the relationship being examined
+        3. Check if child has no PK → detail table → ownership
+        4. If child has PK, check if it's a surrogate key:
+           - Single-field PK only
+           - Not referenced as parent elsewhere
+        
+        This catches detail/dependent tables that:
+        - Have only one foreign key relationship
+        - Have no PK, or have a surrogate PK not referenced elsewhere
+        
+        Pure structural analysis - generic across all dictionaries.
+        Deterministic for a given dictionary.
+        """
+        # Find all FKs where this category is the child
+        child_fks = [
+            (c_field, p_cat, p_field)
+            for (c_cat, c_field), (p_cat, p_field) in fk_map.items()
+            if c_cat == child_cat
+        ]
+        
+        # Must have exactly one FK
+        if len(child_fks) != 1:
+            return False
+        
+        # Ensure it's the relationship we're examining
+        only_field, only_parent_cat, _ = child_fks[0]
+        if only_field != child_field or only_parent_cat != parent_cat:
+            return False
+        
+        pk = primary_keys.get(child_cat)
+        
+        # No PK → treat as detail table owned by parent
+        if not pk:
+            return True
+        
+        # PK exists - check if it's a surrogate key
+        if isinstance(pk, str):
+            pk_fields = {pk}
+        else:
+            pk_fields = set(pk)
+        
+        # Multi-field PK → likely independent entity
+        if len(pk_fields) != 1:
+            return False
+        
+        pk_field = next(iter(pk_fields))
+        
+        # Check if this PK field is referenced as a parent elsewhere
+        # If not, it's just a surrogate key for this detail table
+        referenced_as_parent = any(
+            (p_cat == child_cat and p_field == pk_field)
+            for (_, _), (p_cat, p_field) in fk_map.items()
+        )
+        
+        # Not referenced → surrogate key → detail table → ownership
+        return not referenced_as_parent
+    
+    def _is_strong_fk_dependency(
+        self,
+        child_cat: str,
+        child_field: str,
+        parent_cat: str,
+        parent_field: str,
+        primary_keys: Dict[str, Union[str, List[str]]],
+        dict_meta: Dict
+    ) -> bool:
+        """
+        STRUCTURAL/SEMANTIC RULE: FK is mandatory and references parent's PK.
+        Confidence: MEDIUM (uses mandatory flag + name token matching)
+        
+        Algorithm:
+        1. Verify FK references parent's PK
+        2. Check item.mandatory_code in dictionary
+        3. Perform token-based name matching (generic, not hardcoded)
+        
+        Derives ownership from:
+        1. FK references parent's primary key (structural)
+        2. Field is mandatory in dictionary (structural)
+        3. Field name contains a token from parent category name (semantic)
+        
+        No hardcoded category names - all derived from actual schema.
+        Deterministic for a given dictionary.
+        """
+        # Normalize parent PK
+        def norm_pk(pk):
+            if pk is None:
+                return set()
+            if isinstance(pk, str):
+                return {pk}
+            return set(pk)
+        
+        pk_parent = norm_pk(primary_keys.get(parent_cat))
+        
+        # Rule 1: FK must reference parent's PK
+        if not pk_parent or parent_field not in pk_parent:
+            return False
+        
+        # Rule 2: Check if field is mandatory in dictionary
+        child_item_name = f'_{child_cat}.{child_field}'
+        child_item = dict_meta.get('items', {}).get(child_item_name, {})
+        
+        mandatory = child_item.get('item.mandatory_code', '').strip().lower()
+        is_mandatory = mandatory in ['yes', 'y', 'true', '1']
+        
+        if not is_mandatory:
+            # Not mandatory → not a strong dependency
+            return False
+        
+        # Rule 3: Field name must contain meaningful token from parent category
+        # Split both names into tokens (by underscores)
+        field_tokens = set(child_field.lower().split('_'))
+        parent_tokens = set(parent_cat.lower().split('_'))
+        
+        # Remove common non-semantic tokens
+        non_semantic = {'id', 'pdbx', 'auth', 'label'}
+        field_tokens -= non_semantic
+        parent_tokens -= non_semantic
+        
+        # Check for token overlap
+        if field_tokens & parent_tokens:  # Intersection
+            return True
+        
+        return False
+    
+    def _apply_semantic_fallbacks(
+        self,
+        child_cat: str,
+        child_field: str,
+        parent_cat: str,
+        dict_meta: Dict
+    ) -> bool:
+        """
+        Optional semantic heuristics when structural analysis is inconclusive.
+        
+        These use dictionary descriptions and naming patterns.
+        Explicitly separated from core structural logic.
+        """
         child_item_name = f'_{child_cat}.{child_field}'
         child_item = dict_meta.get('items', {}).get(child_item_name, {})
         description = child_item.get('item.description', '').lower()
         
-        semantic_score = 0.0
+        # Check description for ownership indicators
+        ownership_terms = ['identifier', 'key', 'belongs', 'member', 'part']
+        reference_terms = ['type', 'code', 'symbol', 'class', 'method', 'lookup', 'refers to']
         
-        # Strong reference indicators
-        strong_reference_patterns = [
-            SemanticPattern.TYPE_SYMBOL.value, SemanticPattern.SYMBOL.value, SemanticPattern.TYPE.value, 
-            SemanticPattern.CODE.value, SemanticPattern.CLASS.value, SemanticPattern.METHOD.value, 
-            SemanticPattern.STATUS.value, SemanticPattern.ENUM.value, SemanticPattern.CATEGORY.value, 
-            SemanticPattern.KIND.value
-        ]
-        if any(pattern in child_field.lower() for pattern in strong_reference_patterns):
-            semantic_score -= 40
+        ownership_score = sum(1 for term in ownership_terms if term in description)
+        reference_score = sum(1 for term in reference_terms if term in description)
         
-        # Strong ownership indicators
-        ownership_patterns = [f'{parent_cat}{SemanticPattern.ID_SUFFIX.value}', SemanticPattern.ASYM_ID.value, 
-                             SemanticPattern.ENTITY_ID.value, SemanticPattern.STRUCT_ID.value]
-        if any(pattern in child_field.lower() for pattern in ownership_patterns):
-            semantic_score += 30
+        if ownership_score > reference_score:
+            return True
+        if reference_score > ownership_score:
+            return False
         
-        # Primary key references
-        if child_field == SemanticPattern.ID.value or child_field.endswith(SemanticPattern.ID_SUFFIX.value):
-            if parent_cat in child_field or child_field == f'{parent_cat}{SemanticPattern.ID_SUFFIX.value}':
-                semantic_score += 30
+        # Check category hierarchy
+        if parent_cat in child_cat and parent_cat != child_cat:
+            return True
         
-        # Category name inclusion
-        if parent_cat in child_cat:
-            semantic_score += 20
-        
-        # Field description analysis
-        if description:
-            ownership_terms = ['identifier', 'key', 'belongs', 'member', 'part']
-            reference_terms = ['type', 'code', 'symbol', 'class', 'method', 'lookup', 'refers to']
-            for term in ownership_terms:
-                if term in description:
-                    semantic_score += 10
-            for term in reference_terms:
-                if term in description:
-                    semantic_score -= 15
-        
-        return semantic_score
-    
-    def _analyze_category_hierarchy(
-        self, 
-        child_cat: str, 
-        parent_cat: str, 
-        dict_meta: Dict
-    ) -> float:
-        """Analyze category hierarchy patterns from dictionary metadata"""
-        child_category = dict_meta.get('categories', {}).get(child_cat, {})
-        parent_category = dict_meta.get('categories', {}).get(parent_cat, {})
-        hierarchy_score = 0.0
-        
-        # Category descriptions
-        child_desc = child_category.get('category.description', '').lower()
-        parent_desc = parent_category.get('category.description', '').lower()
-        
-        # Naming patterns
-        if child_cat.startswith(parent_cat):
-            hierarchy_score += 25
-        
-        # Description terms
-        if child_desc and parent_desc:
-            if 'detail' in child_desc or 'specific' in child_desc:
-                hierarchy_score += 15
-            if 'general' in parent_desc or 'summary' in parent_desc:
-                hierarchy_score += 10
-        
-        # Structural patterns
-        structural_patterns = [
-            (child_cat.endswith('_site'), parent_cat.endswith('_asym')),
-            (child_cat.endswith('_atom'), parent_cat.endswith('_residue')),
-            ('author' in child_cat, 'label' in parent_cat),
-        ]
-        for child_pattern, parent_pattern in structural_patterns:
-            if child_pattern and parent_pattern:
-                hierarchy_score += 20
-                break
-        
-        return hierarchy_score
+        return False
 
 
 class NestingBuilder:

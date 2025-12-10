@@ -41,6 +41,7 @@ sample_*
 *_profiling.py
 *_test.py
 check_*.py
+compare_*.py
 
 # Commented out files (keeping as-is)
 # *.json
