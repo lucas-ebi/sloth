@@ -16,10 +16,6 @@ class DataSourceFormat(Enum):
 
     MMCIF = auto()  # Native mmCIF file
     JSON = auto()  # JSON file or string
-    XML = auto()  # XML file or string
-    PICKLE = auto()  # Pickle file
-    YAML = auto()  # YAML file or string
-    CSV = auto()  # CSV directory
     DICT = auto()  # Python dictionary
     UNKNOWN = auto()  # Unknown source
 

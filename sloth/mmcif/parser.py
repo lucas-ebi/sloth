@@ -2,10 +2,7 @@
 SLOTH mmCIF Parser - High-Performance Gemmi Backend
 
 This module provides the main MMCIFParser class that uses gemmi as the backend
-for optimal performance while maintaining the same elegant SLOTH API.
-
-The original pure Python implementation has been moved to sloth.legacy.parser
-for compatibility and reference purposes.
+for optimal performance while maintaining the elegant SLOTH API.
 """
 
 from typing import Optional, List, Union
@@ -36,14 +33,14 @@ class MMCIFParser(BaseParser):
         """
         super().__init__(validator_factory, categories)
         
-    def parse_file(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
+    def parse(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """
         Parse mmCIF file using gemmi backend but return SLOTH data structures
         with the same elegant API.
         
         :param file_path: Path to mmCIF file
         :type file_path: Union[str, Path]
-        :return: MMCIFDataContainer with same API as legacy SLOTH parser
+        :return: MMCIFDataContainer with SLOTH's elegant API
         :rtype: MMCIFDataContainer
         """
         # Use categories from instance initialization
@@ -53,8 +50,7 @@ class MMCIFParser(BaseParser):
             import gemmi
         except ImportError:
             raise ImportError(
-                "gemmi is required for MMCIFParser. Install with: pip install gemmi\n"
-                "Or use the legacy parser: from sloth.legacy import MMCIFParser"
+                "gemmi is required for MMCIFParser. Install with: pip install gemmi"
             )
         
         # Convert Path to string if needed

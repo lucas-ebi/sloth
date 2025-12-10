@@ -2,8 +2,10 @@
 
 > *Lazy by design. Fast by default.*
 
+<img width="256" height="256" alt="logo" src="logo.png" />
+
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/lucas-ebi/sloth/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/lucas-ebi/sloth/releases)
 [![Python](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
 [![License](https://img.shields.io/github/license/lucas-ebi/sloth.svg)](https://github.com/lucas-ebi/sloth/blob/main/LICENSE)
 
@@ -25,14 +27,12 @@
 7. [Data Creation](#data-creation)
 8. [Import and Export](#import-and-export)
 9. [Validation](#validation)
-10. [CLI Usage](#example-cli-usage)
-11. [Migration to Gemmi Backend](#migration-to-gemmi-backend)
-12. [Legacy Support](#legacy-support)
-13. [Performance and Architecture](#performance-and-architecture)
-14. [Best Practices](#best-practices)
-15. [Contributing](#contributing)
-16. [License](#license)
-17. [Closing Notes](#closing-notes)
+10. [Interactive Cookbook](#interactive-cookbook)
+11. [Performance and Architecture](#performance-and-architecture)
+12. [Best Practices](#best-practices)
+13. [Contributing](#contributing)
+14. [License](#license)
+15. [Closing Notes](#closing-notes)
 
 ---
 
@@ -48,7 +48,7 @@
 * Lazy construction of row and item objects for memory efficiency
 * Pythonic, dot-notation access to mmCIF data
 * Pluggable custom validation system
-* Export and import in JSON, XML, YAML, Pickle, CSV, and Pandas formats
+* Export and import in JSON format (nested and flat structures)
 
 ---
 
@@ -89,10 +89,9 @@ pip install -e ".[dev]"
 
 ```python
 from sloth import MMCIFHandler
-import sloth
 
 handler = MMCIFHandler()
-mmcif = handler.parse("1abc.cif")
+mmcif = handler.read("1abc.cif")
 
 print(mmcif.data_1ABC._struct.title[0])
 print(mmcif.data_1ABC._atom_site.Cartn_x[0])
@@ -196,22 +195,30 @@ mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
 ### Export
 
 ```python
-handler.export_to_json(mmcif, "out.json")
-handler.export_to_xml(mmcif, "out.xml")
-handler.export_to_yaml(mmcif, "out.yml")
-handler.export_to_pickle(mmcif, "out.pkl")
-handler.export_to_csv(mmcif, "csv_dir")
-dfs = handler.export_to_pandas(mmcif)
+from sloth import StructureFormat
+
+# Export to JSON nested format (default, pretty-printed)
+json_nested = handler.export(mmcif, structure_format=StructureFormat.NESTED, indent=2)
+handler.export(mmcif, structure_format=StructureFormat.NESTED, file_path="out_nested.json", indent=2)
+
+# Export to JSON flat format (optimized for large datasets)
+json_flat = handler.export(mmcif, structure_format=StructureFormat.FLAT, indent=2)
+handler.export(mmcif, structure_format=StructureFormat.FLAT, file_path="out_flat.json", indent=2)
+
+# Compact JSON (no indentation)
+handler.export(mmcif, structure_format=StructureFormat.NESTED, file_path="out_compact.json")
 ```
 
 ### Import
 
 ```python
-mmcif = handler.import_from_json("out.json")
-mmcif = handler.import_from_xml("out.xml")
-mmcif = handler.import_from_yaml("out.yml")
-mmcif = handler.import_from_pickle("out.pkl")
-mmcif = handler.import_auto_detect("out.txt")
+# Auto-detect structure format from JSON file
+mmcif = handler.load("out_nested.json")
+
+# Or specify format explicitly
+from sloth import DataSourceFormat
+
+mmcif = handler.load("out_flat.json", format_type=DataSourceFormat.JSON)
 ```
 
 ### Round-trip validation
@@ -239,44 +246,35 @@ vf = ValidatorFactory()
 vf.register_validator("_atom_site", lambda cat: print("Validating", cat.name))
 
 handler = MMCIFHandler(validator_factory=vf)
-mmcif = handler.parse("1abc.cif")
+mmcif = handler.read("1abc.cif")
 mmcif.data_1ABC._atom_site.validate()
 ```
 
 ---
 
-## Example CLI Usage
+## Interactive Cookbook
+
+SLOTH includes a comprehensive Jupyter notebook cookbook that demonstrates all features interactively:
 
 ```bash
-python demo.py --demo
-python demo.py input.cif output.cif --categories _atom_site --validate
+jupyter notebook SLOTH_Cookbook.ipynb
 ```
 
----
+The cookbook covers:
 
-## Migration to Gemmi Backend
+* Parsing mmCIF files with embedded data
+* Exploring data structures with dot notation
+* 2D slicing (column-wise and row-wise access)
+* Validating mmCIF data
+* Modifying data elegantly
+* Creating sample data (manual, programmatic, and auto-creation)
+* Exporting to JSON (nested and flat structures)
+* Importing from JSON
+* Round-trip validation
+* Writing modified mmCIF files
+* Complete workflow examples
 
-| Feature       | v0.1.x      | v0.2.0+ (current) |
-| ------------- | ----------- | ----------------- |
-| Backend       | Pure Python | Gemmi (C++)       |
-| `use_gemmi`   | Optional    | Removed           |
-| Performance   | Moderate    | High              |
-| Compatibility | N/A         | `sloth.legacy`    |
-
-Your code will continue to work. Only explicit `use_gemmi=False` needs updating.
-
----
-
-## Legacy Support
-
-```python
-from sloth.legacy import MMCIFParser, MMCIFWriter
-
-parser = MMCIFParser()
-mmcif = parser.parse_file("1abc.cif")
-```
-
-Same dot-notation access, same serialization features.
+Perfect for learning SLOTH interactively or as a reference guide.
 
 ---
 
@@ -284,7 +282,7 @@ Same dot-notation access, same serialization features.
 
 | File Size     | Full Parse | Selective Parse | Access Speed | Memory Usage |
 | ------------- | ---------- | --------------- | ------------ | ------------ |
-| <10KB         | 28ms       | 204μs           | 51μs         | 4.0MB        |
+| <10KB         | 28μs       | 204μs           | 51μs         | 4.0MB        |
 | 10KB–100KB    | 703μs      | 634μs           | 22μs         | 172KB        |
 | 100KB–1MB     | 6ms        | 5ms             | 35μs         | 2.1MB        |
 | 1MB–10MB      | 77ms       | 57ms            | 52μs         | 18.8MB       |
@@ -304,11 +302,8 @@ x = mmcif.data_1ABC._atom_site.Cartn_x
 # Dict access for dynamic fields
 val = mmcif.data[0]["_atom_site"]["Cartn_x"]
 
-# Auto-detect import
-mmcif = handler.import_auto_detect("file.ext")
-
 # Partial category loading
-mmcif = handler.parse("file.cif", categories=["_atom_site"])
+mmcif = handler.read("file.cif", categories=["_atom_site"])
 ```
 
 ---

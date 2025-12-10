@@ -2,10 +2,7 @@
 SLOTH mmCIF Writer - High-Performance Gemmi Backend
 
 This module provides the main MMCIFWriter class that uses gemmi as the backend
-for optimal performance while maintaining the same elegant SLOTH API.
-
-The original pure Python implementation has been moved to sloth.legacy.writer
-for compatibility and reference purposes.
+for optimal performance while maintaining the elegant SLOTH API.
 """
 
 from typing import IO
@@ -39,8 +36,7 @@ class MMCIFWriter(BaseWriter):
             import gemmi
         except ImportError:
             raise ImportError(
-                "gemmi is required for MMCIFWriter. Install with: pip install gemmi\n"
-                "Or use the legacy writer: from sloth.legacy import MMCIFWriter"
+                "gemmi is required for MMCIFWriter. Install with: pip install gemmi"
             )
         
         # Convert SLOTH structure back to gemmi format
@@ -54,6 +50,42 @@ class MMCIFWriter(BaseWriter):
         # Write to file object
         content = doc.as_string()
         file_obj.write(content)
+    
+    @staticmethod
+    def _cif_quote_value(value: str) -> str:
+        """
+        Quote a CIF value if necessary according to CIF specification.
+        
+        Values need quoting if they:
+        - Contain whitespace
+        - Start with underscore, hash, dollar, quote, or semicolon
+        - Are reserved words (data_, loop_, stop_, global_)
+        """
+        value_str = str(value)
+        
+        # Check if quoting is needed
+        needs_quoting = (
+            ' ' in value_str or 
+            '\t' in value_str or
+            '\n' in value_str or
+            value_str.startswith(('_', '#', '$', "'", '"', ';')) or
+            value_str.lower() in ('data_', 'loop_', 'stop_', 'global_') or
+            value_str in ('.', '?')
+        )
+        
+        if not needs_quoting:
+            return value_str
+        
+        # Use single quotes if no single quotes in value
+        if "'" not in value_str:
+            return f"'{value_str}'"
+        
+        # Use double quotes if no double quotes in value
+        if '"' not in value_str:
+            return f'"{value_str}"'
+        
+        # Use semicolon-delimited text field for complex cases
+        return f'\n;{value_str}\n;'
     
     def _convert_sloth_block_to_gemmi(self, sloth_block: DataBlock):
         """Convert SLOTH DataBlock back to gemmi format"""
@@ -97,7 +129,7 @@ class MMCIFWriter(BaseWriter):
                     row = []
                     for values in item_values:
                         if i < len(values):
-                            row.append(str(values[i]))
+                            row.append(self._cif_quote_value(values[i]))
                         else:
                             row.append('.')
                     loop.add_row(row)
@@ -105,7 +137,8 @@ class MMCIFWriter(BaseWriter):
                 # Add as single items
                 for field_name, values in zip(field_names, item_values):
                     tag = f"{category_name}.{field_name}"
-                    value = str(values[0]) if values else '.'
+                    value = self._cif_quote_value(values[0]) if values else '.'
                     gemmi_block.set_pair(tag, value)
         
         return gemmi_block
+

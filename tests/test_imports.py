@@ -9,6 +9,7 @@ and that basic classes can be instantiated without errors.
 import unittest
 import sys
 from pathlib import Path
+from sloth.mmcif.serializer import CacheManager, get_cache_manager
 
 
 class TestImports(unittest.TestCase):
@@ -17,15 +18,15 @@ class TestImports(unittest.TestCase):
     def test_main_converter_imports(self):
         """Test that main converter classes can be imported."""
         try:
-            from sloth.serializers import PDBMLConverter, XMLMappingGenerator, DictionaryParser
+            from sloth.mmcif.serializer import MappingGenerator, DictionaryParser
         except ImportError as e:
             self.fail(f"Failed to import main converter classes: {e}")
     
     def test_enum_imports(self):
         """Test that remaining enum classes can be imported."""
         try:
-            from sloth.schemas import (
-                XMLLocation, NullValue, NumericDataType,
+            from sloth.mmcif.defaults import (
+                DataValue, DataType,
                 is_null_value, get_numeric_fields
             )
         except ImportError as e:
@@ -34,77 +35,73 @@ class TestImports(unittest.TestCase):
     def test_parser_imports(self):
         """Test that parser classes can be imported."""
         try:
-            from sloth.parser import MMCIFParser
-            from sloth import MMCIFHandler
+            from sloth.mmcif.parser import MMCIFParser
+            from sloth.mmcif import MMCIFHandler
         except ImportError as e:
             self.fail(f"Failed to import parser classes: {e}")
     
-    def test_schema_imports(self):
-        """Test that schema validation classes can be imported."""
+    def test_exporter_importer_imports(self):
+        """Test that exporter and importer classes can be imported."""
         try:
-            from sloth.validators import XMLSchemaValidator
-            from sloth import SchemaValidator, ValidatorFactory
+            from sloth.mmcif import JSONExporter, JSONImporter
         except ImportError as e:
-            self.fail(f"Failed to import schema classes: {e}")
+            self.fail(f"Failed to import exporter/importer classes: {e}")
     
     def test_basic_instantiation(self):
         """Test that basic classes can be instantiated."""
-        from sloth.serializers import PDBMLConverter, XMLMappingGenerator, DictionaryParser
-        from sloth.parser import MMCIFParser
+        from sloth.mmcif.serializer import MappingGenerator, DictionaryParser
+        from sloth.mmcif.parser import MMCIFParser
+        from sloth.mmcif import JSONExporter, JSONImporter
         
-        # Test instantiation without parameters
-        converter = PDBMLConverter()
-        self.assertIsNotNone(converter)
-        
-        mapping_gen = XMLMappingGenerator()
-        self.assertIsNotNone(mapping_gen)
-        
-        dict_parser = DictionaryParser()
+        # Test instantiation
+        cache = get_cache_manager("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache)
         self.assertIsNotNone(dict_parser)
+        
+        mapping_gen = MappingGenerator(dict_parser, cache)
+        self.assertIsNotNone(mapping_gen)
         
         parser = MMCIFParser()
         self.assertIsNotNone(parser)
+        
+        exporter = JSONExporter()
+        self.assertIsNotNone(exporter)
+        
+        importer = JSONImporter()
+        self.assertIsNotNone(importer)
     
-    def test_converter_with_parameters(self):
-        """Test that converter can be instantiated with optional parameters."""
-        from sloth.serializers import PDBMLConverter
+    def test_exporter_with_parameters(self):
+        """Test that exporter can be instantiated with optional parameters."""
+        from sloth.mmcif import JSONExporter
         
         # Test with cache directory
-        converter = PDBMLConverter(cache_dir="/tmp/test_cache")
-        self.assertIsNotNone(converter)
-        
-        # Test with dictionary path (even if file doesn't exist)
-        converter = PDBMLConverter(dictionary_path="/nonexistent/path.dic")
-        self.assertIsNotNone(converter)
+        exporter = JSONExporter(cache_dir="/tmp/test_cache")
+        self.assertIsNotNone(exporter)
         
         # Test with quiet mode to suppress warnings
-        converter = PDBMLConverter(quiet=True)
-        self.assertIsNotNone(converter)
+        exporter = JSONExporter(quiet=True)
+        self.assertIsNotNone(exporter)
     
     def test_pipeline_imports(self):
-        """Test that pipeline classes can be imported."""
+        """Test that relationship resolver can be imported."""
         try:
-            from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver
+            from sloth.mmcif.serializer import RelationshipResolver
         except ImportError as e:
-            self.fail(f"Failed to import pipeline classes: {e}")
+            self.fail(f"Failed to import RelationshipResolver: {e}")
     
-    def test_pipeline_instantiation(self):
-        """Test that pipeline classes can be instantiated."""
-        from sloth.serializers import MMCIFToPDBMLPipeline, RelationshipResolver
-        
-        pipeline = MMCIFToPDBMLPipeline()
-        self.assertIsNotNone(pipeline)
-        
-        resolver = RelationshipResolver()
+    def test_resolver_instantiation(self):
+        """Test that relationship resolver can be instantiated."""
+        from sloth.mmcif.serializer import RelationshipResolver, DictionaryParser, MappingGenerator
+        # RelationshipResolver requires a mapping generator
+        cache = get_cache_manager("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache)
+        mapping_gen = MappingGenerator(dict_parser, cache)
+        resolver = RelationshipResolver(mapping_gen)
         self.assertIsNotNone(resolver)
     
     def test_enum_functionality(self):
         """Test that enum functions work correctly."""
-        from sloth.schemas import XMLLocation, NullValue, NumericDataType, is_null_value, get_numeric_fields
-        
-        # Test XMLLocation enum
-        self.assertEqual(XMLLocation.ATTRIBUTE.value, "attribute")
-        self.assertEqual(XMLLocation.ELEMENT_CONTENT.value, "element_content")
+        from sloth.mmcif.defaults import DataValue, DataType, is_null_value, get_numeric_fields
         
         # Test null value detection
         self.assertTrue(is_null_value("?"))
@@ -112,7 +109,7 @@ class TestImports(unittest.TestCase):
         self.assertFalse(is_null_value("valid_value"))
         
         # Test numeric data types
-        numeric_types = NumericDataType.get_type_names()
+        numeric_types = DataType.get_numeric_types()
         self.assertIsInstance(numeric_types, set)
         self.assertIn("int", numeric_types)
         self.assertIn("float", numeric_types)
@@ -121,66 +118,52 @@ class TestImports(unittest.TestCase):
         numeric_fields = get_numeric_fields()
         self.assertIsInstance(numeric_fields, set)
     
-    def test_converter_lazy_loading(self):
-        """Test that converter components are properly lazy-loaded."""
-        from sloth.serializers import PDBMLConverter
+    def test_exporter_lazy_loading(self):
+        """Test that exporter components are properly lazy-loaded."""
+        from sloth.mmcif import JSONExporter
         
-        # Create converter in quiet mode
-        converter = PDBMLConverter(quiet=True)
+        # Create exporter
+        exporter = JSONExporter(quiet=True)
         
-        # Initially, internal components should be None (lazy-loaded)
-        self.assertIsNone(converter._dictionary)
-        self.assertIsNone(converter._mapping_rules)
-        self.assertIsNone(converter._xml_validator)
+        # Test that exporter is created successfully
+        self.assertIsNotNone(exporter)
+        self.assertIsNotNone(exporter.resolver)
         
-        # Accessing mapping_rules should trigger lazy loading
-        mapping_rules = converter.mapping_rules
+        # Test that mapping generator can provide mapping rules
+        mapping_rules = exporter.resolver.mapping_rules
         self.assertIsInstance(mapping_rules, dict)
-        self.assertIsNotNone(converter._mapping_rules)
     
     def test_mapping_generator_lazy_loading(self):
-        """Test that XML mapping generator properly lazy-loads components."""
-        from sloth.serializers import XMLMappingGenerator
+        """Test that mapping generator properly lazy-loads components."""
+        from sloth.mmcif.serializer import MappingGenerator, DictionaryParser
         
         # Create mapping generator in quiet mode
-        mapping_gen = XMLMappingGenerator(quiet=True)
+        cache = get_cache_manager("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache, quiet=True)
+        mapping_gen = MappingGenerator(dict_parser, cache, quiet=True)
         
-        # Initially, components should be None
-        self.assertIsNone(mapping_gen._categories)
-        self.assertIsNone(mapping_gen._items)
-        self.assertIsNone(mapping_gen._xsd_elements)
+        # Initially, mapping rules should be None
+        self.assertIsNone(mapping_gen._mapping_rules)
         
-        # Accessing properties should trigger lazy loading
-        categories = mapping_gen.categories
-        self.assertIsInstance(categories, dict)
-        self.assertIsNotNone(mapping_gen._categories)
+        # Accessing mapping rules should trigger lazy loading
+        mapping_rules = mapping_gen.get_mapping_rules()
+        self.assertIsInstance(mapping_rules, dict)
+        self.assertIsNotNone(mapping_gen._mapping_rules)
     
     def test_error_handling(self):
         """Test that error conditions are handled gracefully."""
-        from sloth.serializers import PDBMLConverter, XMLMappingGenerator
+        from sloth.mmcif.serializer import MappingGenerator, DictionaryParser
         
         # Test with non-existent dictionary file (should not crash)
-        converter = PDBMLConverter(
-            dictionary_path="/totally/nonexistent/path.dic",
-            quiet=True
-        )
-        self.assertIsNotNone(converter)
-        
-        # Should still be able to access mapping rules (with fallbacks)
-        mapping_rules = converter.mapping_rules
-        self.assertIsInstance(mapping_rules, dict)
-        
-        # Test mapping generator with invalid paths
-        mapping_gen = XMLMappingGenerator(
-            dict_file="/invalid/dict.dic",
-            xsd_file="/invalid/schema.xsd",
-            quiet=True
-        )
+        cache = get_cache_manager("/tmp/test_cache")
+        dict_parser = DictionaryParser(cache, quiet=True)
+        dict_parser.source = "/totally/nonexistent/path.dic"
+        mapping_gen = MappingGenerator(dict_parser, cache, quiet=True)
         self.assertIsNotNone(mapping_gen)
         
-        # Should return empty but valid structures
-        self.assertIsInstance(mapping_gen.categories, dict)
-        self.assertIsInstance(mapping_gen.items, dict)
+        # Should still be able to access mapping rules (with fallbacks)
+        mapping_rules = mapping_gen.get_mapping_rules()
+        self.assertIsInstance(mapping_rules, dict)
 
 
 class TestModuleStructure(unittest.TestCase):
@@ -193,19 +176,19 @@ class TestModuleStructure(unittest.TestCase):
         # Check that main classes are accessible from package root
         self.assertTrue(hasattr(sloth, 'MMCIFHandler'))
         self.assertTrue(hasattr(sloth, 'MMCIFParser'))
-        self.assertTrue(hasattr(sloth, 'PDBMLConverter'))
-        self.assertTrue(hasattr(sloth, 'SchemaValidator'))
     
     def test_submodule_accessibility(self):
         """Test that submodules are accessible."""
         try:
-            import sloth.parser
-            import sloth.serializers
-            import sloth.validators
-            import sloth.models
+            import sloth.mmcif.parser
+            import sloth.mmcif.serializer
+            import sloth.mmcif.models
+            import sloth.mmcif.exporter
+            import sloth.mmcif.importer
         except ImportError as e:
             self.fail(f"Failed to import submodules: {e}")
 
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
