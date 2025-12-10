@@ -106,42 +106,157 @@ class JSONImporter(BaseImporter):
         Flatten nested JSON structure back to flat format.
         
         This reverses the nesting done by RelationshipResolver.
-        Note: Only flattens categories that contain other categories,
-        not individual item dictionaries within categories.
+        Extracts child categories nested within parent rows and creates
+        separate top-level categories for each. Handles recursive nesting
+        (e.g., atom_site nested in struct_asym nested in entity).
+        
+        Complexity: O(n) where n is total number of items across all categories,
+        with each item processed once regardless of nesting depth.
         """
         flat_data = {}
         
         for block_name, block_data in nested_data.items():
             flat_block = {}
             
-            def flatten_category(category_data, category_name):
-                """Recursively flatten nested category data."""
-                if isinstance(category_data, dict):
-                    # Check if this dict represents item data or nested categories
-                    if self._is_item_dict(category_data):
-                        # This is item data - keep as is
-                        flat_block[category_name] = category_data
-                    else:
-                        # This contains nested categories - flatten them
-                        for key, value in category_data.items():
-                            if isinstance(value, (dict, list)):
-                                flatten_category(value, key)
-                            else:
-                                # Individual item - shouldn't happen at this level
-                                flat_block[key] = value
-                elif isinstance(category_data, list):
-                    # Multi-row category - keep as is
-                    flat_block[category_name] = category_data
-                else:
-                    # Simple value - keep as is
-                    flat_block[category_name] = category_data
-            
+            # Process each top-level category
             for category_name, category_data in block_data.items():
-                flatten_category(category_data, category_name)
+                nested_categories = {}
+                flattened_data = self._extract_and_flatten(category_data, nested_categories)
+                
+                # Add flattened parent category
+                flat_block[category_name] = flattened_data
+                
+                # Add all extracted nested categories
+                flat_block.update(nested_categories)
             
             flat_data[block_name] = flat_block
         
         return flat_data
+    
+    def _extract_and_flatten(self, data: Any, accumulated_categories: Dict[str, List]) -> Any:
+        """
+        Extract nested categories and return flattened data.
+        
+        Single-pass algorithm that processes each row once, extracting
+        nested categories while building the flattened parent.
+        
+        Args:
+            data: Category data (list of rows, single dict, or primitive)
+            accumulated_categories: Dict accumulating extracted nested categories
+            
+        Returns:
+            Flattened data with nested categories removed
+        """
+        if not isinstance(data, (list, dict)):
+            return data
+        
+        if isinstance(data, list):
+            return self._flatten_list_category(data, accumulated_categories)
+        else:
+            return self._flatten_dict_category(data, accumulated_categories)
+    
+    def _flatten_list_category(self, rows: List[Dict], accumulated_categories: Dict[str, List]) -> List[Dict]:
+        """
+        Flatten a multi-row category, extracting nested categories from each row.
+        
+        Args:
+            rows: List of row dictionaries
+            accumulated_categories: Dict accumulating extracted nested categories
+            
+        Returns:
+            List of flattened rows without nested categories
+        """
+        flattened_rows = []
+        
+        for row in rows:
+            if not isinstance(row, dict):
+                flattened_rows.append(row)
+                continue
+            
+            flattened_row = self._extract_nested_from_row(row, accumulated_categories)
+            flattened_rows.append(flattened_row)
+        
+        return flattened_rows
+    
+    def _flatten_dict_category(self, row: Dict[str, Any], accumulated_categories: Dict[str, List]) -> Dict[str, Any]:
+        """
+        Flatten a single-row category, extracting nested categories.
+        
+        Args:
+            row: Single row dictionary
+            accumulated_categories: Dict accumulating extracted nested categories
+            
+        Returns:
+            Flattened row without nested categories
+        """
+        return self._extract_nested_from_row(row, accumulated_categories)
+    
+    def _extract_nested_from_row(self, row: Dict[str, Any], accumulated_categories: Dict[str, List]) -> Dict[str, Any]:
+        """
+        Extract nested categories from a single row.
+        
+        Separates regular items from nested categories. Nested categories are
+        identified as dict/list values (except for 'id' which is always regular).
+        
+        Args:
+            row: Row dictionary containing both regular items and nested categories
+            accumulated_categories: Dict accumulating extracted nested categories
+            
+        Returns:
+            Row dictionary with only regular items
+        """
+        regular_items = {}
+        
+        for key, value in row.items():
+            if self._is_regular_item(key, value):
+                regular_items[key] = value
+            else:
+                self._extract_nested_category(key, value, accumulated_categories)
+        
+        return regular_items
+    
+    def _is_regular_item(self, key: str, value: Any) -> bool:
+        """
+        Determine if a row item is a regular data item vs nested category.
+        
+        Args:
+            key: Item key/name
+            value: Item value
+            
+        Returns:
+            True if regular item, False if nested category
+        """
+        # 'id' is always a regular item even if it's a list/dict
+        if key == 'id':
+            return True
+        
+        # Non-list/dict values are regular items
+        return not isinstance(value, (list, dict))
+    
+    def _extract_nested_category(self, key: str, value: Any, accumulated_categories: Dict[str, List]) -> None:
+        """
+        Extract a nested category and add it to accumulated categories.
+        
+        Args:
+            key: Category key (without underscore prefix)
+            value: Nested category data
+            accumulated_categories: Dict accumulating extracted nested categories
+        """
+        # Add underscore prefix for category name
+        cat_name = f"_{key}" if not key.startswith('_') else key
+        
+        # Initialize category list if first occurrence
+        if cat_name not in accumulated_categories:
+            accumulated_categories[cat_name] = []
+        
+        # Recursively flatten nested data
+        nested_flattened = self._extract_and_flatten(value, accumulated_categories)
+        
+        # Add to accumulated categories
+        if isinstance(nested_flattened, list):
+            accumulated_categories[cat_name].extend(nested_flattened)
+        else:
+            accumulated_categories[cat_name].append(nested_flattened)
     
     def _is_item_dict(self, data: Dict[str, Any]) -> bool:
         """Check if a dictionary represents item data vs nested categories."""

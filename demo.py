@@ -615,40 +615,39 @@ def demonstrate_export_functionality(mmcif, output_dir):
  
 
 
-def demonstrate_import_functionality(output_dir):
+def demonstrate_import_functionality(output_dir, source_mmcif=None):
     """Demonstrate JSON import functionality with flat and nested structures."""
     
     print(f"\n📥 Demonstrating import functionality:")
-    print(f"   Supporting JSON format in both flat and nested structures")
+    print(f"   Supporting JSON format with nested structure")
 
     # Create handler
     handler = MMCIFHandler()
 
     print(f"\n🔍 Available import methods:")
     print(f"   ✅ mmCIF files: handler.read(file_path) - Full support")
-    print(f"   ⚠️ JSON files: handler.load(file_path, format_type='json') - Schema validation required")
-    
-    print(f"\n📋 Current limitations:")
-    print(f"   • JSON import requires strict schema compliance (no None values)")
+    print(f"   ✅ JSON files: handler.load(file_path, format_type='json') - Full support")
     
     print(f"\n💡 Recommended workflow:")
     print(f"   1. Parse mmCIF files: container = handler.read('file.cif')")
-    print(f"   2. Export to formats: handler.export(container, format_type='json', file_path='out.json')")
-    print(f"   3. For import: Focus on mmCIF as primary input format")
+    print(f"   2. Export to JSON: handler.export(container, format_type='json', file_path='out.json')")
+    print(f"   3. Import from JSON: handler.load('out.json', format_type='json')")
+    print(f"   4. Round-trip: mmCIF → JSON → mmCIF (fully supported!)")
     
-    # Demonstrate what actually works: mmCIF parsing
-    print(f"\n✅ Demonstrating working mmCIF import:")
+    # Demonstrate mmCIF parsing
+    print(f"\n✅ Demonstrating mmCIF import:")
+    mmcif_container = None
     try:
         # Show that we can re-parse the mmCIF files we created
         test_files = ['sample_manual.cif', 'sample_programmatic.cif', 'sample_dot_notation.cif']
         
         for test_file in test_files:
             if os.path.exists(test_file):
-                container = handler.read(test_file)
+                mmcif_container = handler.read(test_file)
                 print(f"   ✅ Successfully parsed: {test_file}")
-                print(f"      Data blocks: {len(container.data)}")
-                if container.data:
-                    print(f"      Categories in first block: {len(container.data[0].categories)}")
+                print(f"      Data blocks: {len(mmcif_container.data)}")
+                if mmcif_container.data:
+                    print(f"      Categories in first block: {len(mmcif_container.data[0].categories)}")
                 break
         else:
             print("   ℹ️ No test mmCIF files found to demonstrate parsing")
@@ -656,17 +655,30 @@ def demonstrate_import_functionality(output_dir):
     except Exception as e:
         print(f"   ❌ mmCIF parsing demonstration failed: {e}")
 
-    # Show file verification for exported formats (without claiming to import them)
-    print(f"\n📁 Verifying exported files exist:")
-    json_file = os.path.join(output_dir, "exported_data.json")
+    # Demonstrate JSON round-trip
+    print(f"\n✅ Demonstrating JSON round-trip:")
+    json_file = os.path.join(output_dir, "exported_nested.json")
     
     if os.path.exists(json_file):
-        size = os.path.getsize(json_file)
-        print(f"   ✅ JSON: {json_file} ({size} bytes)")
+        try:
+            # Import the JSON we exported earlier
+            imported_container = handler.load(json_file, format_type='json')
+            print(f"   ✅ Successfully imported: {json_file}")
+            print(f"      Data blocks: {len(imported_container.data)}")
+            if imported_container.data:
+                print(f"      Categories in first block: {len(imported_container.data[0].categories)}")
+            
+            # Return both for comparison if we have the source
+            if source_mmcif:
+                return {"original": source_mmcif, "imported": imported_container}
+            else:
+                return {"status": "Import successful but no source for comparison"}
+        except Exception as e:
+            print(f"   ❌ JSON import failed: {e}")
+            return {"status": f"JSON import failed: {e}"}
     else:
-        print(f"   ❌ JSON: {json_file} not found")
-
-    return {"status": "Export verification complete, import capabilities limited"}
+        print(f"   ❌ JSON file not found: {json_file}")
+        return {"status": "JSON file not found"}
 
 
 def demonstrate_round_trip(mmcif, imported_container, format_name):
@@ -1142,13 +1154,14 @@ def main():
         demonstrate_export_functionality(mmcif, output_dir)
 
         # Demonstrate import functionality
-        import_result = demonstrate_import_functionality(output_dir)
+        import_result = demonstrate_import_functionality(output_dir, mmcif)
 
-        # Show that we're skipping round-trip validation since import is limited
-        print(f"\n🔄 Round-trip Validation Status:")
-        print(f"   ℹ️ Round-trip validation requires functional import API")
-        print(f"   ⚠️ Currently limited to file verification and mmCIF re-parsing")
-        print(f"   💡 Focus: SLOTH excels at mmCIF parsing and JSON export")
+        # Perform round-trip validation if we have both containers
+        if isinstance(import_result, dict) and "original" in import_result and "imported" in import_result:
+            demonstrate_round_trip(import_result["original"], import_result["imported"], "JSON")
+        else:
+            print(f"\n🔄 Round-trip Validation:")
+            print(f"   ℹ️ {import_result.get('status', 'Validation not performed')}")
 
         # Clean up demo files if created
         if args.demo and os.path.exists("demo_structure.cif"):
