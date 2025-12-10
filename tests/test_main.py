@@ -17,9 +17,7 @@ from sloth.mmcif import (
     MMCIFHandler,
     MMCIFWriter,
     JSONExporter,
-    XMLExporter,
     JSONImporter,
-    XMLImporter,
     MMCIFDataContainer,
     DataBlock,
     Category,
@@ -674,29 +672,6 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         self.assertIsInstance(block_data["_database_2"], list)
         self.assertEqual(block_data["_database_2"][0]["database_id"], "PDB")
 
-    def test_xml_export_to_string(self):
-        """Test XML export to string."""
-        xml_str = self.handler.export(self.mmcif, format_type='xml', permissive=True)
-        self.assertIsInstance(xml_str, str)
-        self.assertIn('<datablock', xml_str)
-        self.assertIn('datablockName="test"', xml_str)
-        self.assertIn('<entryCategory>', xml_str)
-
-    def test_xml_export_to_file(self):
-        """Test XML export to file."""
-        xml_path = os.path.join(self.temp_dir, "test.xml")
-        self.handler.export(self.mmcif, format_type='xml', file_path=xml_path, permissive=True)
-        
-        # Verify file exists
-        self.assertTrue(os.path.exists(xml_path))
-        
-        # Verify content
-        with open(xml_path) as f:
-            xml_content = f.read()
-        
-        self.assertIn('<datablock', xml_content)
-        self.assertIn('<entryCategory>', xml_content)
-
     def test_unsupported_format_error(self):
         """Test that unsupported formats raise appropriate errors."""
         with self.assertRaises(ValueError):
@@ -741,16 +716,13 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 """
             )
 
-        # Parse the test file and export to JSON/XML for testing imports
+        # Parse the test file and export to JSON for testing imports
         handler = MMCIFHandler()
         self.mmcif = handler.read(self.test_cif_path)
 
-        # Export data to different formats for import testing
+        # Export data to JSON for import testing
         self.json_path = os.path.join(self.temp_dir, "test.json")
         handler.export(self.mmcif, format_type='json', file_path=self.json_path, permissive=True, structure='nested')
-        
-        self.xml_path = os.path.join(self.temp_dir, "test.xml")
-        handler.export(self.mmcif, format_type='xml', file_path=self.xml_path, permissive=True)
 
     def tearDown(self):
         """Tear down test fixtures."""
@@ -797,45 +769,6 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         self.assertIsNotNone(first_block)
         self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
 
-    def test_xml_import_from_file(self):
-        """Test importing from XML file."""
-        importer = XMLImporter(permissive=True)
-        imported_container = importer.import_data(self.xml_path)
-
-        # Verify structure and content
-        self.assertTrue(len(imported_container.blocks) > 0)
-        
-        # Get the first block by iterating over the container
-        first_block = None
-        for block in imported_container:
-            first_block = block
-            break
-        
-        self.assertIsNotNone(first_block)
-        self.assertIn("_entry", first_block.categories)
-        self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
-        
-        self.assertIn("_atom_site", first_block.categories)
-        atom_site = first_block["_atom_site"]
-        self.assertEqual(atom_site["Cartn_x"][0], "10.123")
-
-    def test_xml_import_from_string(self):
-        """Test importing from XML string."""
-        with open(self.xml_path, "r") as f:
-            xml_str = f.read()
-
-        importer = XMLImporter(permissive=True)
-        imported_container = importer.import_data(xml_str)
-        
-        # Get the first block by iterating over the container
-        first_block = None
-        for block in imported_container:
-            first_block = block
-            break
-        
-        self.assertIsNotNone(first_block)
-        self.assertEqual(first_block["_entry"]["id"], ["test_structure"])
-
     def test_round_trip_json(self):
         """Test round-trip conversion: mmCIF -> JSON -> mmCIF."""
         handler = MMCIFHandler()
@@ -846,34 +779,6 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         # Import back from JSON
         importer = JSONImporter(permissive=True)
         imported_mmcif = importer.import_data(json_str)
-        
-        # Verify the data matches - use correct block iteration
-        # Get first block from original by iterating over container
-        original_block = None
-        for block in self.mmcif:
-            original_block = block
-            break
-        
-        # Get first block from imported by iterating over container
-        imported_block = None
-        for block in imported_mmcif:
-            imported_block = block
-            break
-        
-        self.assertIsNotNone(original_block)
-        self.assertIsNotNone(imported_block)
-        self.assertEqual(original_block["_entry"]["id"], imported_block["_entry"]["id"])
-
-    def test_round_trip_xml(self):
-        """Test round-trip conversion: mmCIF -> XML -> mmCIF."""
-        handler = MMCIFHandler()
-        
-        # Export to XML string
-        xml_str = handler.export(self.mmcif, format_type='xml', permissive=True, structure='nested')
-        
-        # Import back from XML
-        importer = XMLImporter(permissive=True)
-        imported_mmcif = importer.import_data(xml_str)
         
         # Verify the data matches - use correct block iteration
         # Get first block from original by iterating over container
@@ -950,9 +855,7 @@ _custom_category.custom_item custom_value
         
         json_str = handler_permissive.export(mmcif, format_type='json', permissive=True)
         self.assertIsInstance(json_str, str)
-        
-        xml_str = handler_permissive.export(mmcif, format_type='xml', permissive=True)
-        self.assertIsInstance(xml_str, str)
+        self.assertIn('"_entry"', json_str)
         
         # Test compliant export with permissive flag
         handler_compliant = MMCIFHandler(validator_factory=ValidatorFactory())
@@ -960,9 +863,7 @@ _custom_category.custom_item custom_value
         
         json_str = handler_compliant.export(mmcif, format_type='json', permissive=True)
         self.assertIsInstance(json_str, str)
-        
-        xml_str = handler_compliant.export(mmcif, format_type='xml', permissive=True)
-        self.assertIsInstance(xml_str, str)
+        self.assertIn('"_entry"', json_str)
 
     def test_strict_vs_permissive_export(self):
         """Test that strict mode requires schema compliance while permissive doesn't."""

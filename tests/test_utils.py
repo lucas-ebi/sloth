@@ -13,16 +13,16 @@ from functools import lru_cache
 from typing import Dict, Any
 
 from sloth.mmcif.serializer import (
-    PDBMLConverter, MappingGenerator, DictionaryParser, 
-    XSDParser, CacheManager, get_cache_manager
+    MappingGenerator, DictionaryParser, 
+    CacheManager, get_cache_manager, RelationshipResolver
 )
+from sloth.mmcif import JSONExporter
 
-# Global converter cache
-_GLOBAL_CONVERTERS: Dict[str, PDBMLConverter] = {}
+# Global exporter cache
+_GLOBAL_EXPORTERS: Dict[str, JSONExporter] = {}
 
 # Global paths for schemas
 DICT_PATH = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
-XSD_PATH = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
 
 # Global cache directory
 CACHE_DIR = os.path.join(tempfile.gettempdir(), "sloth_test_cache")
@@ -33,158 +33,183 @@ GLOBAL_CACHE = get_cache_manager(CACHE_DIR)
 
 
 @lru_cache(maxsize=2)
-def get_shared_converter(permissive: bool = False) -> PDBMLConverter:
+def get_shared_exporter(quiet: bool = True) -> JSONExporter:
     """
-    Get a shared converter instance with the specified permissive setting.
+    Get a shared JSON exporter instance.
     
-    This function caches and reuses converter instances across all tests,
+    This function caches and reuses exporter instances across all tests,
     which dramatically improves test performance.
     
     Args:
-        permissive: Whether the converter should be in permissive mode.
+        quiet: Whether the exporter should suppress output messages.
         
     Returns:
-        A cached PDBMLConverter instance.
+        A cached JSONExporter instance.
     """
-    cache_key = f"converter_{permissive}"
+    cache_key = f"exporter_{quiet}"
     
-    if cache_key in _GLOBAL_CONVERTERS:
-        return _GLOBAL_CONVERTERS[cache_key]
+    if cache_key in _GLOBAL_EXPORTERS:
+        return _GLOBAL_EXPORTERS[cache_key]
         
-    # Set up parsers with default paths
-    dict_parser = DictionaryParser(GLOBAL_CACHE, quiet=True)
-    xsd_parser = XSDParser(GLOBAL_CACHE, quiet=True)
-    dict_parser.source = DICT_PATH
-    xsd_parser.source = XSD_PATH
+    # Create exporter with caching
+    exporter = JSONExporter(cache_dir=CACHE_DIR, quiet=quiet)
     
-    # Set up mapping generator
-    mapping_generator = MappingGenerator(dict_parser, xsd_parser, GLOBAL_CACHE, quiet=True)
+    # Cache exporter for future use
+    _GLOBAL_EXPORTERS[cache_key] = exporter
     
-    # Create converter
-    converter = PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
-    
-    # Cache converter for future use
-    _GLOBAL_CONVERTERS[cache_key] = converter
-    
-    return converter
+    return exporter
 
 
-# Shared schema validator instances for improved performance
-_GLOBAL_VALIDATORS: Dict[str, Any] = {}
-
-
-@lru_cache(maxsize=4)
-def get_shared_schema_validator(format_type: str):
+@lru_cache(maxsize=1)
+def get_shared_mapping_generator() -> MappingGenerator:
     """
-    Get a shared schema validator instance for the specified format.
+    Get a shared mapping generator instance.
     
-    This function caches and reuses validator instances across all tests,
-    which improves test performance by avoiding repeated schema loading.
-    Uses the official PDBML schemas instead of custom mmCIF schemas.
+    This function caches and reuses the mapping generator across all tests
+    for improved performance.
+    
+    Returns:
+        A cached MappingGenerator instance.
+    """
+    dict_parser = DictionaryParser(GLOBAL_CACHE, quiet=True)
+    dict_parser.source = DICT_PATH
+    
+    mapping_generator = MappingGenerator(dict_parser, GLOBAL_CACHE, quiet=True)
+    
+    return mapping_generator
+
+
+@lru_cache(maxsize=1)
+def get_shared_relationship_resolver() -> RelationshipResolver:
+    """
+    Get a shared relationship resolver instance.
+    
+    This function caches and reuses the resolver across all tests
+    for improved performance.
+    
+    Returns:
+        A cached RelationshipResolver instance.
+    """
+    mapping_gen = get_shared_mapping_generator()
+    resolver = RelationshipResolver(mapping_gen)
+    
+    return resolver
+
+
+def get_test_cache_manager(subdir: str = None) -> CacheManager:
+    """
+    Get a cache manager for test purposes.
     
     Args:
-        format_type: The format type ('XML', 'JSON').
+        subdir: Optional subdirectory within the test cache directory.
         
     Returns:
-        A cached schema validator instance.
+        A CacheManager instance for testing.
     """
-    from sloth.mmcif.validator import XMLSchemaValidator, JSONSchemaValidator
-    
-    cache_key = f"validator_{format_type}"
-    
-    if cache_key in _GLOBAL_VALIDATORS:
-        return _GLOBAL_VALIDATORS[cache_key]
-    
-    # Create validator directly using official schemas
-    if format_type == 'XML':
-        # Use the official PDBML XSD schema
-        validator = XMLSchemaValidator(str(XSD_PATH))
-    elif format_type == 'JSON':
-        # Create a basic JSON schema for mmCIF data
-        basic_schema = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "patternProperties": {
-                "^data_[A-Z0-9_]+$": {
-                    "type": "object",
-                    "patternProperties": {
-                        "^_[a-zA-Z0-9_]+$": {
-                            "anyOf": [
-                                {"type": "object"},
-                                {"type": "array"},
-                                {"type": "string"},
-                                {"type": "number"}
-                            ]
-                        }
-                    },
-                    "additionalProperties": False
-                }
-            },
-            "additionalProperties": False,
-            "minProperties": 1
-        }
-        validator = JSONSchemaValidator(basic_schema)
-    elif format_type == 'XML_SIMPLE':
-        # Create a simple XML validator for testing purposes
-        # This bypasses the complex PDBML schema for basic functionality testing
-        class SimpleXMLValidator:
-            def __init__(self):
-                pass
-            
-            def validate(self, xml_string):
-                """Simple validation - just check if it's well-formed XML."""
-                try:
-                    import xml.etree.ElementTree as ET
-                    ET.fromstring(xml_string)
-                    
-                    # Basic structure checks
-                    if 'datablockName' not in xml_string:
-                        raise ValueError("Missing required datablockName attribute")
-                    if 'xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd"' not in xml_string:
-                        raise ValueError("Missing or incorrect namespace")
-                    if xml_string.strip().endswith('></datablock>'):
-                        raise ValueError("Empty datablock")
-                        
-                    return {"valid": True, "errors": []}
-                except Exception as e:
-                    from sloth.mmcif.validator import ValidationError
-                    raise ValidationError(str(e))
-            
-            def is_valid(self, xml_string):
-                """Check if XML is valid without raising exceptions."""
-                try:
-                    self.validate(xml_string)
-                    return True
-                except:
-                    return False
-        
-        validator = SimpleXMLValidator()
+    if subdir:
+        cache_path = os.path.join(CACHE_DIR, subdir)
     else:
-        raise ValueError(f"Unsupported format type: {format_type}. Supported formats: XML, JSON, XML_SIMPLE")
+        cache_path = CACHE_DIR
     
-    # Cache validator for future use
-    _GLOBAL_VALIDATORS[cache_key] = validator
-    
-    return validator
+    os.makedirs(cache_path, exist_ok=True)
+    return get_cache_manager(cache_path)
 
 
-def get_schema_paths():
+# Test data helpers
+def create_simple_mmcif() -> str:
     """
-    Get the paths to the official PDBML schema files.
+    Create a simple mmCIF test structure.
     
     Returns:
-        A dictionary with paths to dictionary and XSD schema files.
+        A string containing simple mmCIF data.
     """
-    return {
-        'dict_path': DICT_PATH,
-        'xsd_path': XSD_PATH
-    }
+    return """data_TEST
+#
+_entry.id TEST
+#
+_entity.id 1
+_entity.type polymer
+#
+_atom_site.group_PDB ATOM
+_atom_site.id 1
+_atom_site.type_symbol C
+_atom_site.label_entity_id 1
+_atom_site.Cartn_x 10.0
+_atom_site.Cartn_y 20.0
+_atom_site.Cartn_z 30.0
+#"""
 
 
-def cleanup_test_cache():
-    """Clean up test cache to free memory if needed."""
-    global _GLOBAL_CONVERTERS, _GLOBAL_VALIDATORS
-    _GLOBAL_CONVERTERS.clear()
-    _GLOBAL_VALIDATORS.clear()
-    if hasattr(GLOBAL_CACHE, 'clear_global_caches'):
-        GLOBAL_CACHE.clear_global_caches()
+def create_complex_mmcif_with_relationships() -> str:
+    """
+    Create a complex mmCIF structure with multiple entities and relationships.
+    
+    Returns:
+        A string containing complex mmCIF data with relationships.
+    """
+    return """data_COMPLEX
+#
+_entry.id COMPLEX
+#
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer 'Protein chain A'
+2 water 'Water molecules'
+#
+loop_
+_entity_poly.entity_id
+_entity_poly.type
+_entity_poly.nstd_chirality
+1 'polypeptide(L)' no
+#
+loop_
+_entity_poly_seq.entity_id
+_entity_poly_seq.num
+_entity_poly_seq.mon_id
+1 1 VAL
+1 2 ALA
+#
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 2
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+ATOM 1 C CA VAL A 1 1 10.0 11.0 12.0 1.00 20.0
+ATOM 2 N N ALA A 1 2 13.0 14.0 15.0 1.00 25.0
+ATOM 3 O O HOH B 2 . 16.0 17.0 18.0 1.00 30.0
+ATOM 4 O O HOH B 2 . 19.0 20.0 21.0 1.00 35.0
+#"""
+
+
+if __name__ == '__main__':
+    # Test that utilities work correctly
+    print("Testing shared utilities...")
+    
+    exporter = get_shared_exporter()
+    print(f"✓ Created shared exporter: {exporter}")
+    
+    mapping_gen = get_shared_mapping_generator()
+    print(f"✓ Created shared mapping generator: {mapping_gen}")
+    
+    resolver = get_shared_relationship_resolver()
+    print(f"✓ Created shared resolver: {resolver}")
+    
+    print("\n✓ All utilities work correctly!")
+

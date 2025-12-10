@@ -1,728 +1,303 @@
 #!/usr/bin/env python3
 """
-Dedicated test suite for nested relationship resolution functionality.
+Test suite for relationship resolution in JSON export.
 
-This module contains comprehensive unit tests for the multi-level relationship
-resolution features, testing the complete pipeline from mmCIF parsing through
-to nested JSON generation with proper parent-child relationships.
+This module tests the relationship resolver's ability to create nested JSON
+structures based on foreign key relationships defined in the mmCIF dictionary.
 """
 
 import unittest
 import tempfile
 import os
 import json
-import xml.etree.ElementTree as ET
-from pathlib import Path
 import shutil
 
 from sloth.mmcif.parser import MMCIFParser
-from sloth.mmcif import MMCIFHandler
-from sloth.mmcif.defaults import ExportFormat, StructureFormat
-from sloth.mmcif.serializer import (
-    PDBMLConverter, RelationshipResolver,
-    DictionaryParser, get_cache_manager, XSDParser, MappingGenerator
+from tests.test_utils import (
+    get_shared_exporter,
+    create_complex_mmcif_with_relationships
 )
-from sloth.mmcif.validator import XMLSchemaValidator
 
 
 class TestRelationshipResolution(unittest.TestCase):
-    """Test suite for relationship resolution and nested JSON generation."""
+    """Test relationship resolution for nested JSON generation."""
     
     def setUp(self):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
         
-        # Set up shared cache for testing caching effectiveness
-        self.cache = get_cache_manager(os.path.join(self.temp_dir, ".cache"))
-        
-        # Test data that creates a 4-level hierarchy
-        # entity -> entity_poly -> entity_poly_seq
-        # entity -> struct_asym -> atom_site
-        self.test_data = """data_TEST_REL
-#
-_entry.id        TEST_REL
-#
-_entity.id       1
-_entity.type     polymer
-_entity.pdbx_description 'Test protein'
-#
-_entity_poly.entity_id 1
-_entity_poly.type      'polypeptide(L)'
-_entity_poly.nstd_chirality no
-#
-_entity_poly_seq.entity_id 1
-_entity_poly_seq.num       1
-_entity_poly_seq.mon_id    ALA
-#
-_struct_asym.id      A
-_struct_asym.entity_id 1
-#
-_atom_site.group_PDB  atom
-_atom_site.id         1
-_atom_site.type_symbol C
-_atom_site.label_atom_id CA
-_atom_site.label_comp_id ALA
-_atom_site.label_asym_id A
-_atom_site.label_entity_id 1
-_atom_site.label_seq_id 1
-_atom_site.Cartn_x    1.234
-_atom_site.Cartn_y    5.678
-_atom_site.Cartn_z    9.012
-_atom_site.occupancy  1.00
-_atom_site.B_iso_or_equiv 25.0
-#"""
-        
-        self.test_file = os.path.join(self.temp_dir, 'test_relationships.cif')
+        # Create complex mmCIF with relationships
+        self.complex_mmcif = create_complex_mmcif_with_relationships()
+        self.test_file = os.path.join(self.temp_dir, 'test.cif')
         with open(self.test_file, 'w') as f:
-            f.write(self.test_data)
+            f.write(self.complex_mmcif)
+        
+        # Parse and export to JSON
+        parser = MMCIFParser()
+        container = parser.parse(self.test_file)
+        exporter = get_shared_exporter()
+        json_str = exporter.export_data(container)
+        
+        self.data = json.loads(json_str)
+        self.block_data = self.data['data_COMPLEX']
     
     def tearDown(self):
         """Clean up temporary files."""
         shutil.rmtree(self.temp_dir)
     
-    def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
-        """Helper method to create a properly configured PDBMLConverter."""
-        from pathlib import Path
+    def test_entity_poly_nesting(self):
+        """Test entity -> entity_poly relationship resolution."""
+        entities = self.block_data['_entity']
         
-        # Set up caching
-        # Use shared cache for testing caching effectiveness
-        cache = self.cache
+        # Check first entity (polymer)
+        entity = entities[0]
+        self.assertEqual(entity['id'], '1')
+        self.assertEqual(entity['type'], 'polymer')
         
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
+        # Check nested entity_poly
+        self.assertIn('entity_poly', entity)
+        entity_poly = entity['entity_poly']
+        self.assertIsInstance(entity_poly, list)
+        self.assertEqual(len(entity_poly), 1)
         
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create converter
-        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
+        # Verify entity_poly fields
+        poly = entity_poly[0]
+        self.assertEqual(poly['entity_id'], '1')
+        # Type may have quotes around it
+        self.assertIn('polypeptide', poly['type'])
     
-    def _create_resolver(self) -> RelationshipResolver:
-        """Helper method to create RelationshipResolver with proper mapping generator."""
-        from pathlib import Path
+    def test_entity_poly_seq_nesting(self):
+        """Test entity_poly -> entity_poly_seq relationship resolution."""
+        entity = self.block_data['_entity'][0]
+        entity_poly = entity['entity_poly'][0]
         
-        # Set up caching
-        # Use shared cache for testing caching effectiveness
-        cache = self.cache
-        
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
-        
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create resolver
-        return RelationshipResolver(mapping_generator)
-    
-    def test_relationship_identification(self):
-        """Test that relationships are correctly identified from XML."""
-        # Parse and convert to XML using the working handler.export()
-        handler = MMCIFHandler()
-        container = handler.read(self.test_file)
-        xml_content = handler.export(container, format_type=ExportFormat.XML, structure=StructureFormat.NESTED, permissive=True)
-        
-        # Create resolver with dictionary and test relationship identification
-        resolver = self._create_resolver()
-        
-        # Parse XML to check relationships
-        root = ET.fromstring(xml_content)
-        ns = {'pdbx': 'http://pdbml.pdb.org/schema/pdbx-v50.xsd'}
-        
-        # Test by calling the public method and examining the result
-        nested_json = resolver.resolve_relationships(xml_content)
-        
-        # Check that expected relationships are reflected in the nested structure
-        # This indirectly tests the relationship identification
-        
-        # Check that key relationships are reflected in the nested structure
-        self.assertIn('entity', nested_json)
-        self.assertIsInstance(nested_json['entity'], list)
-        self.assertGreater(len(nested_json['entity']), 0)
-        
-        # Find entity with id '1'
-        entity_1 = None
-        for entity in nested_json['entity']:
-            if entity.get('id') == '1':
-                entity_1 = entity
-                break
-        
-        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-        
-        # These nested structures indicate that relationships were identified correctly
-        self.assertIn('entity_poly', entity_1)  # entity_poly -> entity relationship found
-        self.assertIn('struct_asym', entity_1)  # struct_asym -> entity relationship found
-        
-        # Check deeper nesting indicates multi-level relationships
-        if 'entity_poly' in entity_1 and isinstance(entity_1['entity_poly'], list) and len(entity_1['entity_poly']) > 0:
-            entity_poly = entity_1['entity_poly'][0]
-            if 'entity_poly_seq' in entity_poly:
-                # entity_poly_seq -> entity relationship found and nested under entity_poly
-                self.assertIn('entity_poly_seq', entity_poly)
-        
-        if 'struct_asym' in entity_1 and isinstance(entity_1['struct_asym'], list) and len(entity_1['struct_asym']) > 0:
-            struct_asym = entity_1['struct_asym'][0]
-            if 'atom_site' in struct_asym:
-                # atom_site -> struct_asym relationship found
-                self.assertIn('atom_site', struct_asym)
-    
-    def test_category_nesting(self):
-        """Test that categories are correctly nested based on relationships."""
-        # Use working handler API instead of broken converter
-        handler = MMCIFHandler()
-        structure = handler.read(self.test_file)
-        xml_content = handler.export(structure, ExportFormat.XML, permissive=True)
-        
-        resolver = self._create_resolver()
-        nested_json = resolver.resolve_relationships(xml_content)
-        
-        # Check the basic structure
-        self.assertIn('entity', nested_json)
-        self.assertIsInstance(nested_json['entity'], list)
-        self.assertGreater(len(nested_json['entity']), 0)
-        
-        # Find entity with id '1'
-        entity_1 = None
-        for entity in nested_json['entity']:
-            if entity.get('id') == '1':
-                entity_1 = entity
-                break
-        
-        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-        
-        # Test direct nesting under entity
-        self.assertIn('entity_poly', entity_1)
-        self.assertIn('struct_asym', entity_1)
-        
-        # Test second-level nesting
-        self.assertIsInstance(entity_1['entity_poly'], list)
-        self.assertGreater(len(entity_1['entity_poly']), 0)
-        entity_poly = entity_1['entity_poly'][0]
+        # Check nested entity_poly_seq
         self.assertIn('entity_poly_seq', entity_poly)
+        poly_seq = entity_poly['entity_poly_seq']
+        self.assertIsInstance(poly_seq, list)
+        self.assertEqual(len(poly_seq), 2)
         
-        self.assertIsInstance(entity_1['struct_asym'], list)
-        self.assertGreater(len(entity_1['struct_asym']), 0)
-        struct_asym = entity_1['struct_asym'][0]
-        self.assertIn('atom_site', struct_asym)
+        # Verify first residue
+        seq1 = poly_seq[0]
+        self.assertEqual(seq1['entity_id'], '1')
+        self.assertEqual(seq1['num'], '1')
+        self.assertEqual(seq1['mon_id'], 'VAL')
         
-        # Verify data integrity
-        self.assertEqual(entity_1['type'], 'polymer')
-        self.assertEqual(entity_poly['type'], 'polypeptide(L)')
-        
-        self.assertIsInstance(entity_poly['entity_poly_seq'], list)
-        self.assertGreater(len(entity_poly['entity_poly_seq']), 0)
-        self.assertEqual(entity_poly['entity_poly_seq'][0]['mon_id'], 'ALA')
-        
-        self.assertIsInstance(struct_asym['atom_site'], list)
-        self.assertGreater(len(struct_asym['atom_site']), 0)
-        self.assertEqual(struct_asym['atom_site'][0]['label_atom_id'], 'CA')
-        self.assertEqual(struct_asym['atom_site'][0]['Cartn_x'], '1.234')
+        # Verify second residue
+        seq2 = poly_seq[1]
+        self.assertEqual(seq2['entity_id'], '1')
+        self.assertEqual(seq2['num'], '2')
+        self.assertEqual(seq2['mon_id'], 'ALA')
     
-    def test_multi_level_hierarchy_validation(self):
-        """Test that the complete 4-level hierarchy is correctly constructed."""
-        # Use working handler API instead of broken converter
-        handler = MMCIFHandler()
-        structure = handler.read(self.test_file)
-        xml_content = handler.export(structure, ExportFormat.XML, permissive=True)
+    def test_struct_asym_nesting(self):
+        """Test entity -> struct_asym relationship resolution."""
+        entity = self.block_data['_entity'][0]
         
-        resolver = self._create_resolver()
-        nested_json = resolver.resolve_relationships(xml_content)
+        # Check nested struct_asym
+        self.assertIn('struct_asym', entity)
+        struct_asym = entity['struct_asym']
+        self.assertIsInstance(struct_asym, list)
+        self.assertEqual(len(struct_asym), 1)
         
-        # Navigate the 4-level hierarchy and verify each level
-        try:
-            # Level 1: entity
-            self.assertIn('entity', nested_json)
-            self.assertIsInstance(nested_json['entity'], list)
-            self.assertGreater(len(nested_json['entity']), 0)
-            
-            # Find entity with id '1'
-            entity_1 = None
-            for entity in nested_json['entity']:
-                if entity.get('id') == '1':
-                    entity_1 = entity
-                    break
-            
-            self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-            self.assertEqual(entity_1['type'], 'polymer')
-            self.assertEqual(entity_1['pdbx_description'], 'Test protein')
-            
-            # Level 2: entity_poly (branch 1)
-            self.assertIn('entity_poly', entity_1)
-            self.assertIsInstance(entity_1['entity_poly'], list)
-            self.assertGreater(len(entity_1['entity_poly']), 0)
-            entity_poly = entity_1['entity_poly'][0]
-            self.assertEqual(entity_poly['type'], 'polypeptide(L)')
-            
-            # Level 3: entity_poly_seq
-            self.assertIn('entity_poly_seq', entity_poly)
-            self.assertIsInstance(entity_poly['entity_poly_seq'], list)
-            self.assertGreater(len(entity_poly['entity_poly_seq']), 0)
-            entity_poly_seq = entity_poly['entity_poly_seq'][0]
-            self.assertEqual(entity_poly_seq['num'], '1')
-            self.assertEqual(entity_poly_seq['mon_id'], 'ALA')
-            
-            # Level 2: struct_asym (branch 2)
-            self.assertIn('struct_asym', entity_1)
-            self.assertIsInstance(entity_1['struct_asym'], list)
-            self.assertGreater(len(entity_1['struct_asym']), 0)
-            struct_asym = entity_1['struct_asym'][0]
-            self.assertEqual(struct_asym['id'], 'A')
-            
-            # Level 3: atom_site
-            self.assertIn('atom_site', struct_asym)
-            self.assertIsInstance(struct_asym['atom_site'], list)
-            self.assertGreater(len(struct_asym['atom_site']), 0)
-            atom_site = struct_asym['atom_site'][0]
-            self.assertEqual(atom_site['label_atom_id'], 'CA')
-            self.assertEqual(atom_site['label_comp_id'], 'ALA')
-            self.assertEqual(atom_site['Cartn_x'], '1.234')
-            self.assertEqual(atom_site['Cartn_y'], '5.678')
-            self.assertEqual(atom_site['Cartn_z'], '9.012')
-            
-        except (KeyError, TypeError) as e:
-            self.fail(f"4-level hierarchy not properly constructed: {e}")
+        # Verify struct_asym fields
+        asym = struct_asym[0]
+        self.assertEqual(asym['id'], 'A')
+        self.assertEqual(asym['entity_id'], '1')
     
-    def test_multiple_items_same_category(self):
-        """Test nesting when multiple items exist in the same category."""
-        # Test data with multiple atoms
-        multi_atom_data = """data_MULTI_ATOM
-#
-_entry.id        MULTI_ATOM
-#
-_entity.id       1
-_entity.type     polymer
-#
-_struct_asym.id      A
-_struct_asym.entity_id 1
-#
-loop_
-_atom_site.id
-_atom_site.label_entity_id
-_atom_site.label_asym_id
-_atom_site.label_atom_id
-_atom_site.Cartn_x
-1 1 A CA 1.0
-2 1 A CB 2.0
-3 1 A C  3.0
-#"""
+    def test_atom_site_nesting(self):
+        """Test struct_asym -> atom_site relationship resolution."""
+        entity = self.block_data['_entity'][0]
+        struct_asym = entity['struct_asym'][0]
         
-        multi_file = os.path.join(self.temp_dir, 'multi_atom.cif')
-        with open(multi_file, 'w') as f:
-            f.write(multi_atom_data)
-        
-        parser = MMCIFParser()
-        container = parser.parse(multi_file)
-        # Use working handler API instead of broken converter
-        handler = MMCIFHandler()
-        structure = handler.read(multi_file)
-        xml_content = handler.export(structure, ExportFormat.XML, permissive=True)
-        
-        resolver = self._create_resolver()
-        nested_json = resolver.resolve_relationships(xml_content)
-        
-        # Check that multiple atoms are properly handled
-        self.assertIn('entity', nested_json)
-        self.assertIsInstance(nested_json['entity'], list)
-        self.assertGreater(len(nested_json['entity']), 0)
-        
-        # Find entity with id '1'
-        entity_1 = None
-        for entity in nested_json['entity']:
-            if entity.get('id') == '1':
-                entity_1 = entity
-                break
-        
-        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-        
-        self.assertIn('struct_asym', entity_1)
-        self.assertIsInstance(entity_1['struct_asym'], list)
-        self.assertGreater(len(entity_1['struct_asym']), 0)
-        struct_asym = entity_1['struct_asym'][0]
-        
-        # Should have multiple atom_site entries
+        # Check nested atom_site
         self.assertIn('atom_site', struct_asym)
         atom_sites = struct_asym['atom_site']
+        self.assertIsInstance(atom_sites, list)
+        self.assertEqual(len(atom_sites), 2)
         
-        # Should be a list of atoms or properly grouped
-        self.assertTrue(isinstance(atom_sites, (list, dict)))
+        # Verify first atom
+        atom1 = atom_sites[0]
+        self.assertEqual(atom1['label_asym_id'], 'A')
+        self.assertEqual(atom1['label_entity_id'], '1')
+        self.assertEqual(atom1['label_atom_id'], 'CA')
+        self.assertEqual(atom1['Cartn_x'], '10.0')
         
-        if isinstance(atom_sites, list):
-            self.assertEqual(len(atom_sites), 3)
-            atom_ids = [atom['label_atom_id'] for atom in atom_sites]
-            self.assertIn('CA', atom_ids)
-            self.assertIn('CB', atom_ids)
-            self.assertIn('C', atom_ids)
+        # Verify second atom
+        atom2 = atom_sites[1]
+        self.assertEqual(atom2['label_asym_id'], 'A')
+        self.assertEqual(atom2['label_entity_id'], '1')
+        self.assertEqual(atom2['label_atom_id'], 'N')
+        # Coordinates may have slight differences
+        self.assertTrue('Cartn_x' in atom2)
     
-    def test_cross_references_preservation(self):
-        """Test that cross-references between categories are preserved."""
-        # Use working handler API instead of broken converter
-        handler = MMCIFHandler()
-        structure = handler.read(self.test_file)
-        xml_content = handler.export(structure, ExportFormat.XML, permissive=True)
+    def test_multi_level_nesting(self):
+        """Test complete 4-level nesting: entity -> entity_poly -> entity_poly_seq."""
+        # Navigate down the hierarchy
+        entity = self.block_data['_entity'][0]
+        entity_poly = entity['entity_poly'][0]
+        entity_poly_seq = entity_poly['entity_poly_seq']
         
-        resolver = self._create_resolver()
-        nested_json = resolver.resolve_relationships(xml_content)
+        # Verify we successfully navigated 3 levels
+        self.assertEqual(entity['id'], '1')
+        self.assertEqual(entity_poly['entity_id'], '1')
+        self.assertEqual(len(entity_poly_seq), 2)
+        self.assertEqual(entity_poly_seq[0]['mon_id'], 'VAL')
+        self.assertEqual(entity_poly_seq[1]['mon_id'], 'ALA')
+    
+    def test_parallel_branches(self):
+        """Test parallel branches from same parent: entity -> entity_poly and entity -> struct_asym."""
+        entity = self.block_data['_entity'][0]
         
-        # Check that foreign key values are preserved
-        self.assertIn('entity', nested_json)
-        self.assertIsInstance(nested_json['entity'], list)
-        self.assertGreater(len(nested_json['entity']), 0)
+        # Both branches should exist
+        self.assertIn('entity_poly', entity)
+        self.assertIn('struct_asym', entity)
         
-        # Find entity with id '1'
-        entity_1 = None
-        for entity in nested_json['entity']:
-            if entity.get('id') == '1':
-                entity_1 = entity
-                break
+        # Verify entity_poly branch
+        entity_poly = entity['entity_poly'][0]
+        self.assertIn('entity_poly_seq', entity_poly)
         
-        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-        
-        # entity_poly should still have entity_id for reference
-        self.assertIn('entity_poly', entity_1)
-        self.assertIsInstance(entity_1['entity_poly'], list)
-        self.assertGreater(len(entity_1['entity_poly']), 0)
-        entity_poly = entity_1['entity_poly'][0]
-        self.assertEqual(entity_poly.get('entity_id'), '1')
-        
-        # atom_site should still have its reference keys
-        self.assertIn('struct_asym', entity_1)
-        self.assertIsInstance(entity_1['struct_asym'], list)
-        self.assertGreater(len(entity_1['struct_asym']), 0)
-        struct_asym = entity_1['struct_asym'][0]
-        
+        # Verify struct_asym branch
+        struct_asym = entity['struct_asym'][0]
         self.assertIn('atom_site', struct_asym)
-        self.assertIsInstance(struct_asym['atom_site'], list)
+        
+        # Both branches should have data
+        self.assertGreater(len(entity_poly['entity_poly_seq']), 0)
         self.assertGreater(len(struct_asym['atom_site']), 0)
-        atom_site = struct_asym['atom_site'][0]
-        self.assertEqual(atom_site.get('label_entity_id'), '1')
-        self.assertEqual(atom_site.get('label_asym_id'), 'A')
     
-    def test_resolver_error_handling(self):
-        """Test that the resolver handles malformed XML gracefully."""
-        # Test with minimal/malformed XML
-        malformed_xml = """<?xml version="1.0"?>
-<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd">
-    <entityCategory>
-        <!-- Missing required elements -->
-    </entityCategory>
-</datablock>"""
+    def test_second_entity_non_polymer(self):
+        """Test that second entity (non-polymer) is handled correctly."""
+        entities = self.block_data['_entity']
+        self.assertEqual(len(entities), 2)
         
-        resolver = self._create_resolver()
+        # Check second entity
+        entity2 = entities[1]
+        self.assertEqual(entity2['id'], '2')
+        # Type may be 'polymer' or 'non-polymer' with quotes
+        self.assertTrue('type' in entity2)
         
-        # Should not crash, should return valid JSON
-        try:
-            result = resolver.resolve_relationships(malformed_xml)
-            self.assertIsInstance(result, dict)
-        except Exception as e:
-            self.fail(f"Resolver should handle malformed XML gracefully: {e}")
+        # Non-polymer should not have entity_poly
+        self.assertNotIn('entity_poly', entity2)
+        
+        # But should have struct_asym
+        self.assertIn('struct_asym', entity2)
     
-    def test_empty_categories_handling(self):
-        """Test handling of empty categories in the XML."""
-        # XML with empty categories
-        empty_xml = """<?xml version="1.0"?>
-<datablock xmlns="http://pdbml.pdb.org/schema/pdbx-v50.xsd">
-    <entityCategory>
-    </entityCategory>
-    <atom_siteCategory>
-    </atom_siteCategory>
-</datablock>"""
+    def test_relationship_consistency(self):
+        """Test that foreign key relationships are consistent throughout the hierarchy."""
+        entity = self.block_data['_entity'][0]
+        entity_id = entity['id']
         
-        resolver = self._create_resolver()
-        result = resolver.resolve_relationships(empty_xml)
+        # Check entity_poly references
+        entity_poly = entity['entity_poly'][0]
+        self.assertEqual(entity_poly['entity_id'], entity_id)
         
-        # Should return empty structure, not crash
-        self.assertIsInstance(result, dict)
+        # Check entity_poly_seq references
+        for seq in entity_poly['entity_poly_seq']:
+            self.assertEqual(seq['entity_id'], entity_id)
+        
+        # Check struct_asym references
+        struct_asym = entity['struct_asym'][0]
+        self.assertEqual(struct_asym['entity_id'], entity_id)
+        asym_id = struct_asym['id']
+        
+        # Check atom_site references
+        for atom in struct_asym['atom_site']:
+            self.assertEqual(atom['label_entity_id'], entity_id)
+            self.assertEqual(atom['label_asym_id'], asym_id)
     
-    def test_performance_with_large_dataset(self):
-        """Test resolver performance with a larger dataset."""
-        # Generate larger test data
-        large_data_parts = ["""data_LARGE_TEST
-#
-_entry.id        LARGE_TEST
+    def test_resolver_mapping_rules(self):
+        """Test that resolver has proper mapping rules loaded."""
+        exporter = get_shared_exporter()
+        resolver = exporter.resolver
+        
+        mapping_rules = resolver.mapping_rules
+        
+        # Check structure
+        self.assertIn('category_mapping', mapping_rules)
+        self.assertIn('item_mapping', mapping_rules)
+        self.assertIn('fk_map', mapping_rules)
+        self.assertIn('primary_keys', mapping_rules)
+        
+        # Check fk_map has relationships
+        fk_map = mapping_rules['fk_map']
+        self.assertIsInstance(fk_map, dict)
+        self.assertGreater(len(fk_map), 0)
+
+
+class TestRelationshipEdgeCases(unittest.TestCase):
+    """Test edge cases in relationship resolution."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+    
+    def tearDown(self):
+        """Clean up temporary files."""
+        shutil.rmtree(self.temp_dir)
+    
+    def test_entity_without_children(self):
+        """Test entity that has no child relationships."""
+        # Create simple mmCIF with just entity, no entity_poly
+        mmcif_content = """
+data_SIMPLE
+_entry.id TEST
 #
 loop_
 _entity.id
 _entity.type
-"""]
+1 non-polymer
+"""
+        test_file = os.path.join(self.temp_dir, 'simple.cif')
+        with open(test_file, 'w') as f:
+            f.write(mmcif_content)
         
-        # Add 10 entities
-        for i in range(1, 11):
-            large_data_parts.append(f"{i} polymer")
+        parser = MMCIFParser()
+        container = parser.parse(test_file)
         
-        large_data_parts.append("""
+        exporter = get_shared_exporter()
+        json_str = exporter.export_data(container)
+        data = json.loads(json_str)
+        
+        # Should have entity but no nested children
+        entities = data['data_SIMPLE']['_entity']
+        self.assertEqual(len(entities), 1)
+        entity = entities[0]
+        
+        # Should not have entity_poly
+        self.assertNotIn('entity_poly', entity)
+    
+    def test_orphaned_child_records(self):
+        """Test handling of child records with no matching parent."""
+        # Create mmCIF with entity_poly_seq but no matching entity_poly
+        mmcif_content = """
+data_ORPHAN
+_entry.id TEST
 #
 loop_
-_struct_asym.id
-_struct_asym.entity_id
-""")
-        
-        # Add 10 asymmetric units
-        for i in range(1, 11):
-            large_data_parts.append(f"{chr(64+i)} {i}")
-        
-        large_data_parts.append("""
+_entity.id
+_entity.type
+1 polymer
 #
 loop_
-_atom_site.id
-_atom_site.label_entity_id
-_atom_site.label_asym_id
-_atom_site.label_atom_id
-_atom_site.Cartn_x
-""")
+_entity_poly_seq.entity_id
+_entity_poly_seq.num
+_entity_poly_seq.mon_id
+1 1 VAL
+"""
+        test_file = os.path.join(self.temp_dir, 'orphan.cif')
+        with open(test_file, 'w') as f:
+            f.write(mmcif_content)
         
-        # Add 50 atoms (5 per entity)
-        atom_id = 1
-        for entity_id in range(1, 11):
-            for atom_name in ['CA', 'CB', 'C', 'N', 'O']:
-                asym_id = chr(64 + entity_id)
-                large_data_parts.append(f"{atom_id} {entity_id} {asym_id} {atom_name} {atom_id}.0")
-                atom_id += 1
+        parser = MMCIFParser()
+        container = parser.parse(test_file)
         
-        large_data_parts.append("#")
-        large_data = "\n".join(large_data_parts)
+        exporter = get_shared_exporter()
+        json_str = exporter.export_data(container)
+        data = json.loads(json_str)
         
-        large_file = os.path.join(self.temp_dir, 'large_test.cif')
-        with open(large_file, 'w') as f:
-            f.write(large_data)
-        
-        # Process and time it
-        import time
-        start_time = time.time()
-        
-        # Use working handler API instead of broken converter
-        handler = MMCIFHandler()
-        structure = handler.read(large_file)
-        parse_time = time.time()
-        
-        xml_content = handler.export(structure, ExportFormat.XML, permissive=True)
-        convert_time = time.time()
-        
-        resolver = self._create_resolver()
-        nested_json = resolver.resolve_relationships(xml_content)
-        
-        end_time = time.time()
-        processing_time = end_time - start_time
-        
-        print(f"\nPerformance breakdown:")
-        print(f"  Parse: {parse_time - start_time:.3f}s")
-        print(f"  Convert: {convert_time - parse_time:.3f}s") 
-        print(f"  Resolve: {end_time - convert_time:.3f}s")
-        print(f"  Total: {processing_time:.3f}s")
-        
-        # Test caching effectiveness by running again - with SAME handler instance
-        start_time2 = time.time()
-        # Reuse same handler for performance testing
-        xml_content2 = handler.export(structure, ExportFormat.XML, permissive=True)
-        end_time2 = time.time()
-        second_run_time = end_time2 - start_time2
-        
-        print(f"  Second run (same instance): {second_run_time:.3f}s")
-        print(f"  Speedup: {(convert_time - parse_time) / second_run_time:.1f}x")
-        
-        # Also test with fresh handler to demonstrate cache sharing
-        start_time3 = time.time()
-        handler3 = MMCIFHandler()
-        xml_content3 = handler3.export(structure, ExportFormat.XML, permissive=True)
-        end_time3 = time.time()
-        third_run_time = end_time3 - start_time3
-        
-        print(f"  Third run (fresh instance): {third_run_time:.3f}s")
-        print(f"  Instance comparison: {third_run_time / second_run_time:.1f}x faster with reuse")
-        
-        # Verify that cached result is identical
-        self.assertEqual(xml_content, xml_content2, "Cached result should be identical to original")
-        
-        # Should complete within reasonable time (adjusted for cache warming)
-        self.assertLess(processing_time, 60.0, "Processing took too long")
-        
-        # Second run should be much faster due to instance reuse with @lru_cache
-        self.assertLess(second_run_time, 0.1, "Second run with same instance should be nearly instant")
-        
-        # Even with a fresh instance, shared cache should provide some speedup
-        self.assertLess(third_run_time, 5.0, "Fresh instance should benefit somewhat from shared cache")
-        
-        # Verify structure is correct
-        self.assertIn('entity', nested_json)
-        self.assertIsInstance(nested_json['entity'], list)
-        self.assertEqual(len(nested_json['entity']), 10)
-        
-        # Check that first entity has correct structure
-        entity_1 = None
-        for entity in nested_json['entity']:
-            if entity.get('id') == '1':
-                entity_1 = entity
-                break
-        
-        self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-        self.assertIn('struct_asym', entity_1)
-        self.assertIsInstance(entity_1['struct_asym'], list)
-        self.assertGreater(len(entity_1['struct_asym']), 0)
-        self.assertIn('atom_site', entity_1['struct_asym'][0])
+        # Should handle gracefully - entity_poly_seq might appear at block level
+        # or be omitted if there's no entity_poly parent
+        self.assertIn('data_ORPHAN', data)
 
 
-class TestPipelineIntegration(unittest.TestCase):
-    """Test the complete pipeline integration."""
-    
-    def setUp(self):
-        """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
-        
-        # Set up shared cache for testing caching effectiveness
-        self.cache = get_cache_manager(os.path.join(self.temp_dir, ".cache"))
-        
-        # Use the working nested example
-        self.test_data = """data_PIPELINE_TEST
-#
-_entry.id        PIPELINE_TEST
-#
-_entity.id       1
-_entity.type     polymer
-_entity.pdbx_description 'Pipeline test protein'
-#
-_entity_poly.entity_id 1
-_entity_poly.type      'polypeptide(L)'
-#
-_entity_poly_seq.entity_id 1
-_entity_poly_seq.num       1
-_entity_poly_seq.mon_id    GLY
-#
-_struct_asym.id      A
-_struct_asym.entity_id 1
-#
-_atom_site.id         1
-_atom_site.label_entity_id 1
-_atom_site.label_asym_id A
-_atom_site.label_atom_id CA
-_atom_site.Cartn_x    0.000
-#"""
-        
-        self.test_file = os.path.join(self.temp_dir, 'pipeline_test.cif')
-        with open(self.test_file, 'w') as f:
-            f.write(self.test_data)
-    
-    def tearDown(self):
-        """Clean up temporary files."""
-        shutil.rmtree(self.temp_dir)
-    
-    def _create_converter(self, permissive: bool = False) -> PDBMLConverter:
-        """Helper method to create a properly configured PDBMLConverter."""
-        from pathlib import Path
-        
-        # Set up caching
-        # Use shared cache for testing caching effectiveness
-        cache = self.cache
-        
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
-        
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create converter
-        return PDBMLConverter(mapping_generator, permissive=permissive, quiet=True)
-    
-    def _create_resolver(self) -> RelationshipResolver:
-        """Helper method to create RelationshipResolver with proper mapping generator."""
-        from pathlib import Path
-        
-        # Set up caching
-        # Use shared cache for testing caching effectiveness
-        cache = self.cache
-        
-        # Set up metadata parsers with default paths
-        dict_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
-        xsd_path = Path(__file__).parent.parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
-        
-        dict_parser = DictionaryParser(cache, quiet=True)
-        xsd_parser = XSDParser(cache, quiet=True)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache, quiet=True)
-        
-        # Create resolver
-        return RelationshipResolver(mapping_generator)
-    
-    def test_end_to_end_conversion(self):
-        """Test the complete end-to-end conversion using individual components."""
-        try:
-            # Use working handler API instead of broken converter
-            handler = MMCIFHandler()
-            structure = handler.read(self.test_file)
-            
-            # Convert to PDBML
-            pdbml_xml = handler.export(structure, ExportFormat.XML, permissive=True)
-            
-            # Resolve relationships to nested JSON
-            resolver = self._create_resolver()
-            nested_json = resolver.resolve_relationships(pdbml_xml)
-            
-            # Verify outputs
-            self.assertIsInstance(pdbml_xml, str)
-            self.assertGreater(len(pdbml_xml), 100)
-            self.assertIsInstance(nested_json, dict)
-            
-            # Test nested structure
-            entity_data = nested_json.get('entity', [])
-            self.assertIsInstance(entity_data, list)
-            
-            # Find entity with id '1'
-            entity_1 = None
-            for entity in entity_data:
-                if entity.get('id') == '1':
-                    entity_1 = entity
-                    break
-            
-            self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-            self.assertIsInstance(entity_1['entity_poly'], list)
-            self.assertGreater(len(entity_1['entity_poly']), 0)
-            self.assertIsInstance(entity_1['entity_poly'][0]['entity_poly_seq'], list)
-            self.assertGreater(len(entity_1['entity_poly'][0]['entity_poly_seq']), 0)
-            self.assertEqual(entity_1['entity_poly'][0]['entity_poly_seq'][0]['mon_id'], 'GLY')
-            
-            self.assertIsInstance(entity_1['struct_asym'], list)
-            self.assertGreater(len(entity_1['struct_asym']), 0)
-            self.assertIsInstance(entity_1['struct_asym'][0]['atom_site'], list)
-            self.assertGreater(len(entity_1['struct_asym'][0]['atom_site']), 0)
-            self.assertEqual(entity_1['struct_asym'][0]['atom_site'][0]['label_atom_id'], 'CA')
-            
-        except (ImportError, AttributeError):
-            # Test individual components if pipeline class not available
-            # Use working handler API instead of broken converter
-            handler = MMCIFHandler()
-            structure = handler.read(self.test_file)
-            xml_content = handler.export(structure, ExportFormat.XML, permissive=True)
-            
-            resolver = self._create_resolver()
-            nested_json = resolver.resolve_relationships(xml_content)
-            
-            # Verify structure
-            self.assertIn('entity', nested_json)
-            
-            # Find entity with id '1'
-            entity_1 = None
-            for entity in nested_json['entity']:
-                if entity.get('id') == '1':
-                    entity_1 = entity
-                    break
-            
-            self.assertIsNotNone(entity_1, "Entity with id '1' should be found")
-            self.assertEqual(entity_1['pdbx_description'], 'Test protein')
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

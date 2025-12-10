@@ -146,9 +146,9 @@ class MMCIFHandler:
         **kwargs
     ) -> Optional[str]:
         """Export to JSON format (always nested)."""
-        exporter = JSONExporter(permissive=permissive)
+        exporter = JSONExporter(quiet=kwargs.get('quiet', False))
         indent = kwargs.get('indent', 2)
-        return exporter.export_data(mmcif, file_path, permissive, indent)
+        return exporter.export_data(mmcif, file_path, indent)
 
     def _import_json(
         self,
@@ -157,7 +157,7 @@ class MMCIFHandler:
         **kwargs
     ) -> MMCIFDataContainer:
         """Import from JSON format (assumes nested structure)."""
-        importer = JSONImporter(permissive=permissive)
+        importer = JSONImporter()
         container = importer.import_data(file_path, permissive)
         container.source_format = DataSourceFormat.JSON
         return container
