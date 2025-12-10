@@ -1,8 +1,8 @@
 from typing import Optional, List, Dict, Any, Union
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
-from .exporter import JSONExporter, XMLExporter
-from .importer import JSONImporter, XMLImporter
+from .exporter import JSONExporter
+from .importer import JSONImporter
 from .models import MMCIFDataContainer, DataSourceFormat
 from .defaults import ExportFormat, StructureFormat
 from .plugins import ValidatorFactory
@@ -35,17 +35,13 @@ class MMCIFHandler:
         :type filename: str
         :param categories: The categories to parse. If None, all categories are included.
         :type categories: Optional[List[str]]
-        :param permissive: Whether to skip XSD schema validation after parsing
+        :param permissive: Whether to skip validation after parsing
         :type permissive: bool
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
         self._parser = MMCIFParser(self.validator_factory, categories)
         container = self._parser.parse(filename)
-        
-        # Validate against XSD schema if not in permissive mode
-        if not permissive:
-            self._validate_container_against_xsd(container)
         
         return container
 
@@ -62,14 +58,10 @@ class MMCIFHandler:
         :type mmcif: MMCIFDataContainer
         :param filename: Optional filename to write to. If not provided, uses pre-set file object.
         :type filename: Optional[str]
-        :param permissive: Whether to skip XSD schema validation before writing
+        :param permissive: Whether to skip validation before writing
         :type permissive: bool
         :return: None
         """
-        # Validate against XSD schema if not in permissive mode
-        if not permissive:
-            self._validate_container_against_xsd(mmcif)
-        
         self._writer = MMCIFWriter(permissive=permissive)
         
         if filename:
@@ -95,7 +87,7 @@ class MMCIFHandler:
 
         :param mmcif: The data container to export
         :type mmcif: MMCIFDataContainer
-        :param format_type: Export format ('json' or 'xml')
+        :param format_type: Export format ('json')
         :type format_type: Union[str, ExportFormat]
         :param file_path: Path to save the file (optional)
         :type file_path: Optional[str]
@@ -111,8 +103,6 @@ class MMCIFHandler:
         
         if format_type == ExportFormat.JSON:
             return self._export_json(mmcif, file_path, permissive, **kwargs)
-        elif format_type == ExportFormat.XML:
-            return self._export_xml(mmcif, file_path, permissive, **kwargs)
         else:
             raise ValueError(f"Unsupported export format: {format_type}")
 
@@ -160,18 +150,6 @@ class MMCIFHandler:
         indent = kwargs.get('indent', 2)
         return exporter.export_data(mmcif, file_path, permissive, indent)
 
-    def _export_xml(
-        self,
-        mmcif: MMCIFDataContainer,
-        file_path: Optional[str],
-        permissive: bool,
-        **kwargs
-    ) -> Optional[str]:
-        """Export to XML format."""
-        exporter = XMLExporter(permissive=permissive)
-        pretty_print = kwargs.get('pretty_print', True)
-        return exporter.export_data(mmcif, file_path, permissive, pretty_print)
-
     def _import_json(
         self,
         file_path: str,
@@ -183,32 +161,3 @@ class MMCIFHandler:
         container = importer.import_data(file_path, permissive)
         container.source_format = DataSourceFormat.JSON
         return container
-
-    def _import_xml(
-        self,
-        file_path: str,
-        permissive: bool,
-        **kwargs
-    ) -> MMCIFDataContainer:
-        """Import from XML format."""
-        importer = XMLImporter(permissive=permissive)
-        container = importer.import_data(file_path, permissive)
-        container.source_format = DataSourceFormat.XML
-        return container
-
-    def _validate_container_against_xsd(self, mmcif: MMCIFDataContainer) -> None:
-        """Validate an MMCIFDataContainer against XSD schema by converting to PDBML XML."""
-        try:
-            # Use XMLExporter with validation enabled to perform the XSD check
-            xml_exporter = XMLExporter(permissive=False)  # Force validation
-            
-            # Convert to PDBML XML (this triggers validation)
-            xml_exporter.export_data(mmcif, file_path=None, permissive=False)
-            
-            # If we get here without exception, validation passed
-            if not getattr(xml_exporter, 'quiet', False):
-                pass  # Validation messages are already printed by the exporter
-                
-        except Exception as e:
-            # Re-raise validation errors with context
-            raise ValueError(f"XSD schema validation failed: {e}") from e

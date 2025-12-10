@@ -27,11 +27,8 @@ from .models import (
 )
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
-from .exporter import JSONExporter, XMLExporter
-from .importer import (
-    JSONImporter,
-    XMLImporter,
-)
+from .exporter import JSONExporter
+from .importer import JSONImporter
 from .handler import MMCIFHandler
 from .common import BaseImporter, BaseExporter
 from .defaults import StructureFormat, ExportFormat
@@ -39,7 +36,6 @@ from .plugins import ValidatorFactory
 from .validator import (
     SchemaValidator,
     JSONSchemaValidator,
-    XMLSchemaValidator,
     YAMLSchemaValidator,
     CSVSchemaValidator,
     ValidationError,
@@ -49,10 +45,8 @@ from .validator import (
     default_mmcif_json_flat_schema,
 )
 from .serializer import (
-    PDBMLConverter,
     MappingGenerator,
     DictionaryParser,
-    XSDParser,
     CacheManager,
     get_cache_manager,
     RelationshipResolver,
@@ -72,9 +66,7 @@ __all__ = [
     "DataSourceFormat",
     # Import/Export components
     "JSONExporter",
-    "XMLExporter",
-    "JSONImporter", 
-    "XMLImporter",
+    "JSONImporter",
     # Base classes
     "BaseImporter",
     "BaseExporter",
@@ -85,7 +77,6 @@ __all__ = [
     "ValidatorFactory",
     "SchemaValidator",
     "JSONSchemaValidator",
-    "XMLSchemaValidator",
     "YAMLSchemaValidator",
     "CSVSchemaValidator",
     "ValidationError",
@@ -93,11 +84,9 @@ __all__ = [
     "SchemaValidatorFactory",
     "default_mmcif_json_nested_schema",
     "default_mmcif_json_flat_schema",
-    # PDBML Converter components
-    "PDBMLConverter",
+    # Serializer components
     "MappingGenerator", 
     "DictionaryParser",
-    "XSDParser",
     "CacheManager", 
     "get_cache_manager",
     "RelationshipResolver",

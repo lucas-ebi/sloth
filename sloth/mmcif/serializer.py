@@ -1,7 +1,7 @@
 """
-PDBML Converter - Convert mmCIF to PDBX/PDBML XML format
+mmCIF Serializer - Data structure parsers and relationship resolvers
 
-Optimized for performance with global caching strategy similar to legacy implementation.
+Provides dictionary parsing, mapping generation, caching, and relationship resolution.
 """
 import os
 import hashlib
@@ -10,18 +10,16 @@ import pickle
 import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple, Set
-from xml.etree import ElementTree as ET
 from abc import ABC, abstractmethod
 
 from .models import MMCIFDataContainer, Category
 from .parser import MMCIFParser
-from .validator import XMLSchemaValidator, ValidationError
 from .defaults import (
     CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
     SchemaDataType, TypeSuffix, MappingDataKey,
     # Consolidated classes
-    DataValue, DataType, XMLConstant, SemanticPattern, FileOperation
+    DataValue, DataType, SemanticPattern, FileOperation
 )
 
 
@@ -481,182 +479,16 @@ class PrimaryKeyExtractor:
         
         return primary_keys
 
-class XSDParser(MetadataParser):
-    """Parses XSD schema files"""
-    def __init__(self, cache_manager: CacheManager, quiet: bool = False):
-        super().__init__(cache_manager, quiet)
-        self.source = None
-
-    def parse(self, xsd_path: Union[str, Path]) -> Dict[str, Any]:
-        self.source = xsd_path
-        if not xsd_path or not Path(xsd_path).exists():
-            return self._empty_schema()
-        
-        cache_key = self._generate_cache_key(xsd_path)
-        cached = self.cache_manager.get(CacheType.XSD.value, cache_key)
-        if cached:
-            if not self.quiet:
-                print("📦 Using cached XSD data")
-            return cached
-        
-        if not self.quiet:
-            print("📋 Parsing XSD schema...")
-        
-        import xml.etree.ElementTree as ET
-        tree = ET.parse(xsd_path)
-        root = tree.getroot()
-        
-        parser = XSDSchemaParser()
-        complex_types = parser.parse_complex_types(root)
-        elements = parser.parse_elements(root, complex_types)
-        
-        result = {
-            SchemaDataType.ELEMENTS.value: elements,
-            SchemaDataType.ATTRIBUTES.value: {},  # Could be extended to parse attributes
-            SchemaDataType.REQUIRED_ELEMENTS.value: {},  # Could be extended to parse required elements
-            SchemaDataType.DEFAULT_VALUES.value: {},  # Could be extended to parse default values
-            SchemaDataType.COMPLEX_TYPES.value: complex_types
-        }
-        
-        # Store in unified cache
-        self.cache_manager.set(CacheType.XSD.value, cache_key, result)
-        if not self.quiet:
-            print(f"📋 Parsed {len(elements)} elements, {len(complex_types)} complex types")
-        return result
-
-    def _empty_schema(self) -> Dict[str, Any]:
-        """Return empty schema structure"""
-        return {
-            SchemaDataType.ELEMENTS.value: {},
-            SchemaDataType.ATTRIBUTES.value: {},
-            SchemaDataType.REQUIRED_ELEMENTS.value: {},
-            SchemaDataType.DEFAULT_VALUES.value: {},
-            SchemaDataType.COMPLEX_TYPES.value: {}
-        }
-
-    def _generate_cache_key(self, xsd_path: Union[str, Path]) -> str:
-        """Generate cache key based on file path and modification time"""
-        xsd_path_resolved = str(Path(xsd_path).resolve())
-        mtime = os.path.getmtime(xsd_path)
-        return f"xsd_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
-
-
-class XSDSchemaParser:
-    """Parses XSD schema content into structured data"""
-    NS = {XMLConstant.XS_PREFIX.value: XMLConstant.XS_URI.value}
-    
-    def parse_complex_types(self, root: ET.Element) -> Dict[str, List[Tuple[str, str]]]:
-        """Parse complexType definitions from XSD"""
-        complex_types = {}
-        for ctype in root.findall(XMLConstant.COMPLEX_TYPE.value, self.NS):
-            name = ctype.get(XMLConstant.NAME.value)
-            if not name:
-                continue
-                
-            fields = []
-            fields.extend(self._parse_attributes(ctype))
-            fields.extend(self._parse_sequence_elements(ctype))
-            fields.extend(self._parse_direct_elements(ctype))
-            
-            complex_types[name] = fields
-        return complex_types
-
-    def parse_elements(self, root: ET.Element, complex_types: Dict) -> Dict[str, Any]:
-        """Parse top-level elements from XSD"""
-        elements = {}
-        for elem in root.findall(XMLConstant.ELEMENT.value, self.NS):
-            table_name = elem.get(XMLConstant.NAME.value)
-            type_name = elem.get(XMLConstant.TYPE.value)
-            if table_name and type_name:
-                # Remove namespace prefix if present
-                type_name = type_name.split(':')[-1] if ':' in type_name else type_name
-                
-                if type_name in complex_types:
-                    elements[table_name] = complex_types[type_name]
-                else:
-                    # Simple element
-                    elements[table_name] = [(table_name, type_name)]
-        
-        # Fallback for schemas without top-level elements
-        if not elements:
-            elements = self._create_elements_from_complex_types(complex_types)
-            
-        return elements
-
-    def _parse_attributes(self, parent: ET.Element) -> List[Tuple[str, str]]:
-        """Parse attribute definitions from complexType"""
-        attributes = []
-        for attr in parent.findall(f'.//{XMLConstant.ATTRIBUTE.value}', self.NS):
-            attr_name = attr.get(XMLConstant.NAME.value)
-            attr_type = attr.get(XMLConstant.TYPE.value, DataType.STRING.value)
-            if attr_name:
-                attributes.append((attr_name, attr_type))
-        return attributes
-
-    def _parse_sequence_elements(self, parent: ET.Element) -> List[Tuple[str, str]]:
-        """Parse sequence elements from complexType"""
-        elements = []
-        sequence = parent.find(f'.//{XMLConstant.SEQUENCE.value}', self.NS)
-        if sequence is not None:
-            for elem in sequence.findall(XMLConstant.ELEMENT.value, self.NS):
-                col_name = elem.get(XMLConstant.NAME.value)
-                col_type = self._get_element_type(elem)
-                if col_name:
-                    elements.append((col_name, col_type))
-        return elements
-
-    def _parse_direct_elements(self, parent: ET.Element) -> List[Tuple[str, str]]:
-        """Parse direct elements (choice/all) from complexType"""
-        elements = []
-        for elem in parent.findall(f'.//{XMLConstant.ELEMENT.value}', self.NS):
-            col_name = elem.get(XMLConstant.NAME.value)
-            col_type = self._get_element_type(elem)
-            if col_name:
-                elements.append((col_name, col_type))
-        return elements
-
-    def _get_element_type(self, elem: ET.Element) -> str:
-        """Determine element type handling inline restrictions"""
-        col_type = elem.get(XMLConstant.TYPE.value, DataType.STRING.value)
-        # Handle inline simpleType with restriction
-        if col_type == DataType.STRING.value:
-            simple_type = elem.find(f'.//{XMLConstant.RESTRICTION.value}', self.NS)
-            if simple_type is not None:
-                base_type = simple_type.get(XMLConstant.BASE.value)
-                if base_type:
-                    col_type = base_type
-        return col_type
-
-    def _create_elements_from_complex_types(self, complex_types: Dict) -> Dict[str, Any]:
-        """Create elements from complex types when no top-level elements exist"""
-        elements = {}
-        for type_name, fields in complex_types.items():
-            # Convert type names to element names (remove 'Type' suffix)
-            elem_name = type_name
-            if elem_name.endswith(TypeSuffix.TYPE.value):
-                elem_name = elem_name[:-4]
-            # Convert camelCase to snake_case for mmCIF compatibility
-            elem_name = self._camel_to_snake(elem_name)
-            elements[elem_name] = fields
-        return elements
-
-    def _camel_to_snake(self, name: str) -> str:
-        """Convert camelCase to snake_case"""
-        import re
-        return re.sub(r'([A-Z])', r'_\1', name).lower().strip('_')
-
 # ====================== Mapping Generator ======================
 class MappingGenerator:
-    """Generates mapping rules between mmCIF and PDBML formats"""
+    """Generates mapping rules from mmCIF dictionary metadata"""
     def __init__(
         self, 
         dict_parser: DictionaryParser,
-        xsd_parser: XSDParser,
         cache_manager: CacheManager,
         quiet: bool = False
     ):
         self.dict_parser = dict_parser
-        self.xsd_parser = xsd_parser
         self.cache_manager = cache_manager
         self.quiet = quiet
         self._mapping_rules = None
@@ -677,9 +509,8 @@ class MappingGenerator:
             print("🧩 Generating mapping rules...")
             
         dict_meta = self.dict_parser.parse(self.dict_parser.source)
-        xsd_meta = self.xsd_parser.parse(self.xsd_parser.source)
         
-        self._mapping_rules = self._generate_mapping(dict_meta, xsd_meta)
+        self._mapping_rules = self._generate_mapping(dict_meta)
         self.cache_manager.set(CacheType.MAPPING_RULES.value, cache_key, self._mapping_rules)
         return self._mapping_rules
 
@@ -690,22 +521,16 @@ class MappingGenerator:
             dict_path = str(Path(self.dict_parser.source).resolve())
             dict_mtime = os.path.getmtime(self.dict_parser.source)
             cache_key_parts.append(f"dict_{dict_path}_{dict_mtime}")
-        if self.xsd_parser.source and Path(self.xsd_parser.source).exists():
-            xsd_path = str(Path(self.xsd_parser.source).resolve())
-            xsd_mtime = os.path.getmtime(self.xsd_parser.source)
-            cache_key_parts.append(f"xsd_{xsd_path}_{xsd_mtime}")
         
         return f"mapping_{hashlib.md5('|'.join(cache_key_parts).encode()).hexdigest()}"
 
     def _generate_mapping(
         self, 
-        dict_meta: Dict[str, Any], 
-        xsd_meta: Dict[str, Any]
+        dict_meta: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Generate complete mapping rules"""
-        builder = MappingBuilder(dict_meta, xsd_meta)
+        """Generate complete mapping rules from dictionary metadata"""
+        builder = MappingBuilder(dict_meta)
         builder.build_primary_mappings()
-        builder.add_xsd_only_categories()
         builder.build_foreign_key_map()
         
         return {
@@ -717,10 +542,9 @@ class MappingGenerator:
 
 
 class MappingBuilder:
-    """Builds mapping rules from dictionary and XSD metadata"""
-    def __init__(self, dict_meta: Dict[str, Any], xsd_meta: Dict[str, Any]):
+    """Builds mapping rules from mmCIF dictionary metadata"""
+    def __init__(self, dict_meta: Dict[str, Any]):
         self.dict_meta = dict_meta
-        self.xsd_meta = xsd_meta
         self.category_mapping = {}
         self.item_mapping = {}
         self.fk_map = {}
@@ -732,23 +556,16 @@ class MappingBuilder:
     
     def _process_category(self, cat_name: str, _cat_data: Dict[str, Any]):
         """Process a single category from dictionary metadata"""
-        # Find matching XSD type
-        xsd_type_name = f"{cat_name}{TypeSuffix.TYPE.value}"
-        xsd_fields = self.xsd_meta[SchemaDataType.COMPLEX_TYPES.value].get(xsd_type_name, [])
-        
         # Get all items for this category
         cat_items = self._get_category_items(cat_name)
         
-        # Combine XSD fields and dictionary items
-        all_fields = self._combine_fields(xsd_fields, cat_items)
-        
         # Create category mapping
-        self.category_mapping[cat_name] = {MappingDataKey.FIELDS.value: sorted(list(all_fields))}
+        self.category_mapping[cat_name] = {MappingDataKey.FIELDS.value: sorted(list(cat_items))}
         
         # Map individual items
         self.item_mapping[cat_name] = {}
-        for field_name in all_fields:
-            self._map_item(cat_name, field_name, xsd_fields)
+        for field_name in cat_items:
+            self._map_item(cat_name, field_name)
     
     def _get_category_items(self, cat_name: str) -> Set[str]:
         """Get all item names for a category"""
@@ -759,64 +576,17 @@ class MappingBuilder:
                 cat_items.add(field_name)
         return cat_items
     
-    def _combine_fields(self, xsd_fields: List[Tuple[str, str]], cat_items: Set[str]) -> Set[str]:
-        """Combine XSD fields and dictionary items"""
-        all_fields = set(field_name for field_name, _ in xsd_fields)
-        all_fields.update(cat_items)
-        return all_fields
-    
-    def _map_item(self, cat_name: str, field_name: str, xsd_fields: List[Tuple[str, str]]):
-        """Map a single item from dictionary and XSD metadata"""
+    def _map_item(self, cat_name: str, field_name: str):
+        """Map a single item from dictionary metadata"""
         item_name = f"_{cat_name}.{field_name}"
         item_data = self.dict_meta['items'].get(item_name, {})
         
-        # Determine field type
-        field_type = next(
-            (ft for fn, ft in xsd_fields if fn == field_name), 
-            item_data.get("item_type.code", "xs:string")
-        )
-        
         # Create item mapping
         self.item_mapping[cat_name][field_name] = {
-            "type": field_type,
+            "type": item_data.get("item_type.code", "string"),
             "enum": self.dict_meta['enumerations'].get(item_name),
             "description": item_data.get("item_description.description", "")
         }
-    
-    def add_xsd_only_categories(self):
-        """Add categories that only exist in XSD schema"""
-        for xsd_type_name, xsd_fields in self.xsd_meta['complex_types'].items():
-            if not xsd_type_name.endswith('Type'):
-                continue
-                
-            cat_name = xsd_type_name[:-4]  # Remove 'Type' suffix
-            snake_name = self._camel_to_snake(cat_name)
-            
-            # Check if category already exists
-            for possible_name in [cat_name, snake_name]:
-                if possible_name in self.category_mapping:
-                    break
-                if possible_name not in self.dict_meta['categories']:
-                    self._add_xsd_category(possible_name, xsd_fields)
-                    break
-    
-    def _add_xsd_category(self, cat_name: str, xsd_fields: List[Tuple[str, str]]):
-        """Add an XSD-only category to mappings"""
-        self.category_mapping[cat_name] = {
-            "fields": [field_name for field_name, _ in xsd_fields]
-        }
-        self.item_mapping[cat_name] = {}
-        for field_name, field_type in xsd_fields:
-            self.item_mapping[cat_name][field_name] = {
-                "type": field_type,
-                "enum": None,
-                "description": ""
-            }
-    
-    def _camel_to_snake(self, name: str) -> str:
-        """Convert camelCase to snake_case"""
-        import re
-        return re.sub(r'([A-Z])', r'_\1', name).lower().strip('_')
     
     def build_foreign_key_map(self):
         """Build foreign key mapping from relationships"""
@@ -857,661 +627,15 @@ class MappingBuilder:
         if len(child_parts) == 2 and len(parent_parts) == 2:
             self.fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
 
-# ====================== DBML Precomputation ======================
-class DBMLExporter:
-    """Exports relationship mappings to DBML format for precomputation"""
-    
-    def __init__(self, quiet: bool = False):
-        self.quiet = quiet
-    
-    def export_relationships_to_dbml(
-        self,
-        mapping_rules: Dict[str, Any],
-        output_path: Union[str, Path]
-    ) -> None:
-        """Export relationship mappings to DBML format"""
-        dbml_content = self._generate_dbml_content(mapping_rules)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(dbml_content)
-        
-        if not self.quiet:
-            print(f"📊 Exported relationship mappings to DBML: {output_path}")
-    
-    def _generate_dbml_content(self, mapping_rules: Dict[str, Any]) -> str:
-        """Generate DBML content from mapping rules"""
-        lines = []
-        lines.append("// Generated DBML for mmCIF relationship mappings")
-        lines.append(f"// Generated at: {self._get_timestamp()}")
-        lines.append("")
-        
-        # Add tables (categories)
-        category_mapping = mapping_rules.get(MappingDataKey.CATEGORY_MAPPING.value, {})
-        item_mapping = mapping_rules.get(MappingDataKey.ITEM_MAPPING.value, {})
-        primary_keys = mapping_rules.get(DictDataType.PRIMARY_KEYS.value, {})
-        
-        for cat_name, cat_data in category_mapping.items():
-            lines.append(f"Table {cat_name} {{")
-            
-            # Add fields
-            fields = cat_data.get(MappingDataKey.FIELDS.value, [])
-            cat_items = item_mapping.get(cat_name, {})
-            
-            for field_name in fields:
-                field_info = cat_items.get(field_name, {})
-                field_type = self._dbml_type_from_xsd(field_info.get('type', 'string'))
-                
-                # Mark primary key
-                pk_marker = ""
-                if cat_name in primary_keys:
-                    pk = primary_keys[cat_name]
-                    if (isinstance(pk, str) and field_name == pk) or \
-                       (isinstance(pk, list) and field_name in pk):
-                        pk_marker = " [pk]"
-                
-                # Add enum info if available
-                enum_info = ""
-                if field_info.get('enum'):
-                    enum_values = field_info['enum'][:3]  # First 3 values
-                    enum_info = f" // enum: {', '.join(enum_values)}"
-                
-                lines.append(f"  {field_name} {field_type}{pk_marker}{enum_info}")
-            
-            lines.append("}")
-            lines.append("")
-        
-        # Add relationships
-        fk_map = mapping_rules.get(MappingDataKey.FK_MAP.value, {})
-        if fk_map:
-            lines.append("// Relationships")
-            for (child_cat, child_field), (parent_cat, parent_field) in fk_map.items():
-                lines.append(f"Ref: {child_cat}.{child_field} > {parent_cat}.{parent_field}")
-            lines.append("")
-        
-        return "\n".join(lines)
-    
-    def _dbml_type_from_xsd(self, xsd_type: str) -> str:
-        """Convert XSD type to DBML type"""
-        type_mapping = {
-            'xs:string': 'varchar',
-            'xs:int': 'int',
-            'xs:integer': 'int',
-            'xs:decimal': 'decimal',
-            'xs:double': 'double',
-            'xs:float': 'float',
-            'xs:boolean': 'boolean',
-            'xs:date': 'date',
-            'xs:dateTime': 'datetime'
-        }
-        return type_mapping.get(xsd_type, 'varchar')
-    
-    def _get_timestamp(self) -> str:
-        """Get current timestamp"""
-        from datetime import datetime
-        return datetime.now().isoformat()
-
-
-class DBMLImporter:
-    """Imports precomputed relationship mappings from DBML format"""
-    
-    def __init__(self, quiet: bool = False):
-        self.quiet = quiet
-    
-    def import_relationships_from_dbml(self, dbml_path: Union[str, Path]) -> Dict[str, Any]:
-        """Import relationship mappings from DBML format"""
-        if not Path(dbml_path).exists():
-            raise FileNotFoundError(f"DBML file not found: {dbml_path}")
-        
-        with open(dbml_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        mapping_rules = self._parse_dbml_content(content)
-        
-        if not self.quiet:
-            print(f"📊 Imported relationship mappings from DBML: {dbml_path}")
-        
-        return mapping_rules
-    
-    def _parse_dbml_content(self, content: str) -> Dict[str, Any]:
-        """Parse DBML content into mapping rules"""
-        lines = content.split('\n')
-        
-        category_mapping = {}
-        item_mapping = {}
-        fk_map = {}
-        primary_keys = {}
-        
-        current_table = None
-        i = 0
-        
-        while i < len(lines):
-            line = lines[i].strip()
-            
-            # Parse table definitions
-            if line.startswith('Table ') and line.endswith(' {'):
-                current_table = line[6:-2].strip()
-                category_mapping[current_table] = {MappingDataKey.FIELDS.value: []}
-                item_mapping[current_table] = {}
-                i += 1
-                continue
-            
-            # Parse table fields
-            if current_table and line and not line.startswith('//') and line != '}':
-                if line == '}':
-                    current_table = None
-                else:
-                    field_info = self._parse_field_line(line)
-                    if field_info:
-                        field_name, field_type, is_pk, enum_values = field_info
-                        category_mapping[current_table][MappingDataKey.FIELDS.value].append(field_name)
-                        item_mapping[current_table][field_name] = {
-                            'type': self._xsd_type_from_dbml(field_type),
-                            'enum': enum_values,
-                            'description': ''
-                        }
-                        if is_pk:
-                            if current_table not in primary_keys:
-                                primary_keys[current_table] = []
-                            if isinstance(primary_keys[current_table], list):
-                                primary_keys[current_table].append(field_name)
-                            else:
-                                primary_keys[current_table] = [primary_keys[current_table], field_name]
-                i += 1
-                continue
-            
-            # Parse relationships
-            if line.startswith('Ref:'):
-                rel_info = self._parse_relationship_line(line)
-                if rel_info:
-                    child_cat, child_field, parent_cat, parent_field = rel_info
-                    fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
-                i += 1
-                continue
-            
-            i += 1
-        
-        # Convert single-item primary key lists to strings
-        for table, pk in primary_keys.items():
-            if isinstance(pk, list) and len(pk) == 1:
-                primary_keys[table] = pk[0]
-        
-        return {
-            MappingDataKey.CATEGORY_MAPPING.value: category_mapping,
-            MappingDataKey.ITEM_MAPPING.value: item_mapping,
-            MappingDataKey.FK_MAP.value: fk_map,
-            DictDataType.PRIMARY_KEYS.value: primary_keys
-        }
-    
-    def _parse_field_line(self, line: str) -> Optional[Tuple[str, str, bool, Optional[List[str]]]]:
-        """Parse a DBML field line"""
-        # Remove comments and extra whitespace
-        comment_pos = line.find('//')
-        if comment_pos != -1:
-            comment = line[comment_pos+2:].strip()
-            line = line[:comment_pos].strip()
-        else:
-            comment = ""
-        
-        # Parse field definition
-        parts = line.split()
-        if len(parts) < 2:
-            return None
-        
-        field_name = parts[0]
-        field_type = parts[1]
-        
-        # Check for primary key marker
-        is_pk = '[pk]' in line
-        
-        # Extract enum values from comment
-        enum_values = None
-        if comment.startswith('enum:'):
-            enum_str = comment[5:].strip()
-            enum_values = [v.strip() for v in enum_str.split(',')]
-        
-        return field_name, field_type, is_pk, enum_values
-    
-    def _parse_relationship_line(self, line: str) -> Optional[Tuple[str, str, str, str]]:
-        """Parse a DBML relationship line"""
-        # Format: Ref: child_cat.child_field > parent_cat.parent_field
-        if 'Ref:' not in line or '>' not in line:
-            return None
-        
-        rel_part = line.split('Ref:')[1].strip()
-        left, right = rel_part.split('>', 1)
-        
-        left = left.strip()
-        right = right.strip()
-        
-        if '.' not in left or '.' not in right:
-            return None
-        
-        child_cat, child_field = left.split('.', 1)
-        parent_cat, parent_field = right.split('.', 1)
-        
-        return child_cat.strip(), child_field.strip(), parent_cat.strip(), parent_field.strip()
-    
-    def _xsd_type_from_dbml(self, dbml_type: str) -> str:
-        """Convert DBML type to XSD type"""
-        type_mapping = {
-            'varchar': 'xs:string',
-            'int': 'xs:int',
-            'decimal': 'xs:decimal',
-            'double': 'xs:double',
-            'float': 'xs:float',
-            'boolean': 'xs:boolean',
-            'date': 'xs:date',
-            'datetime': 'xs:dateTime'
-        }
-        return type_mapping.get(dbml_type, 'xs:string')
-
-
-class PrecomputedMappingGenerator(MappingGenerator):
-    """Enhanced mapping generator with DBML precomputation support"""
-    
-    def __init__(
-        self,
-        dict_parser: DictionaryParser,
-        xsd_parser: XSDParser,
-        cache_manager: CacheManager,
-        quiet: bool = False,
-        precomputed: bool = False,
-        schemas_dir: Optional[Union[str, Path]] = None
-    ):
-        super().__init__(dict_parser, xsd_parser, cache_manager, quiet)
-        self.precomputed = precomputed
-        self.schemas_dir = Path(schemas_dir) if schemas_dir else self._get_default_schemas_dir()
-        self.dbml_exporter = DBMLExporter(quiet)
-        self.dbml_importer = DBMLImporter(quiet)
-    
-    def _get_default_schemas_dir(self) -> Path:
-        """Get default schemas directory"""
-        return Path(__file__).parent / "schemas"
-    
-    def get_mapping_rules(self) -> Dict[str, Any]:
-        """Get mapping rules with precomputation support"""
-        if self._mapping_rules is not None:
-            return self._mapping_rules
-        
-        if self.precomputed:
-            try:
-                self._mapping_rules = self._load_precomputed_mappings()
-                return self._mapping_rules
-            except Exception as e:
-                if not self.quiet:
-                    print(f"⚠️  Failed to load precomputed mappings: {e}")
-                    print("🔄 Falling back to runtime computation...")
-        
-        # Fallback to normal computation
-        self._mapping_rules = super().get_mapping_rules()
-        
-        # Export to DBML for future use
-        if not self.precomputed:
-            try:
-                self._export_computed_mappings()
-            except Exception as e:
-                if not self.quiet:
-                    print(f"⚠️  Failed to export mappings to DBML: {e}")
-        
-        return self._mapping_rules
-    
-    def _load_precomputed_mappings(self) -> Dict[str, Any]:
-        """Load precomputed mappings from DBML file"""
-        dbml_path = self._get_dbml_path()
-        
-        if not dbml_path.exists():
-            raise FileNotFoundError(f"Precomputed DBML file not found: {dbml_path}")
-        
-        # Check if DBML file is newer than source files
-        if not self._is_dbml_current(dbml_path):
-            raise ValueError("DBML file is outdated")
-        
-        return self.dbml_importer.import_relationships_from_dbml(dbml_path)
-    
-    def _export_computed_mappings(self) -> None:
-        """Export computed mappings to DBML file"""
-        dbml_path = self._get_dbml_path()
-        self.schemas_dir.mkdir(parents=True, exist_ok=True)
-        self.dbml_exporter.export_relationships_to_dbml(self._mapping_rules, dbml_path)
-    
-    def _get_dbml_path(self) -> Path:
-        """Get path for DBML file based on source files"""
-        # Use a clean, standard filename for the precomputed mappings
-        filename = "mmcif_to_pdbml_mappings.dbml"
-        return self.schemas_dir / filename
-    
-    def _is_dbml_current(self, dbml_path: Path) -> bool:
-        """Check if DBML file is newer than source files"""
-        if not dbml_path.exists():
-            return False
-        
-        dbml_mtime = dbml_path.stat().st_mtime
-        
-        # Check dictionary file
-        if self.dict_parser.source and Path(self.dict_parser.source).exists():
-            dict_mtime = Path(self.dict_parser.source).stat().st_mtime
-            if dict_mtime > dbml_mtime:
-                return False
-        
-        # Check XSD file
-        if self.xsd_parser.source and Path(self.xsd_parser.source).exists():
-            xsd_mtime = Path(self.xsd_parser.source).stat().st_mtime
-            if xsd_mtime > dbml_mtime:
-                return False
-        
-        return True
-    
-    def force_export_mappings(self) -> Path:
-        """Force export current mappings to DBML (useful for generating precomputed files)"""
-        if self._mapping_rules is None:
-            # Compute mappings first
-            super().get_mapping_rules()
-        
-        dbml_path = self._get_dbml_path()
-        self.schemas_dir.mkdir(parents=True, exist_ok=True)
-        self.dbml_exporter.export_relationships_to_dbml(self._mapping_rules, dbml_path)
-        
-        if not self.quiet:
-            print(f"✅ Force exported mappings to: {dbml_path}")
-        
-        return dbml_path
-
-
-# ====================== PDBML Converter ======================
-class PDBMLConverter:
-    """Converts mmCIF data to PDBML XML format"""
-    def __init__(
-        self, 
-        mapping_generator: MappingGenerator,
-        permissive: bool = False,
-        quiet: bool = False
-    ):
-        self.mapping_generator = mapping_generator
-        self.permissive = permissive
-        self.quiet = quiet
-        self.namespace = XMLConstant.get_default_namespace()
-        self.field_resolver = FieldTypeResolver(mapping_generator, quiet)
-        self.xml_generator = XMLGenerator(self.field_resolver, quiet)
-
-    def convert_to_pdbml(self, mmcif_container: MMCIFDataContainer) -> str:
-        """Convert mmCIF container to PDBML XML string"""
-        return self.xml_generator.convert(mmcif_container)
-
-
-class FieldTypeResolver:
-    """Resolves field types and XML representation types"""
-    def __init__(self, mapping_generator: MappingGenerator, quiet: bool = False):
-        self.mapping_generator = mapping_generator
-        self.quiet = quiet
-        # Get schema info once at init
-        self.xsd_meta = self.mapping_generator.xsd_parser.parse(
-            self.mapping_generator.xsd_parser.source
-        )
-        # Pre-compute attribute/element mappings
-        self._attribute_fields_cache = {}
-        self._precompute_attribute_fields()
-
-    def _precompute_attribute_fields(self):
-        """Pre-compute attribute/element mappings for all categories"""
-        tree = self._get_xsd_tree()
-        if tree is None:
-            return
-            
-        ns = {'xs': 'http://www.w3.org/2001/XMLSchema'}
-        root = tree.getroot()
-        
-        for type_elem in root.findall(".//xs:complexType", ns):
-            type_name = type_elem.get('name')
-            if not type_name or not type_name.endswith('Type'):
-                continue
-                
-            cat_name = type_name[:-4]
-            if cat_name not in self._attribute_fields_cache:
-                self._attribute_fields_cache[cat_name] = {'attributes': set(), 'elements': set()}
-            
-            # Collect attributes
-            for attr_elem in type_elem.findall(".//xs:attribute", ns):
-                if attr_name := attr_elem.get('name'):
-                    self._attribute_fields_cache[cat_name]['attributes'].add(attr_name)
-            
-            # Collect elements  
-            for elem_elem in type_elem.findall(".//xs:element", ns):
-                if elem_name := elem_elem.get('name'):
-                    self._attribute_fields_cache[cat_name]['elements'].add(elem_name)
-
-    def _get_xsd_tree(self):
-        """Get cached XSD tree"""
-        xsd_path = self.mapping_generator.xsd_parser.source
-        if not xsd_path or not Path(xsd_path).exists():
-            return None
-            
-        # Generate cache key
-        xsd_path_resolved = str(Path(xsd_path).resolve())
-        mtime = os.path.getmtime(xsd_path)
-        cache_key = f"xsd_tree_{hashlib.md5(f'{xsd_path_resolved}_{mtime}'.encode()).hexdigest()}"
-        
-        # Check cache
-        cached_tree = self.mapping_generator.cache_manager.get('xsd_trees', cache_key)
-        if cached_tree:
-            return cached_tree
-        
-        # Parse and cache
-        try:
-            tree = ET.parse(xsd_path)
-            self.mapping_generator.cache_manager.set('xsd_trees', cache_key, tree)
-            return tree
-        except Exception:
-            return None
-
-    def get_field_type(self, cat_name: str, field_name: str) -> str:
-        """Get the XSD type for a field"""
-        type_name = f"{cat_name}{TypeSuffix.TYPE.value}"
-        if type_name in self.xsd_meta[SchemaDataType.COMPLEX_TYPES.value]:
-            for fn, ft in self.xsd_meta[SchemaDataType.COMPLEX_TYPES.value][type_name]:
-                if fn == field_name:
-                    return ft
-        return DataType.STRING.value  # Default to string
-
-    def is_typed_field(self, field_type: str) -> bool:
-        """Check if a field has a specific non-string type"""
-        typed_fields = [DataType.INTEGER.value, DataType.XSD_INT.value, DataType.DECIMAL.value, DataType.DOUBLE.value, 
-                       DataType.XSD_FLOAT.value, DataType.XSD_BOOLEAN.value, DataType.XSD_DATE.value, DataType.XSD_DATETIME.value]
-        return field_type in typed_fields
-
-    def is_attribute_field(self, cat_name: str, field_name: str) -> bool:
-        """Determine if a field should be an XML attribute"""
-        # Check if primary key
-        mapping = self.mapping_generator.get_mapping_rules()
-        primary_keys = mapping.get(DictDataType.PRIMARY_KEYS.value, {})
-        if cat_name in primary_keys:
-            pk = primary_keys[cat_name]
-            if isinstance(pk, list):
-                if field_name in pk:
-                    return True
-            elif field_name == pk:
-                return True
-        
-        # Check pre-computed mappings
-        if cat_name in self._attribute_fields_cache:
-            cache_entry = self._attribute_fields_cache[cat_name]
-            if field_name in cache_entry[SchemaDataType.ATTRIBUTES.value]:
-                return True
-            if field_name in cache_entry[SchemaDataType.ELEMENTS.value]:
-                return False
-        
-        # Fallback to pattern matching
-        attr_patterns = [SemanticPattern.ID.value, SemanticPattern.NAME.value, SemanticPattern.TYPE.value, SemanticPattern.VALUE.value, SemanticPattern.CODE.value]
-        return (field_name in attr_patterns or 
-               field_name.endswith(SemanticPattern.ID_SUFFIX.value) or 
-               field_name.endswith(SemanticPattern.NO_SUFFIX.value) or 
-               field_name.endswith(SemanticPattern.INDEX_SUFFIX.value))
-
-
-class XMLGenerator:
-    """Generates PDBML XML from mmCIF data"""
-    def __init__(self, field_resolver: FieldTypeResolver, quiet: bool = False):
-        self.field_resolver = field_resolver
-        self.quiet = quiet
-
-    def convert(self, mmcif_container: MMCIFDataContainer) -> str:
-        """Convert mmCIF container to PDBML XML string"""
-        mapping = self.field_resolver.mapping_generator.get_mapping_rules()
-        block = next(iter(mmcif_container))
-        
-        root = ET.Element('datablock')
-        root.set(XMLConstant.XMLNS.value, XMLConstant.PDBX_V50.value)
-        root.set(f'{{{XMLConstant.XSI_URI.value}}}{XMLConstant.SCHEMA_LOCATION.value}', 
-                f'{XMLConstant.PDBX_V50.value} {XMLConstant.PDBX_V50_XSD.value}')
-        root.set(XMLConstant.DATABLOCK_NAME.value, block.name)
-        
-        for cat_name, category in block.data.items():
-            cat_name_clean = cat_name.lstrip("_")
-            if category.row_count == 0:
-                continue
-                
-            if cat_name_clean not in mapping[MappingDataKey.CATEGORY_MAPPING.value]:
-                if not self.quiet:
-                    print(f"Warning: No mapping found for category {cat_name_clean}")
-                continue
-            
-            self._create_category_element(root, cat_name_clean, category, mapping)
-        
-        # Pretty print the XML for better readability and parser compatibility
-        self._indent_xml(root)
-        xml_string = ET.tostring(root, encoding=XMLConstant.ENCODING.value).decode(XMLConstant.ENCODING.value)
-        return XMLConstant.XML_VERSION.value + xml_string
-
-    def _create_category_element(self, parent: ET.Element, cat_name: str, 
-                               category: Category, mapping: Dict[str, Any]) -> ET.Element:
-        """Create XML elements for a category"""
-        category_elem = ET.SubElement(parent, f'{cat_name}{TypeSuffix.CATEGORY.value}')
-        mapped_fields = mapping[MappingDataKey.CATEGORY_MAPPING.value][cat_name][MappingDataKey.FIELDS.value]
-        
-        for i in range(category.row_count):
-            row = category[i]
-            row_elem = ET.SubElement(category_elem, cat_name)
-            self._add_row_data(row_elem, row, cat_name, mapped_fields)
-        
-        return category_elem
-
-    def _add_row_data(self, row_elem: ET.Element, row: Any, cat_name: str, mapped_fields: List[str]):
-        """Add data from a single row to XML elements"""
-        for field in mapped_fields:
-            value = row.data.get(field)
-            if value is None:
-                continue
-                
-            clean_value = self._clean_value(value)
-            
-            if self.field_resolver.is_attribute_field(cat_name, field):
-                self._add_attribute(row_elem, field, clean_value)
-            else:
-                self._add_element(row_elem, field, clean_value, cat_name)
-
-    def _add_attribute(self, element: ET.Element, name: str, value: str):
-        """Add an XML attribute if value is valid"""
-        if value and value not in [DataValue.EMPTY_STRING.value, DataValue.DOT.value, DataValue.QUESTION_MARK.value]:
-            element.set(name, value)
-
-    def _add_element(self, parent: ET.Element, name: str, value: str, cat_name: str):
-        """Add an XML element with proper value handling"""
-        if value in [DataValue.EMPTY_STRING.value, DataValue.DOT.value, DataValue.QUESTION_MARK.value]:
-            self._handle_missing_value(parent, name, cat_name)
-        else:
-            field_elem = ET.SubElement(parent, name)
-            field_elem.text = value
-
-    def _handle_missing_value(self, parent: ET.Element, name: str, cat_name: str):
-        """Handle missing values based on field type"""
-        field_type = self.field_resolver.get_field_type(cat_name, name)
-        field_elem = ET.SubElement(parent, name)
-        
-        if self.field_resolver.is_typed_field(field_type):
-            if 'integer' in field_type.lower() or 'int' in field_type.lower():
-                field_elem.text = DataValue.DEFAULT_INTEGER.value
-            elif 'decimal' in field_type.lower() or 'double' in field_type.lower() or 'float' in field_type.lower():
-                field_elem.text = DataValue.DEFAULT_DECIMAL.value
-            else:
-                field_elem.text = DataValue.EMPTY_STRING.value
-        else:
-            field_elem.text = DataValue.EMPTY_STRING.value
-
-    def _clean_value(self, value: Any) -> str:
-        """Clean and normalize values from mmCIF data"""
-        if value is None:
-            return DataValue.EMPTY_STRING.value
-        
-        str_value = str(value)
-        
-        # Handle quoted strings
-        if len(str_value) >= 2:
-            if (str_value.startswith(FileOperation.DOUBLE_QUOTE.value) and str_value.endswith(FileOperation.DOUBLE_QUOTE.value)) or \
-               (str_value.startswith(FileOperation.SINGLE_QUOTE.value) and str_value.endswith(FileOperation.SINGLE_QUOTE.value)):
-                str_value = str_value[1:-1]
-        
-        # Handle mmCIF multi-line text format
-        # mmCIF multi-line text starts with a newline and ends with ';' on its own line
-        # We need to clean this up for XML
-        if str_value.endswith('\n;'):
-            # Remove the trailing newline and semicolon that mark end of multi-line text
-            str_value = str_value[:-2]
-        elif str_value.endswith(';') and '\n' in str_value:
-            # Handle case where there might not be a newline before the final semicolon
-            lines = str_value.split('\n')
-            if lines[-1] == ';':
-                # Remove the final line containing just the semicolon
-                str_value = '\n'.join(lines[:-1])
-        
-        # Strip leading/trailing whitespace from multi-line content
-        str_value = str_value.strip()
-        
-        # Escape XML special characters to ensure well-formed XML
-        str_value = str_value.replace('&', '&amp;')  # Must be first
-        str_value = str_value.replace('<', '&lt;')
-        str_value = str_value.replace('>', '&gt;')
-        str_value = str_value.replace('"', '&quot;')
-        str_value = str_value.replace("'", '&apos;')
-        
-        return str_value
-
-    def _indent_xml(self, elem: ET.Element, level: int = 0) -> None:
-        """Add pretty printing to XML elements with proper indentation"""
-        indent = "  " * level  # 2 spaces per level
-        if len(elem):
-            if not elem.text or not elem.text.strip():
-                elem.text = f"\n{indent}  "
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = f"\n{indent}"
-            for child in elem:
-                self._indent_xml(child, level + 1)
-            if not child.tail or not child.tail.strip():
-                child.tail = f"\n{indent}"
-        else:
-            if level and (not elem.tail or not elem.tail.strip()):
-                elem.tail = f"\n{indent}"
-
 
 # ====================== Relationship Resolver ======================
 class RelationshipResolver:
-    """Resolves entity relationships for nested JSON output with precomputation support"""
+    """Resolves entity relationships for nested JSON output from mmCIF data"""
     def __init__(
         self, 
-        mapping_generator: Union[MappingGenerator, PrecomputedMappingGenerator],
-        precomputed: bool = False
+        mapping_generator: MappingGenerator
     ):
-        # Use PrecomputedMappingGenerator if precomputed is requested
-        if precomputed and not isinstance(mapping_generator, PrecomputedMappingGenerator):
-            # Convert to precomputed version
-            self.mapping_generator = PrecomputedMappingGenerator(
-                mapping_generator.dict_parser,
-                mapping_generator.xsd_parser,
-                mapping_generator.cache_manager,
-                mapping_generator.quiet,
-                precomputed=True
-            )
-        else:
-            self.mapping_generator = mapping_generator
-        
+        self.mapping_generator = mapping_generator
         self.ownership_analyzer = OwnershipAnalyzer(self.mapping_generator)
         self.nesting_builder = NestingBuilder()
         
@@ -1520,12 +644,12 @@ class RelationshipResolver:
         """Cached access to mapping rules"""
         return self.mapping_generator.get_mapping_rules()
 
-    def resolve_relationships(self, xml_content: str) -> Dict[str, Any]:
-        # Parse XML to flat dict
-        flattener = XMLFlattener()
-        flat = flattener.flatten(xml_content)
+    def resolve_relationships(self, mmcif_data: MMCIFDataContainer) -> Dict[str, Any]:
+        """Resolve relationships directly from mmCIF data to create nested JSON"""
+        # Convert mmCIF container to flat dict
+        flat = self._flatten_mmcif(mmcif_data)
         
-        # Get mapping rules (potentially from precomputed DBML)
+        # Get mapping rules
         mapping = self.mapping_rules
         fk_map = mapping["fk_map"]
         primary_keys = mapping.get("primary_keys", {})
@@ -1535,40 +659,22 @@ class RelationshipResolver:
         
         # Build nested structure
         return self.nesting_builder.build_nested_structure(flat, ownership_fk_map, primary_keys)
-
-
-class XMLFlattener:
-    """Flattens XML content into a dictionary structure"""
-    def flatten(self, xml_content: str) -> Dict[str, Any]:
-        """Convert XML to flat dictionary of entities and rows"""
-        tree = ET.ElementTree(ET.fromstring(xml_content))
-        root = tree.getroot()
+    
+    def _flatten_mmcif(self, mmcif_data: MMCIFDataContainer) -> Dict[str, Any]:
+        """Convert mmCIF container to flat dictionary structure"""
         flat = {}
         
-        for elem in root:
-            # Strip namespace from tag name 
-            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
-            
-            # Remove 'Category' suffix to get entity name
-            entity_name = tag.replace('Category', '') if tag.endswith('Category') else tag
-            
-            # Process each item in the category
-            for item_elem in elem:
-                row_data = self._extract_row_data(item_elem)
-                flat.setdefault(entity_name, []).append(row_data)
+        for block in mmcif_data:
+            for category_name, category in block.data.items():
+                # Remove underscore prefix from category name
+                entity_name = category_name.lstrip('_')
+                
+                # Convert each row to a dictionary
+                for row in category:
+                    row_data = row.data
+                    flat.setdefault(entity_name, []).append(row_data)
         
         return flat
-
-    def _extract_row_data(self, elem: ET.Element) -> Dict[str, Any]:
-        """Extract row data from XML element"""
-        row_data = {}
-        # Add attributes
-        row_data.update(elem.attrib)
-        # Add child elements
-        for child in elem:
-            child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-            row_data[child_tag] = child.text
-        return row_data
 
 
 class OwnershipAnalyzer:

@@ -11,7 +11,6 @@ import os
 import json
 import copy
 import shutil
-import xml.dom.minidom  # Add this import at the top
 from sloth.mmcif import (
     MMCIFHandler,
     MMCIFWriter,
@@ -21,15 +20,6 @@ from sloth.mmcif import (
     SchemaValidatorFactory,
     StructureFormat,
     ValidationError,
-    PDBMLConverter,
-    DictionaryParser,
-    XMLSchemaValidator,
-    RelationshipResolver,
-    MMCIFParser,
-    # Pipeline components
-    XSDParser,
-    MappingGenerator,
-    get_cache_manager,
 )
 from typing import Dict, Optional, Any, Union
 from pathlib import Path
@@ -381,74 +371,7 @@ ATOM   3    C  12.345 22.678 32.901
 """
 
 
-# ====================== Main Pipeline ======================
-class MMCIFToPDBMLPipeline:
-    """Orchestrates the complete conversion pipeline"""
-    def __init__(
-        self,
-        dict_path: Optional[Union[str, Path]] = None,
-        xsd_path: Optional[Union[str, Path]] = "default",  # Use "default" as sentinel to allow None
-        cache_dir: Optional[str] = None,
-        permissive: bool = False,
-        quiet: bool = False
-    ):
-        # Set default schema paths if not provided
-        if dict_path is None:
-            dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-        if xsd_path == "default":
-            xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
-            
-        # Set up caching
-        cache_manager = get_cache_manager(cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache"))
-        
-        # Set up metadata parsers
-        dict_parser = DictionaryParser(cache_manager, quiet)
-        xsd_parser = XSDParser(cache_manager, quiet)
-        dict_parser.source = dict_path
-        xsd_parser.source = xsd_path
-        
-        # Set up mapping generator
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, quiet)
-        
-        # Store configuration
-        self.permissive = permissive
-        self.quiet = quiet
-        
-        # Set up converter and resolver
-        self.converter = PDBMLConverter(mapping_generator, permissive, quiet)
-        self.resolver = RelationshipResolver(mapping_generator)
-        self.validator = XMLSchemaValidator(xsd_path) if xsd_path and not permissive else None
-    
-    def process_mmcif_file(self, mmcif_path: Union[str, Path]) -> Dict[str, Any]:
-        # Parse mmCIF
-        parser = MMCIFParser()
-        mmcif_container = parser.parse(mmcif_path)
-        
-        # Convert to PDBML
-        pdbml_xml = self.converter.convert_to_pdbml(mmcif_container)
-        
-        # Validate
-        if self.validator:
-            try:
-                validation = self.validator.validate(pdbml_xml)
-            except ValidationError as e:
-                # Convert ValidationError exception to the expected dictionary format
-                validation = {
-                    "valid": False,
-                    "errors": str(e).split(';')
-                }
-        else:
-            validation = {"valid": True, "errors": []}
-        
-        # Resolve relationships
-        nested_json = self.resolver.resolve_relationships(pdbml_xml)
-        
-        return {
-            "mmcif_data": mmcif_container,
-            "pdbml_xml": pdbml_xml,
-            "validation": validation,
-            "nested_json": nested_json
-        }
+
 
 
 def category_validator(category_name):
@@ -505,66 +428,7 @@ def show_file_info(mmcif):
                 print(f"   ... and {len(block.categories) - 5} more")
 
 
-# Global cache for PDBML infrastructure to avoid recreating it multiple times
-_PDBML_INFRASTRUCTURE = None
 
-def get_pdbml_infrastructure():
-    """Get or create cached PDBML infrastructure components to improve performance."""
-    global _PDBML_INFRASTRUCTURE
-    
-    if _PDBML_INFRASTRUCTURE is None:
-        print("📦 Initializing PDBML infrastructure (one-time setup)...")
-        
-        # Use the same caching strategy as tests for better performance
-        try:
-            from tests.test_utils import get_shared_converter
-            # Use the existing optimized test infrastructure
-            converter = get_shared_converter(permissive=False)
-            
-            # Extract components from the shared converter
-            mapping_generator = converter.mapping_generator
-            dict_parser = mapping_generator.dict_parser
-            xsd_parser = mapping_generator.xsd_parser
-            cache_manager = mapping_generator.cache_manager
-            
-            _PDBML_INFRASTRUCTURE = {
-                'converter': converter,
-                'mapping_generator': mapping_generator,
-                'dict_parser': dict_parser,
-                'xsd_parser': xsd_parser,
-                'cache_manager': cache_manager
-            }
-            
-            print("   ✅ PDBML infrastructure cached and ready (using shared test cache)!")
-            
-        except ImportError:
-            # Fallback to original implementation if test utils not available
-            dict_path = Path(__file__).parent / "sloth" / "schemas" / "mmcif_pdbx_v50.dic"
-            xsd_path = Path(__file__).parent / "sloth" / "schemas" / "pdbx-v50.xsd"
-            
-            # Create parser components and converter
-            from sloth.mmcif.serializer import get_cache_manager, DictionaryParser, XSDParser, MappingGenerator
-            cache_manager = get_cache_manager(os.path.join(os.path.expanduser("~"), ".sloth_cache"))
-            dict_parser = DictionaryParser(cache_manager, True)
-            xsd_parser = XSDParser(cache_manager, True)
-            dict_parser.source = dict_path
-            xsd_parser.source = xsd_path
-            mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, True)
-            converter = PDBMLConverter(mapping_generator)
-            
-            _PDBML_INFRASTRUCTURE = {
-                'converter': converter,
-                'mapping_generator': mapping_generator,
-                'dict_parser': dict_parser,
-                'xsd_parser': xsd_parser,
-                'cache_manager': cache_manager
-            }
-            
-            print("   ✅ PDBML infrastructure cached and ready!")
-    else:
-        print("📦 Using cached PDBML infrastructure")
-    
-    return _PDBML_INFRASTRUCTURE
 
 
 def parse_embedded_demo_data():
@@ -709,9 +573,9 @@ def demonstrate_2d_slicing(mmcif):
 
 
 def demonstrate_export_functionality(mmcif, output_dir):
-    """Demonstrate JSON and XML export functionality with flat and nested structures."""
+    """Demonstrate JSON export functionality with flat and nested structures."""
     print(f"\n📊 Demonstrating export functionality:")
-    print(f"   Supporting JSON and XML formats in both flat and nested structures")
+    print(f"   Supporting JSON format in both flat and nested structures")
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -733,26 +597,10 @@ def demonstrate_export_functionality(mmcif, output_dir):
                   structure=StructureFormat.FLAT, permissive=True)
     print(f"   ✅ Exported flat JSON: {json_flat_path}")
 
-    print(f"\n🔧 XML Export - Nested Structure (PDBML):")
-    # Export to XML (nested structure - PDBML format)
-    xml_nested_path = os.path.join(output_dir, "exported_nested.xml")
-    handler.export(mmcif, format_type="xml", file_path=xml_nested_path, 
-                  structure=StructureFormat.NESTED, permissive=True)
-    print(f"   ✅ Exported nested XML: {xml_nested_path}")
-    
-    print(f"\n🔧 XML Export - Flat Structure:")
-    # Export to XML (flat structure)
-    xml_flat_path = os.path.join(output_dir, "exported_flat.xml")
-    handler.export(mmcif, format_type="xml", file_path=xml_flat_path, 
-                  structure=StructureFormat.FLAT, permissive=True)
-    print(f"   ✅ Exported flat XML: {xml_flat_path}")
-
     print(f"\n📁 Export Summary:")
     export_files = [
         ("JSON Nested", json_nested_path),
-        ("JSON Flat", json_flat_path),
-        ("XML Nested", xml_nested_path),
-        ("XML Flat", xml_flat_path)
+        ("JSON Flat", json_flat_path)
     ]
     
     for format_name, file_path in export_files:
@@ -764,19 +612,17 @@ def demonstrate_export_functionality(mmcif, output_dir):
 
     return {
         "json_nested": json_nested_path,
-        "json_flat": json_flat_path,
-        "xml_nested": xml_nested_path,
-        "xml_flat": xml_flat_path
+        "json_flat": json_flat_path
     }
 
  
 
 
 def demonstrate_import_functionality(output_dir):
-    """Demonstrate JSON and XML import functionality with flat and nested structures."""
+    """Demonstrate JSON import functionality with flat and nested structures."""
     
     print(f"\n📥 Demonstrating import functionality:")
-    print(f"   Supporting JSON and XML formats in both flat and nested structures")
+    print(f"   Supporting JSON format in both flat and nested structures")
 
     # Create handler
     handler = MMCIFHandler()
@@ -784,11 +630,9 @@ def demonstrate_import_functionality(output_dir):
     print(f"\n🔍 Available import methods:")
     print(f"   ✅ mmCIF files: handler.read(file_path) - Full support")
     print(f"   ⚠️ JSON files: handler.load(file_path, format_type='json') - Schema validation required")
-    print(f"   ⚠️ XML files: handler.load(file_path, format_type='xml') - PDBML format expected")
     
     print(f"\n📋 Current limitations:")
     print(f"   • JSON import requires strict schema compliance (no None values)")
-    print(f"   • XML import expects valid PDBML format with proper namespaces")
     print(f"   • CSV/YAML/Pickle import not directly supported via handler API")
     
     print(f"\n💡 Recommended workflow:")
@@ -817,18 +661,14 @@ def demonstrate_import_functionality(output_dir):
         print(f"   ❌ mmCIF parsing demonstration failed: {e}")
 
     # Show file verification for exported formats (without claiming to import them)
-    print(f"\n� Verifying exported files exist:")
-    export_files = {
-        'JSON': os.path.join(output_dir, "exported_data.json"),
-        'XML': os.path.join(output_dir, "exported_data.xml")
-    }
+    print(f"\n📁 Verifying exported files exist:")
+    json_file = os.path.join(output_dir, "exported_data.json")
     
-    for format_name, file_path in export_files.items():
-        if os.path.exists(file_path):
-            size = os.path.getsize(file_path)
-            print(f"   ✅ {format_name}: {file_path} ({size} bytes)")
-        else:
-            print(f"   ❌ {format_name}: {file_path} not found")
+    if os.path.exists(json_file):
+        size = os.path.getsize(json_file)
+        print(f"   ✅ JSON: {json_file} ({size} bytes)")
+    else:
+        print(f"   ❌ JSON: {json_file} not found")
 
     return {"status": "Export verification complete, import capabilities limited"}
 
@@ -986,44 +826,6 @@ def demonstrate_schema_validation(mmcif, output_dir):
             print(f"      Note: Using simplified validation for demo purposes")
     else:
         print(f"   ⚠️ JSON file not found, skipping validation")
-
-    # ===== XML Schema Validation =====
-    print("\n📝 XML Schema Validation Example:")
-
-    # Get the path to the exported XML file
-    xml_path = os.path.join(output_dir, "exported_data.xml")
-
-    if os.path.exists(xml_path):
-        try:
-            # Create a simple XML validator using a function rather than XSD
-            class SimpleXMLValidator(SchemaValidator):
-                def validate(self, data):
-                    return {"valid": True, "errors": []}
-
-                def is_valid(self, data):
-                    return True
-
-            xml_validator = SimpleXMLValidator()
-
-            # Create a valid copy for demonstration
-            valid_xml_path = os.path.join(validation_dir, "valid_data.xml")
-            with open(xml_path, "r") as src, open(valid_xml_path, "w") as dst:
-                dst.write(src.read())
-
-            # Validate valid data
-            try:
-                # For demonstration, show that XML validation works at schema level
-                print(f"   ✅ Valid XML data passed validation")
-                print(f"      Note: Full import functionality simplified to core features")
-            except ValidationError as e:
-                print(f"   ❌ Unexpected validation error: {e}")
-            except Exception as e:
-                print(f"   ❌ XML validation error: {str(e)}")
-
-        except Exception as e:
-            print(f"   ❌ XML validation setup error: {e}")
-    else:
-        print(f"   ⚠️ XML file not found, skipping validation")
 
     # ===== YAML Schema Validation =====
     print("\n📝 YAML Schema Validation Example:")
@@ -1318,490 +1120,12 @@ def demonstrate_auto_creation():
 
 
 def parse_embedded_demo_data_as_string():
-    """Return the embedded comprehensive demo data as a string for PDBML pipeline."""
+    """Return the embedded comprehensive demo data as a string."""
     print(f"📝 Using embedded comprehensive demo data (string mode)")
     print(f"   Data source: Comprehensive protein-ligand complex structure") 
     print(f"   Features: Multiple entities, citations, authors, coordinates, ligands")
     
     return COMPREHENSIVE_DEMO_MMCIF
-
-
-def demonstrate_pdbml_pipeline(comprehensive=False):
-    """Demonstrate the PDBML conversion pipeline."""
-    print("\n🧬 PDBML Conversion Pipeline Demo")
-    print("=" * 40)
-    
-    # Always use comprehensive embedded demo data for consistency
-    print("📊 Running PDBML pipeline demonstration with comprehensive embedded data")
-    demo_content = parse_embedded_demo_data_as_string()
-    
-    try:
-        # Step 1: Parse mmCIF from string using temporary file
-        print(f"\n🔍 Step 1: Parsing mmCIF data from embedded comprehensive content")
-        import tempfile
-        import os
-        
-        # Create a temporary file with the embedded data
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as tmp_file:
-            tmp_file.write(demo_content)
-            tmp_filename = tmp_file.name
-        
-        try:
-            parser = MMCIFParser(validator_factory=None)
-            container = parser.parse(tmp_filename)
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(tmp_filename):
-                os.remove(tmp_filename)
-        
-        print(f"   ✅ Parsed successfully")
-        print(f"   📋 Data blocks: {len(container.data)}")
-        print(f"   📋 Block name: {container.data[0].name}")
-        print(f"   📋 Categories: {len(container.data[0].categories)}")
-        category_names = list(container.data[0].categories)
-        print(f"   📂 Categories: {', '.join(category_names)}")
-        
-        # Step 2: Convert to PDBML XML
-        print(f"\n🔄 Step 2: Converting to PDBML XML")
-        
-        # Use cached infrastructure for better performance
-        infra = get_pdbml_infrastructure()
-        converter = infra['converter']
-        xml_content = converter.convert_to_pdbml(container)
-        
-        print(f"   ✅ XML generated successfully")
-        print(f"   📄 XML size: {len(xml_content)} characters")
-        
-        # Step 3: Validate XML against schema
-        print(f"\n🛡️  Step 3: Validating XML against PDBX schema")
-        schema_path = Path(__file__).parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
-        
-        is_valid = False
-        errors = []
-        
-        if schema_path.exists():
-            validator = XMLSchemaValidator(schema_path)
-            validation_result = validator.validate(xml_content)
-            
-            is_valid = validation_result["valid"]
-            errors = validation_result.get("errors", [])
-            
-            print(f"   {'✅' if is_valid else '⚠️'} Validation: {'PASSED' if is_valid else 'FAILED'}")
-            print(f"   📝 Total errors: {len(errors)}")
-            
-            # Show validation errors
-            if errors:
-                # Display errors appropriately based on type and count
-                if isinstance(errors, list):
-                    if len(errors) <= 5:
-                        print("   🔍 Validation errors:")
-                        for i, error in enumerate(errors, 1):
-                            print(f"      {i}. {error}")
-                    else:
-                        print("   🔍 First 3 validation errors:")
-                        for i, error in enumerate(errors[:3], 1):
-                            print(f"      {i}. {error}")
-                        print(f"      ... and {len(errors) - 3} more")
-                elif isinstance(errors, str):
-                    print(f"   🔍 Validation error: {errors}")
-                else:
-                    print(f"   🔍 Validation error details: {str(errors)}")
-        else:
-            print("   ❌ Schema file not found")
-        
-        # Step 4: Resolve relationships (only for comprehensive demo)
-        if comprehensive:
-            print(f"\n🔗 Step 4: Resolving parent-child relationships")
-            resolver = RelationshipResolver(infra['mapping_generator'])
-            nested_json = resolver.resolve_relationships(xml_content)
-            
-            print(f"   ✅ Relationships resolved")
-            print(f"   📊 Root categories: {len(nested_json)}")
-            
-            # Show relationship structure
-            for cat_name, cat_data in list(nested_json.items())[:3]:
-                if isinstance(cat_data, dict):
-                    print(f"   📂 {cat_name}: {len(cat_data)} items")
-                    if cat_data:
-                        first_key = list(cat_data.keys())[0]
-                        first_item = cat_data[first_key]
-                        if isinstance(first_item, dict):
-                            child_cats = [k for k, v in first_item.items() if isinstance(v, list)]
-                            if child_cats:
-                                print(f"      └── Child categories: {', '.join(child_cats)}")
-        
-        # Step 5: Save outputs
-        print(f"\n💾 Step 5: Saving outputs")
-        output_dir = Path("exports") / "pdbml_demo"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save XML
-        xml_file = output_dir / "demo.xml"
-        with open(xml_file, 'w', encoding='utf-8') as f:
-            f.write(xml_content)
-        print(f"   💾 XML: {xml_file}")
-        
-        # Save validation report
-        report_file = output_dir / "validation_report.txt"
-        with open(report_file, 'w', encoding='utf-8') as f:
-            f.write(f"PDBML XML Validation Report\n")
-            f.write(f"===========================\n\n")
-            f.write(f"Status: {'PASSED' if is_valid else 'FAILED'}\n")
-            f.write(f"Total errors: {len(errors)}\n\n")
-            if errors:
-                f.write("Errors:\n")
-                for i, error in enumerate(errors, 1):
-                    f.write(f"  {i}. {error}\n")
-        print(f"   📋 Report: {report_file}")
-        
-        if comprehensive:
-            # Save nested JSON
-            json_file = output_dir / "nested_relationships.json"
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(nested_json, f, indent=2)
-            print(f"   💾 JSON: {json_file}")
-        
-        # Step 6: Show sample outputs
-        print(f"\n🔍 Step 6: Sample PDBML XML preview")
-        print("=" * 40)
-        
-        # Show formatted sample (first 800 characters)
-        sample_xml = xml_content[:800]
-        if len(xml_content) > 800:
-            sample_xml += "\n    ... (truncated)"
-        print(sample_xml)
-        
-        if comprehensive and 'nested_json' in locals():
-            print(f"\n🔍 Sample nested JSON relationships:")
-            sample_json = {}
-            for cat_name, cat_data in list(nested_json.items())[:2]:
-                if isinstance(cat_data, dict):
-                    sample_json[cat_name] = {}
-                    for key, item in list(cat_data.items())[:1]:
-                        if isinstance(item, dict):
-                            # Show simplified item with first few fields
-                            simplified = {}
-                            field_count = 0
-                            for field, value in item.items():
-                                if field_count < 3 and not isinstance(value, list):
-                                    simplified[field] = value
-                                    field_count += 1
-                                elif isinstance(value, list):
-                                    simplified[field] = f"[{len(value)} items]"
-                            sample_json[cat_name][key] = simplified
-                    if len(cat_data) > 1:
-                        sample_json[cat_name]["..."] = f"and {len(cat_data) - 1} more items"
-            
-            print(json.dumps(sample_json, indent=2))
-        
-        # Step 7: Summary
-        print(f"\n📊 Pipeline Summary")
-        print("=" * 40)
-        print(f"✅ mmCIF parsing: SUCCESS")
-        print(f"✅ PDBML XML generation: SUCCESS")
-        print(f"{'✅' if is_valid else '⚠️'} Schema validation: {'SUCCESS' if is_valid else 'WITH WARNINGS'}")
-        
-        if comprehensive:
-            print(f"✅ Relationship resolution: SUCCESS")
-            print(f"✅ Nested JSON output: SUCCESS")
-        
-        print(f"\n🎯 Key achievements:")
-        print(f"   • Parsed {len(container.data[0].categories)} mmCIF categories")
-        print(f"   • Generated PDBML XML conforming to pdbx-v50.xsd")
-        print(f"   • {'Perfect XML compliance!' if is_valid else 'Minor validation warnings only'}")
-        
-        if comprehensive:
-            print(f"   • Correctly placed key fields as XML attributes")
-            print(f"   • Resolved parent-child relationships")
-            print(f"   • Created hierarchical JSON with nested structures")
-        
-        print(f"\n📁 All outputs saved to: {output_dir}/")
-        
-    except Exception as e:
-        print(f"❌ Error in PDBML pipeline: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        # No file cleanup needed since we're using embedded data
-        print("📝 No temporary files to clean up (using embedded data)")
-
-
-def demonstrate_complete_pdbml_pipeline():
-    """Run the complete PDBML pipeline using the MMCIFToPDBMLPipeline class."""
-    print("\n🚀 Complete PDBML Pipeline Demo")
-    print("=" * 40)
-    print("📊 Using the integrated MMCIFToPDBMLPipeline class")
-    
-    # Get embedded demo data
-    demo_content = parse_embedded_demo_data_as_string()
-    
-    try:
-        # Initialize pipeline
-        schema_path = Path(__file__).parent / "sloth" / "mmcif" / "schemas" / "pdbx-v50.xsd"
-        dict_path = Path(__file__).parent / "sloth" / "mmcif" / "schemas" / "mmcif_pdbx_v50.dic"
-        
-        if not schema_path.exists():
-            print("❌ Schema file not found - pipeline cannot validate")
-            return
-        
-        if not dict_path.exists():
-            print("❌ Dictionary file not found - using basic conversion")
-            pipeline = MMCIFToPDBMLPipeline(xsd_path=schema_path)
-        else:
-            print("📦 Using cached dictionary data")
-            pipeline = MMCIFToPDBMLPipeline(dict_path=dict_path, xsd_path=schema_path)
-        
-        print("✅ Pipeline initialized")
-        
-        # Run complete pipeline
-        print(f"\n🔄 Running complete pipeline on embedded demo data")
-        
-        # Create a temporary file with the embedded data
-        import tempfile
-        import os
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as tmp_file:
-            tmp_file.write(demo_content)
-            tmp_filename = tmp_file.name
-        
-        try:
-            # Use the file-based method that actually exists
-            result = pipeline.process_mmcif_file(tmp_filename)
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(tmp_filename):
-                os.remove(tmp_filename)
-        
-        # Display results
-        print(f"\n📊 Pipeline Results:")
-        print(f"   ✅ mmCIF parsing: SUCCESS")
-        print(f"   ✅ XML generation: SUCCESS")
-        print(f"   {'✅' if result['validation']['valid'] else '⚠️'} Schema validation: {'PASSED' if result['validation']['valid'] else 'FAILED'}")
-        print(f"   📝 Validation errors: {len(result['validation']['errors'])}")
-        
-        if result['validation']['errors']:
-            print(f"   🔍 Validation errors found (showing summary):")
-            errors = result['validation']['errors']
-            print(f"      Total count: {len(errors)}")
-        else:
-            print(f"   ✅ No validation errors!")
-        
-        print(f"   ✅ Relationship resolution: SUCCESS")
-        print(f"   📊 Root categories in JSON: {len(result['nested_json']) if result['nested_json'] else 0}")
-        
-        # Save outputs
-        output_dir = Path("exports") / "complete_pdbml_demo"
-        output_dir.mkdir(parents=True, exist_ok=True)
-                        
-        # Save XML
-        if result['pdbml_xml']:
-            xml_file = output_dir / "complete_demo.xml"
-            # Pretty-print XML
-            try:
-                dom = xml.dom.minidom.parseString(result['pdbml_xml'])
-                pretty_xml = dom.toprettyxml(indent="  ")
-            except Exception:
-                # Fallback to raw XML if parsing fails
-                pretty_xml = result['pdbml_xml']
-            with open(xml_file, 'w', encoding='utf-8') as f:
-                f.write(pretty_xml)
-            print(f"   💾 XML saved: {xml_file}")
-        
-        # Save JSON
-        if result['nested_json']:
-            json_file = output_dir / "complete_demo.json"
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(result['nested_json'], f, indent=2)
-            print(f"   💾 JSON saved: {json_file}")
-        
-        # Save validation report
-        validation_file = output_dir / "validation_report.txt"
-        with open(validation_file, 'w', encoding='utf-8') as f:
-            f.write(f"PDBML XML Validation Report\n")
-            f.write(f"===========================\n\n")
-            f.write(f"Status: {'PASSED' if result['validation']['valid'] else 'FAILED'}\n")
-            f.write(f"Total errors: {len(result['validation']['errors'])}\n\n")
-            if result['validation']['errors']:
-                f.write("Errors:\n")
-                for i, error in enumerate(result['validation']['errors'][:10], 1):  # Only first 10
-                    f.write(f"  {i}. {str(error)[:200]}\n")  # Truncate long errors
-        print(f"   📋 Validation report: {validation_file}")
-        
-        print(f"\n📁 All outputs saved to: {output_dir}/")
-        print(f"🎉 Complete pipeline demonstration finished successfully!")
-        
-    except Exception as e:
-        print(f"❌ Error in complete pipeline: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        # No file cleanup needed since we're using embedded data
-        print("📝 No temporary files to clean up (using embedded data)")
-
-
-def demonstrate_nested_relationships():
-    """Demonstrate the multi-level nested relationship resolution functionality."""
-    print("\n🧬 Nested Relationship Resolution Demo")
-    print("=" * 50)
-    print("📊 Testing 4-level hierarchical parent-child relationship resolution")
-    
-    # Use the comprehensive embedded demo data for nested relationship testing
-    print("📝 Using embedded comprehensive demo data for nested relationship testing")
-    demo_content = parse_embedded_demo_data_as_string()
-    
-    try:
-        # Step 1: Parse mmCIF using temporary file
-        print(f"\n1️⃣ Parsing mmCIF with nested structures...")
-        import tempfile
-        import os
-        
-        # Create a temporary file with the embedded data
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.cif', delete=False) as tmp_file:
-            tmp_file.write(demo_content)
-            tmp_filename = tmp_file.name
-        
-        try:
-            parser = MMCIFParser()
-            container = parser.parse(tmp_filename)
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(tmp_filename):
-                os.remove(tmp_filename)
-                
-        print(f"   ✅ Parsed successfully")
-        print(f"   📋 Categories: {list(container.data[0].categories)}")
-        
-        # Step 2: Convert to PDBML XML
-        print(f"\n2️⃣ Converting to PDBML XML...")
-        
-        # Use cached infrastructure for better performance
-        infra = get_pdbml_infrastructure()
-        converter = infra['converter']
-        xml_content = converter.convert_to_pdbml(container)
-        print(f"   ✅ XML generated - {len(xml_content)} characters")
-        
-        # Step 3: Resolve relationships using dictionary-driven approach
-        print(f"\n3️⃣ Resolving parent-child relationships...")
-        # Reuse the mapping generator from cached infrastructure
-        mapping_generator = infra['mapping_generator']
-        resolver = RelationshipResolver(mapping_generator)
-        nested_json = resolver.resolve_relationships(xml_content)
-        print(f"   ✅ Relationships resolved")
-        print(f"   📊 Root categories: {list(nested_json)}")
-        
-        # Step 4: Validate 4-level hierarchy
-        print(f"\n4️⃣ Validating 4-level nested hierarchy...")
-        try:
-            # Navigate the expected hierarchy (updated for array-based format)
-            entity_1 = nested_json['entity'][0]  # Get first entity from array
-            print(f"   📦 Level 1 - Entity: {entity_1['type']}")
-            
-            # Branch 1: entity -> entity_poly -> entity_poly_seq
-            entity_poly = entity_1['entity_poly'][0]  # Get first entity_poly from array
-            print(f"   🧬 Level 2 - Entity_poly: {entity_poly['type']}")
-            
-            entity_poly_seq = entity_poly['entity_poly_seq'][0]  # Get first seq from array
-            print(f"   🔗 Level 3 - Entity_poly_seq: {entity_poly_seq['mon_id']}")
-            
-            # Branch 2: entity -> struct_asym -> atom_site
-            struct_asym = entity_1['struct_asym'][0]  # Get first struct_asym from array
-            print(f"   🏗️ Level 2 - Struct_asym: {struct_asym['id']}")
-            
-            atom_site = struct_asym['atom_site'][0]  # Get first atom_site from array
-            print(f"   ⚛️ Level 3 - Atom_site: {atom_site['label_atom_id']} at {atom_site['Cartn_x']}")
-            
-            print(f"   ✅ 4-level hierarchy validated successfully!")
-            
-            # Step 5: Show relationship structure
-            print(f"\n5️⃣ Relationship structure analysis:")
-            print(f"   entity(1)")
-            print(f"   ├── entity_poly")
-            print(f"   │   └── entity_poly_seq (VAL)")
-            print(f"   └── struct_asym(A)")
-            print(f"       └── atom_site (CA at 12.345, 67.890, 42.000)")
-            
-            # Step 6: Save outputs
-            print(f"\n6️⃣ Saving demonstration outputs...")
-            output_dir = Path("nested_demo_output")
-            output_dir.mkdir(exist_ok=True)
-            
-            # Save XML
-            xml_file = output_dir / "nested_demo.xml"
-            with open(xml_file, 'w') as f:
-                f.write(xml_content)
-            print(f"   💾 XML: {xml_file}")
-            
-            # Save nested JSON
-            json_file = output_dir / "perfect_nested_structure.json"
-            with open(json_file, 'w') as f:
-                json.dump(nested_json, f, indent=2)
-            print(f"   💾 JSON: {json_file}")
-            
-            # Create ideal structure visualization
-            ideal_structure = {
-                "description": "4-level nested hierarchy demonstration",
-                "hierarchy": {
-                    "entity": {
-                        "1": {
-                            "type": "polymer",
-                            "description": entity_1['pdbx_description'],
-                            "entity_poly": {
-                                "type": entity_poly['type'],
-                                "entity_poly_seq": {
-                                    "num": entity_poly_seq['num'],
-                                    "mon_id": entity_poly_seq['mon_id']
-                                }
-                            },
-                            "struct_asym": {
-                                "id": struct_asym['id'],
-                                "atom_site": {
-                                    "atom": atom_site['label_atom_id'],
-                                    "coordinates": [
-                                        atom_site['Cartn_x'],
-                                        atom_site['Cartn_y'],
-                                        atom_site['Cartn_z']
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                },
-                "validation": {
-                    "levels": 4,
-                    "branches": 2,
-                    "status": "SUCCESS"
-                }
-            }
-            
-            ideal_file = output_dir / "ideal_nested_structure.json"
-            with open(ideal_file, 'w') as f:
-                json.dump(ideal_structure, f, indent=2)
-            print(f"   💾 Ideal structure: {ideal_file}")
-            
-            print(f"\n🎉 Nested relationship demonstration completed successfully!")
-            print(f"💡 Key achievements:")
-            print(f"   • Correctly parsed complex mmCIF relationships")
-            print(f"   • Generated valid PDBML XML with proper nesting")
-            print(f"   • Resolved 4-level parent-child hierarchy")
-            print(f"   • entity → entity_poly → entity_poly_seq")
-            print(f"   • entity → struct_asym → atom_site")
-            print(f"   • Preserved all data integrity and cross-references")
-            
-            return True
-            
-        except (KeyError, TypeError) as e:
-            print(f"   ❌ Hierarchy validation failed: {e}")
-            print(f"   🔍 Available structure: {json.dumps(nested_json, indent=2)[:500]}...")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Error in nested relationship demo: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    finally:
-        # No file cleanup needed since we're using embedded data
-        print("📝 No temporary files to clean up (using embedded data)")
 
 
 def main():
@@ -1811,7 +1135,7 @@ def main():
   python demo.py input.cif output.cif
   python demo.py input.cif output.cif --categories _database_2 _atom_site
   python demo.py input.cif output.cif --validate
-  python demo.py --demo  # Run comprehensive demo including PDBML pipeline
+  python demo.py --demo  # Run comprehensive demo with sample data
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1825,7 +1149,7 @@ def main():
         "--validate", action="store_true", help="Run validation on categories"
     )
     # Removed --schema-validate flag as it's always included in demo mode
-    parser.add_argument("--demo", action="store_true", help="Run comprehensive demo with sample data (includes PDBML pipeline)")
+    parser.add_argument("--demo", action="store_true", help="Run comprehensive demo with sample data")
 
     args = parser.parse_args()
 
@@ -1975,28 +1299,11 @@ def main():
         print(f"\n🔄 Round-trip Validation Status:")
         print(f"   ℹ️ Round-trip validation requires functional import API")
         print(f"   ⚠️ Currently limited to file verification and mmCIF re-parsing")
-        print(f"   💡 Focus: SLOTH excels at mmCIF parsing and PDBML export")
+        print(f"   💡 Focus: SLOTH excels at mmCIF parsing and JSON export")
 
         # Demonstrate schema validation
         # Note: This is always included in demo mode
         validation_dir = demonstrate_schema_validation(mmcif, output_dir)
-
-        # Demonstrate PDBML pipeline (in demo mode)
-        if args.demo:
-            print("\n" + "=" * 60)
-            print("🧬 PDBML CONVERSION PIPELINE DEMONSTRATION")
-            print("=" * 60)
-            print("Now demonstrating the complete PDBML conversion pipeline!")
-            print("This shows mmCIF → PDBML XML → Validation → Relationship Resolution")
-            
-            # Run basic PDBML demo
-            demonstrate_pdbml_pipeline(comprehensive=False)
-            
-            # Run nested relationship demo
-            demonstrate_nested_relationships()
-            
-            # Run comprehensive PDBML demo  
-            demonstrate_complete_pdbml_pipeline()
 
         # Clean up demo files if created
         if args.demo and os.path.exists("demo_structure.cif"):

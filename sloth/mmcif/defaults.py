@@ -1,9 +1,9 @@
 """
-PDBML Enums - Enum classes for legitimate constants in pdbml_converter.py
+Defaults and Enums - Enum classes for legitimate constants in SLOTH.
 
 This module provides Enum classes for genuinely constant values that don't
 depend on schema or dictionary content. All schema-driven logic should use
-the XMLMappingGenerator instead of hardcoded enums.
+the MappingGenerator instead of hardcoded enums.
 """
 
 from enum import Enum
@@ -21,12 +21,6 @@ class ExportFormat(Enum):
     JSON = "json"
     XML = "xml"
 
-
-class XMLLocation(Enum):
-    """Enum for XML element location types"""
-    ATTRIBUTE = "attribute"
-    ELEMENT_CONTENT = "element_content"
-    ELEMENT = "element"
 
 
 class DataValue(Enum):
@@ -52,12 +46,12 @@ class DataValue(Enum):
 
 
 class DataType(Enum):
-    """Unified enum for all data types across mmCIF, XSD, and PDBML"""
+    """Unified enum for mmCIF data types"""
     # Text types
     CHAR = "char"
     TEXT = "text"
     CODE = "code"
-    STRING = "xs:string"
+    STRING = "string"
 
     # Numeric types
     INT = "int"
@@ -66,21 +60,16 @@ class DataType(Enum):
     NUMBER = "number"
     NUMB = "numb"
     POSITIVE_INT = "positive_int"
-    INTEGER = "xsd:integer"
-    XSD_INT = "xsd:int"
-    DECIMAL = "xsd:decimal"
-    DOUBLE = "xsd:double"
-    XSD_FLOAT = "xsd:float"
+    INTEGER = "integer"
+    DECIMAL = "decimal"
+    DOUBLE = "double"
 
     # Date/time types
     DATE = "date"
     DATETIME = "datetime"
-    XSD_DATE = "xsd:date"
-    XSD_DATETIME = "xsd:dateTime"
 
     # Special types
     BOOLEAN = "boolean"
-    XSD_BOOLEAN = "xsd:boolean"
     BINARY = "binary"
 
     @classmethod
@@ -88,7 +77,7 @@ class DataType(Enum):
         """Get all numeric type names as a set for matching."""
         numeric = {cls.INT.value, cls.FLOAT.value, cls.REAL.value, cls.NUMBER.value, 
                   cls.NUMB.value, cls.POSITIVE_INT.value, cls.INTEGER.value, 
-                  cls.XSD_INT.value, cls.DECIMAL.value, cls.DOUBLE.value, cls.XSD_FLOAT.value}
+                  cls.DECIMAL.value, cls.DOUBLE.value}
         return numeric
 
     @classmethod
@@ -103,99 +92,18 @@ class DataType(Enum):
         return type_name.lower() in text_types
 
 
-class XMLConstant(Enum):
-    """Unified enum for XML and PDBML constants"""
-    # Namespaces
-    PDBX_V50 = "http://pdbml.pdb.org/schema/pdbx-v50.xsd"
-    PDBX_V40 = "http://pdbml.pdb.org/schema/pdbx-v40.xsd"
-    XSI_URI = "http://www.w3.org/2001/XMLSchema-instance"
-    XS_URI = 'http://www.w3.org/2001/XMLSchema'
-    
-    # XML namespace prefixes and attributes
-    XMLNS = 'xmlns'
-    XS_PREFIX = 'xs'
-    SCHEMA_LOCATION = 'schemaLocation'
-    
-    # Elements
-    DATABLOCK = "datablock"
-    ENTRY = "entry"
-    COMPLEX_TYPE = 'xs:complexType'
-    ELEMENT = 'xs:element'
-    ATTRIBUTE = 'xs:attribute'
-    SEQUENCE = 'xs:sequence'
-    RESTRICTION = 'xs:restriction'
-    
-    # Attributes
-    DATABLOCK_NAME = "datablockName"
-    ID = "id"
-    NAME = 'name'
-    TYPE = 'type'
-    BASE = 'base'
-    
-    # Schema files
-    PDBX_V50_XSD = 'pdbx-v50.xsd'
-    
-    # XML declaration
-    XML_VERSION = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    ENCODING = 'utf-8'
-
-    @classmethod
-    def get_default_namespace(cls) -> str:
-        """Get the default namespace (latest version)."""
-        return cls.PDBX_V50.value
-
-    @classmethod
-    def get_schema_location(cls, namespace: str = None) -> str:
-        """Get schema location string for XML."""
-        ns = namespace or cls.get_default_namespace()
-        schema_file = ns.split('/')[-1]  # Extract schema filename
-        return f"{ns} {schema_file}"
-
-
-class XMLElementType(Enum):
-    """Enum for XML element structural types"""
-    ROOT_CHILD_ELEMENT = "root_child_element"
-    SIMPLE_ELEMENT = "simple_element"
-    COMPOSITE_ELEMENT = "composite_element"
-
-
-class XMLGroupingType(Enum):
-    """Enum for XML element grouping strategies"""
-    BY_SINGLE_KEY = "by_single_key"
-    BY_COMPOSITE_KEY = "by_composite_key"
-
-
-class XMLContainerType(Enum):
-    """Enum for XML container types"""
-    ENTRY = "entry"
-    CATEGORY = "category"
-
-
-class PDBMLElement(Enum):
-    """Enum for standard PDBML XML element names"""
-    DATABLOCK = "datablock"
-    ENTRY = "entry"
-
-
-class PDBMLAttribute(Enum):
-    """Enum for standard PDBML XML attribute names"""
-    DATABLOCK_NAME = "datablockName"
-    ID = "id"
-    SCHEMA_LOCATION = "schemaLocation"
-
-
 class DebugFile(Enum):
     """Enum for debug file names used in development/troubleshooting"""
-    RAW_XML = "debug_raw_xml.xml"
-    PROBLEM_XML = "debug_problem_xml.xml"
-    DATABASE_XML = "debug_database.xml"
+    RAW_OUTPUT = "debug_raw_output.txt"
+    PROBLEM_DATA = "debug_problem_data.txt"
+    DATABASE_OUTPUT = "debug_database.txt"
 
 
 def get_numeric_fields(mapping_generator=None) -> Set[str]:
     """Get set of numeric field names using schema-driven detection.
 
     Args:
-        mapping_generator: Optional XMLMappingGenerator instance for
+        mapping_generator: Optional MappingGenerator instance for
                           dictionary-based detection
 
     Returns:

@@ -29,7 +29,6 @@ def auto_detect_format_and_load(
 
     This function supports the formats handled by the new unified importer/exporter system:
     - JSON (nested and flat)
-    - XML (PDBML)
     - CIF (mmCIF)
 
     Args:
@@ -46,15 +45,12 @@ def auto_detect_format_and_load(
         ValueError: If file format is not supported
     """
     # Import unified importers
-    from .importer import JSONImporter, XMLImporter
+    from .importer import JSONImporter
 
     ext = os.path.splitext(file_path.lower())[1]
     
     if ext == ".json":
         importer = JSONImporter(permissive=not permissive_schema)
-        return importer.import_data(file_path, nested=nested, permissive=permissive_schema)
-    elif ext == ".xml":
-        importer = XMLImporter(permissive=not permissive_schema)
         return importer.import_data(file_path, nested=nested, permissive=permissive_schema)
     elif ext == ".cif":
         # Import here to avoid circular imports
@@ -65,7 +61,7 @@ def auto_detect_format_and_load(
         return container
     else:
         # Only support formats handled by the unified architecture
-        supported_formats = ['.json', '.xml', '.cif']
+        supported_formats = ['.json', '.cif']
         raise ValueError(
             f"Unsupported file extension: {ext}. "
             f"Supported formats: {', '.join(supported_formats)}. "
@@ -130,46 +126,9 @@ class BaseWriter(ABC):
         pass
 
 
-class PDBMLValidationMixin:
-    """Mixin class providing shared PDBML validation functionality."""
-    
-    def _validate_pdbml_content(self, pdbml_xml: str) -> None:
-        """Validate PDBML XML content against XSD schema."""
-        if not hasattr(self, 'validator') or not self.validator:
-            return  # Skip validation if no validator available
-            
-        try:
-            if not getattr(self, 'quiet', False):
-                print("🔍 Validating PDBML XML content against XSD schema...")        
-            
-            # Validate against XSD
-            validation_result = self.validator.validate(pdbml_xml)
-            
-            if isinstance(validation_result, dict):
-                if not validation_result.get('valid', False):
-                    errors = validation_result.get('errors', [])
-                    error_msg = '; '.join(errors) if errors else 'Unknown validation error'
-                    
-                    if not getattr(self, 'permissive', False):
-                        raise ValidationError(f"PDBML XSD content validation failed: {error_msg}")
-                    elif not getattr(self, 'quiet', False):
-                        print(f"⚠️  Warning: PDBML validation failed: {error_msg}")
-                else:
-                    if not getattr(self, 'quiet', False):
-                        print("✅ PDBML XSD content validation passed")
-            
-        except Exception as e:
-            if isinstance(e, ValidationError):
-                raise
-            else:
-                error_msg = f"Content validation process failed: {str(e)}"
-                if not getattr(self, 'permissive', False):
-                    raise ValidationError(error_msg)
-                elif not getattr(self, 'quiet', False):
-                    print(f"⚠️  Warning: {error_msg}")
 
 
-class BaseImporter(ABC, PDBMLValidationMixin):
+class BaseImporter(ABC):
     """Abstract base class for all SLOTH importers."""
     
     def __init__(
@@ -185,7 +144,7 @@ class BaseImporter(ABC, PDBMLValidationMixin):
         
         Args:
             dict_path: Path to mmCIF dictionary file
-            xsd_path: Path to PDBML XSD schema file
+            xsd_path: Path to PDBML XSD schema file (deprecated)
             cache_dir: Directory for caching
             permissive: If False, performs validation
             quiet: Suppress output messages
@@ -196,42 +155,9 @@ class BaseImporter(ABC, PDBMLValidationMixin):
         # Set default schema paths
         if dict_path is None:
             dict_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
-        if xsd_path is None:
-            xsd_path = Path(__file__).parent / "schemas" / "pdbx-v50.xsd"
-            
         self.dict_path = dict_path
-        self.xsd_path = xsd_path
+        self.xsd_path = xsd_path  # Kept for backward compatibility
         self.cache_dir = cache_dir
-        
-        # Set up shared PDBML components
-        self._setup_pdbml_components()
-    
-    def _setup_pdbml_components(self):
-        """Set up shared PDBML conversion and validation components."""
-        if not self.permissive:
-            from .serializer import (
-                PDBMLConverter, DictionaryParser, XSDParser, 
-                MappingGenerator, get_cache_manager
-            )
-            from .validator import XMLSchemaValidator
-            
-            cache_manager = get_cache_manager(
-                self.cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
-            )
-            
-            # Set up metadata parsers
-            dict_parser = DictionaryParser(cache_manager, self.quiet)
-            xsd_parser = XSDParser(cache_manager, self.quiet)
-            dict_parser.source = self.dict_path
-            xsd_parser.source = self.xsd_path
-            
-            # Set up components for validation
-            mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, self.quiet)
-            self.converter = PDBMLConverter(mapping_generator, permissive=False, quiet=self.quiet)
-            self.validator = XMLSchemaValidator(self.xsd_path)
-        else:
-            self.converter = None
-            self.validator = None
     
     @abstractmethod
     def import_data(
@@ -254,7 +180,7 @@ class BaseImporter(ABC, PDBMLValidationMixin):
         pass
 
 
-class BaseExporter(ABC, PDBMLValidationMixin):
+class BaseExporter(ABC):
     """Abstract base class for all SLOTH exporters."""
     
     def __init__(
@@ -270,7 +196,7 @@ class BaseExporter(ABC, PDBMLValidationMixin):
         
         Args:
             dict_path: Path to mmCIF dictionary file
-            xsd_path: Path to PDBML XSD schema file  
+            xsd_path: Path to PDBML XSD schema file (deprecated) 
             cache_dir: Directory for caching
             permissive: If False, validates during export
             quiet: Suppress output messages
@@ -281,47 +207,9 @@ class BaseExporter(ABC, PDBMLValidationMixin):
         # Set default schema paths
         if dict_path is None:
             dict_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
-        if xsd_path is None:
-            xsd_path = Path(__file__).parent / "schemas" / "pdbx-v50.xsd"
-            
         self.dict_path = dict_path
-        self.xsd_path = xsd_path
+        self.xsd_path = xsd_path  # Kept for backward compatibility
         self.cache_dir = cache_dir
-        
-        # Set up shared PDBML components
-        self._setup_pdbml_components()
-    
-    def _setup_pdbml_components(self):
-        """Set up shared PDBML conversion and validation components."""
-        from .serializer import (
-            PDBMLConverter, DictionaryParser, XSDParser, 
-            MappingGenerator, get_cache_manager
-        )
-        from .validator import XMLSchemaValidator
-        
-        cache_manager = get_cache_manager(
-            self.cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
-        )
-        
-        # Set up metadata parsers
-        dict_parser = DictionaryParser(cache_manager, self.quiet)
-        xsd_parser = XSDParser(cache_manager, self.quiet)
-        dict_parser.source = self.dict_path
-        xsd_parser.source = self.xsd_path
-        
-        # Set up mapping generator and components
-        mapping_generator = MappingGenerator(dict_parser, xsd_parser, cache_manager, self.quiet)
-        self.converter = PDBMLConverter(mapping_generator, self.permissive, self.quiet)
-        
-        # Set up validator if not permissive
-        if not self.permissive:
-            self.validator = XMLSchemaValidator(self.xsd_path)
-        else:
-            self.validator = None
-    
-    def _convert_to_pdbml(self, mmcif_data: "MMCIFDataContainer") -> str:
-        """Convert mmCIF data to PDBML XML format."""
-        return self.converter.convert_to_pdbml(mmcif_data)
     
     @abstractmethod
     def export_data(
