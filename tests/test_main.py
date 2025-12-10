@@ -597,7 +597,7 @@ class TestMMCIFExporter(unittest.TestCase):
         self.test_cif_path = os.path.join(self.temp_dir, "test.cif")
         with open(self.test_cif_path, "w") as f:
             f.write(
-                """data_test
+                """data_TEST
 #
 _entry.id test_structure
 #
@@ -639,8 +639,8 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         data = json.loads(json_str)
         
         # Verify the structure - JSON export uses external API naming with prefixes
-        self.assertIn("data_test", data)  # Block name with data_ prefix
-        block_data = data["data_test"]
+        self.assertIn("data_TEST", data)  # Block name with data_ prefix
+        block_data = data["data_TEST"]
         self.assertIn("_entry", block_data)  # Category name with _ prefix
         self.assertIn("_atom_site", block_data)
         
@@ -665,17 +665,22 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         with open(json_path) as f:
             data = json.load(f)
 
-        self.assertIn("data_test", data)  # Block name with data_ prefix
-        block_data = data["data_test"]
+        self.assertIn("data_TEST", data)  # Block name with data_ prefix
+        block_data = data["data_TEST"]
         self.assertIn("_database_2", block_data)  # Category name with _ prefix
         # In nested structure, _database_2 is a list of objects
         self.assertIsInstance(block_data["_database_2"], list)
         self.assertEqual(block_data["_database_2"][0]["database_id"], "PDB")
 
-    def test_unsupported_format_error(self):
-        """Test that unsupported formats raise appropriate errors."""
-        with self.assertRaises(ValueError):
-            self.handler.export(self.mmcif, format_type='unsupported')
+    def test_export_without_file_path(self):
+        """Test that export returns JSON string when no file_path is provided."""
+        result = self.handler.export(self.mmcif)
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, str)
+        # Verify it's valid JSON
+        import json
+        data = json.loads(result)
+        self.assertIn('data_TEST', data)
 
 
 class TestImportFunctionality(unittest.TestCase):

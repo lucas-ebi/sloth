@@ -109,28 +109,28 @@ class TestPipelineIntegration(unittest.TestCase):
         entity = entities[0]
         
         # Check nested entity_poly
-        self.assertIn('entity_poly', entity)
-        entity_poly = entity['entity_poly']
+        self.assertIn('_entity_poly', entity)
+        entity_poly = entity['_entity_poly']
         self.assertIsInstance(entity_poly, list)
         self.assertGreater(len(entity_poly), 0)
         
         # Check nested entity_poly_seq
         poly = entity_poly[0]
-        self.assertIn('entity_poly_seq', poly)
-        poly_seq = poly['entity_poly_seq']
+        self.assertIn('_entity_poly_seq', poly)
+        poly_seq = poly['_entity_poly_seq']
         self.assertIsInstance(poly_seq, list)
         self.assertEqual(len(poly_seq), 2)  # VAL and ALA
         
         # Check nested struct_asym
-        self.assertIn('struct_asym', entity)
-        struct_asym = entity['struct_asym']
+        self.assertIn('_struct_asym', entity)
+        struct_asym = entity['_struct_asym']
         self.assertIsInstance(struct_asym, list)
         self.assertGreater(len(struct_asym), 0)
         
         # Check nested atom_site
         asym = struct_asym[0]
-        self.assertIn('atom_site', asym)
-        atom_sites = asym['atom_site']
+        self.assertIn('_atom_site', asym)
+        atom_sites = asym['_atom_site']
         self.assertIsInstance(atom_sites, list)
         self.assertEqual(len(atom_sites), 2)  # Two atoms for entity 1
     
@@ -183,16 +183,16 @@ class TestPipelineIntegration(unittest.TestCase):
         
         # Verify 4-level nesting: entity -> entity_poly -> entity_poly_seq
         entity = block_data['_entity'][0]
-        entity_poly = entity['entity_poly'][0]
-        entity_poly_seq = entity_poly['entity_poly_seq']
+        entity_poly = entity['_entity_poly'][0]
+        entity_poly_seq = entity_poly['_entity_poly_seq']
         
         self.assertEqual(len(entity_poly_seq), 2)
         self.assertEqual(entity_poly_seq[0]['mon_id'], 'VAL')
         self.assertEqual(entity_poly_seq[1]['mon_id'], 'ALA')
         
         # Verify parallel branch: entity -> struct_asym -> atom_site
-        struct_asym = entity['struct_asym'][0]
-        atom_sites = struct_asym['atom_site']
+        struct_asym = entity['_struct_asym'][0]
+        atom_sites = struct_asym['_atom_site']
         
         self.assertEqual(len(atom_sites), 2)
         self.assertEqual(atom_sites[0]['label_atom_id'], 'CA')
