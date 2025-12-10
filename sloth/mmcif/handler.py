@@ -4,7 +4,6 @@ from .writer import MMCIFWriter
 from .exporter import JSONExporter
 from .importer import JSONImporter
 from .models import MMCIFDataContainer, DataSourceFormat
-from .defaults import ExportFormat, StructureFormat
 from .plugins import ValidatorFactory
 
 
@@ -71,59 +70,37 @@ class MMCIFHandler:
     def export(
         self,
         mmcif: MMCIFDataContainer,
-        format_type: Union[str, ExportFormat] = ExportFormat.JSON,
         file_path: Optional[str] = None,
         **kwargs
     ) -> Optional[str]:
         """
-        Export mmCIF data to various formats.
+        Export mmCIF data to JSON format.
 
         :param mmcif: The data container to export
         :type mmcif: MMCIFDataContainer
-        :param format_type: Export format ('json')
-        :type format_type: Union[str, ExportFormat]
         :param file_path: Path to save the file (optional)
         :type file_path: Optional[str]
-        :param kwargs: Additional format-specific options
+        :param kwargs: Additional options (e.g., indent, quiet)
         :return: String representation if no file_path provided, otherwise None
         :rtype: Optional[str]
         """
-        # Convert string inputs to enums
-        if isinstance(format_type, str):
-            format_type = ExportFormat(format_type.lower())
-        
-        if format_type == ExportFormat.JSON:
-            return self._export_json(mmcif, file_path, **kwargs)
-        else:
-            raise ValueError(f"Unsupported export format: {format_type}")
+        return self._export_json(mmcif, file_path, **kwargs)
 
     def load(
         self,
         file_path: str,
-        format_type: Union[str, ExportFormat] = ExportFormat.JSON,
         **kwargs
     ) -> MMCIFDataContainer:
         """
-        Import mmCIF data from various formats.
+        Import mmCIF data from JSON format.
 
-        :param file_path: Path to the file to import
+        :param file_path: Path to the JSON file to import
         :type file_path: str
-        :param format_type: Import format ('json' or 'xml')
-        :type format_type: Union[str, ExportFormat]
-        :param kwargs: Additional format-specific options
+        :param kwargs: Additional options
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
         """
-        # Convert string inputs to enums
-        if isinstance(format_type, str):
-            format_type = ExportFormat(format_type.lower())
-        
-        if format_type == ExportFormat.JSON:
-            return self._import_json(file_path, **kwargs)
-        elif format_type == ExportFormat.XML:
-            return self._import_xml(file_path, **kwargs)
-        else:
-            raise ValueError(f"Unsupported import format: {format_type}")
+        return self._import_json(file_path, **kwargs)
 
     # Private methods for specific format handling
     def _export_json(

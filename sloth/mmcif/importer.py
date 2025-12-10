@@ -14,7 +14,7 @@ import jsonschema
 from .models import MMCIFDataContainer, DataBlock, Category
 from .parser import MMCIFParser
 from .common import BaseImporter
-from .defaults import StructureFormat
+# StructureFormat removed - JSON is always nested
 from .serializer import (
     RelationshipResolver,
     DictionaryParser,

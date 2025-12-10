@@ -161,7 +161,7 @@ class TestPipelineIntegration(unittest.TestCase):
         self.assertEqual(len(container.data), 1)
         
         # Test JSON export through handler
-        json_str = handler.export(container, format_type='json')
+        json_str = handler.export(container)
         self.assertIsInstance(json_str, str)
         
         data = json.loads(json_str)

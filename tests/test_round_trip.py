@@ -12,7 +12,7 @@ import shutil
 import os
 from sloth.mmcif import MMCIFHandler
 from sloth.mmcif.importer import JSONImporter
-from sloth.mmcif.defaults import StructureFormat
+# JSON export is always nested
 
 
 class TestRoundTripSimple(unittest.TestCase):
@@ -53,10 +53,10 @@ ATOM 2 C 11.234 21.567 31.890
         """Verify all categories are preserved in round-trip."""
         # Export to JSON
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path)
+        self.handler.export(self.mmcif, file_path=json_path)
         
         # Import back
-        imported = self.handler.load(json_path, format_type='json')
+        imported = self.handler.load(json_path)
         
         # Compare categories
         original_cats = set(self.mmcif.data[0].categories)
@@ -69,8 +69,8 @@ ATOM 2 C 11.234 21.567 31.890
         """Verify data values are preserved in round-trip."""
         # Export and import
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path)
-        imported = self.handler.load(json_path, format_type='json')
+        self.handler.export(self.mmcif, file_path=json_path)
+        imported = self.handler.load(json_path)
         
         # Check specific values
         original_entry = self.mmcif.data[0]["_entry"]["id"][0]
@@ -165,9 +165,7 @@ B 2 4 C 13.456
         json_path = os.path.join(self.temp_dir, "nested.json")
         self.handler.export(
             self.mmcif, 
-            format_type='json', 
-            file_path=json_path,
-            structure=StructureFormat.NESTED
+            file_path=json_path
         )
         
         # Read the JSON to check structure
@@ -191,13 +189,11 @@ B 2 4 C 13.456
         json_path = os.path.join(self.temp_dir, "nested.json")
         self.handler.export(
             self.mmcif,
-            format_type='json',
-            file_path=json_path,
-            structure=StructureFormat.NESTED
+            file_path=json_path
         )
         
         # Import back
-        imported = self.handler.load(json_path, format_type='json')
+        imported = self.handler.load(json_path)
         
         # Compare categories - should be identical after flattening
         original_cats = sorted(self.mmcif.data[0].categories)
@@ -214,9 +210,8 @@ B 2 4 C 13.456
         """Verify entity data is preserved through nesting/flattening."""
         # Export and import
         json_path = os.path.join(self.temp_dir, "nested.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path,
-                          structure=StructureFormat.NESTED)
-        imported = self.handler.load(json_path, format_type='json')
+        self.handler.export(self.mmcif, file_path=json_path)
+        imported = self.handler.load(json_path)
         
         # Check entity data
         original_entity = self.mmcif.data[0]["_entity"]
@@ -230,9 +225,8 @@ B 2 4 C 13.456
         """Verify entity_poly data is preserved (nested child category)."""
         # Export and import
         json_path = os.path.join(self.temp_dir, "nested.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path,
-                          structure=StructureFormat.NESTED)
-        imported = self.handler.load(json_path, format_type='json')
+        self.handler.export(self.mmcif, file_path=json_path)
+        imported = self.handler.load(json_path)
         
         # Check entity_poly data
         original_poly = self.mmcif.data[0]["_entity_poly"]
@@ -247,9 +241,8 @@ B 2 4 C 13.456
         """Verify entity_poly_seq data is preserved (deeply nested child)."""
         # Export and import
         json_path = os.path.join(self.temp_dir, "nested.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path,
-                          structure=StructureFormat.NESTED)
-        imported = self.handler.load(json_path, format_type='json')
+        self.handler.export(self.mmcif, file_path=json_path)
+        imported = self.handler.load(json_path)
         
         # Check entity_poly_seq data
         original_seq = self.mmcif.data[0]["_entity_poly_seq"]
@@ -264,9 +257,8 @@ B 2 4 C 13.456
         """Verify atom_site data is preserved (nested under struct_asym under entity)."""
         # Export and import
         json_path = os.path.join(self.temp_dir, "nested.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path,
-                          structure=StructureFormat.NESTED)
-        imported = self.handler.load(json_path, format_type='json')
+        self.handler.export(self.mmcif, file_path=json_path)
+        imported = self.handler.load(json_path)
         
         # Check atom_site data
         original_atoms = self.mmcif.data[0]["_atom_site"]
@@ -277,26 +269,6 @@ B 2 4 C 13.456
         self.assertEqual(original_atoms["label_entity_id"], imported_atoms["label_entity_id"])
         self.assertEqual(original_atoms["type_symbol"], imported_atoms["type_symbol"])
         self.assertEqual(original_atoms["Cartn_x"], imported_atoms["Cartn_x"])
-
-    def test_flat_structure_export_import(self):
-        """Verify flat structure export/import also works correctly."""
-        # Export to flat JSON
-        json_path = os.path.join(self.temp_dir, "flat.json")
-        self.handler.export(
-            self.mmcif,
-            format_type='json',
-            file_path=json_path,
-            structure=StructureFormat.FLAT
-        )
-        
-        # Import back
-        imported = self.handler.load(json_path, format_type='json')
-        
-        # Should preserve all categories
-        original_cats = sorted(self.mmcif.data[0].categories)
-        imported_cats = sorted(imported.data[0].categories)
-        
-        self.assertEqual(original_cats, imported_cats)
 
 
 class TestRoundTripComplex(unittest.TestCase):
@@ -364,11 +336,10 @@ C 2 4 O
         """Verify 3-level nesting is correctly flattened on import."""
         # Export to nested JSON
         json_path = os.path.join(self.temp_dir, "complex.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path,
-                          structure=StructureFormat.NESTED)
+        self.handler.export(self.mmcif, file_path=json_path)
         
         # Import back
-        imported = self.handler.load(json_path, format_type='json')
+        imported = self.handler.load(json_path)
         
         # Should have same number of categories after round-trip
         imported_category_count = len(imported.data[0].categories)
@@ -387,9 +358,8 @@ C 2 4 O
         """Verify data values are preserved across all nesting levels."""
         # Export and import
         json_path = os.path.join(self.temp_dir, "complex.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path,
-                          structure=StructureFormat.NESTED)
-        imported = self.handler.load(json_path, format_type='json')
+        self.handler.export(self.mmcif, file_path=json_path)
+        imported = self.handler.load(json_path)
         
         # Check each level
         orig_block = self.mmcif.data[0]

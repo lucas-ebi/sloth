@@ -634,7 +634,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
     def test_json_export_to_string(self):
         """Test JSON export to string."""
-        json_str = self.handler.export(self.mmcif, format_type='json')
+        json_str = self.handler.export(self.mmcif)
         self.assertIsInstance(json_str, str)
         data = json.loads(json_str)
         
@@ -656,7 +656,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
     def test_json_export_to_file(self):
         """Test JSON export to file."""
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path)
+        self.handler.export(self.mmcif, file_path=json_path)
 
         # Verify file exists
         self.assertTrue(os.path.exists(json_path))
@@ -722,7 +722,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
         # Export data to JSON for import testing
         self.json_path = os.path.join(self.temp_dir, "test.json")
-        handler.export(self.mmcif, format_type='json', file_path=self.json_path)
+        handler.export(self.mmcif, file_path=self.json_path)
 
     def tearDown(self):
         """Tear down test fixtures."""
@@ -774,7 +774,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         handler = MMCIFHandler()
         
         # Export to JSON string
-        json_str = handler.export(self.mmcif, format_type='json')
+        json_str = handler.export(self.mmcif)
         
         # Import back from JSON
         importer = JSONImporter()
@@ -853,7 +853,7 @@ _custom_category.custom_item custom_value
         handler_no_validator = MMCIFHandler(validator_factory=None)
         mmcif = handler_no_validator.read(self.test_cif_path)
         
-        json_str = handler_no_validator.export(mmcif, format_type='json')
+        json_str = handler_no_validator.export(mmcif)
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
         
@@ -861,7 +861,7 @@ _custom_category.custom_item custom_value
         handler_with_validator = MMCIFHandler(validator_factory=ValidatorFactory())
         mmcif = handler_with_validator.read(self.test_cif_path)
         
-        json_str = handler_with_validator.export(mmcif, format_type='json')
+        json_str = handler_with_validator.export(mmcif)
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
 
@@ -884,7 +884,7 @@ _custom_category.custom_item custom_value
         mmcif = handler.read(test_cif_path)
         
         # Export should work
-        json_str = handler.export(mmcif, format_type='json')
+        json_str = handler.export(mmcif)
         self.assertIsInstance(json_str, str)
 
 

@@ -25,7 +25,7 @@ def auto_detect_format_and_load(
     Auto-detect the format of the input file and load it using the unified architecture.
 
     This function supports the formats handled by the new unified importer/exporter system:
-    - JSON (nested and flat)
+    - JSON (nested structure with relationship resolution)
     - CIF (mmCIF)
 
     Args:

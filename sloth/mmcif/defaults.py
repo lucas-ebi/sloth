@@ -10,19 +10,6 @@ from enum import Enum
 from typing import Set
 
 
-class StructureFormat(Enum):
-    """Enum for data structure format options"""
-    NESTED = "nested"
-    FLAT = "flat"
-
-
-class ExportFormat(Enum):
-    """Enum for export/import format options"""
-    JSON = "json"
-    XML = "xml"
-
-
-
 class DataValue(Enum):
     """Enum for data value representations in mmCIF"""
     # Null values

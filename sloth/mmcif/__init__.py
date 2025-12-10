@@ -31,7 +31,6 @@ from .exporter import JSONExporter
 from .importer import JSONImporter
 from .handler import MMCIFHandler
 from .common import BaseImporter, BaseExporter
-from .defaults import StructureFormat, ExportFormat
 from .plugins import ValidatorFactory
 from .validator import ValidationError, ValidationSeverity
 from .serializer import (
@@ -60,9 +59,6 @@ __all__ = [
     # Base classes
     "BaseImporter",
     "BaseExporter",
-    # Enums
-    "StructureFormat",
-    "ExportFormat",
     # Validation components
     "ValidatorFactory",
     "ValidationError",
