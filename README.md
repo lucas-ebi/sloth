@@ -27,7 +27,7 @@
 7. [Data Creation](#data-creation)
 8. [Import and Export](#import-and-export)
 9. [Validation](#validation)
-10. [CLI Usage](#example-cli-usage)
+10. [Interactive Cookbook](#interactive-cookbook)
 11. [Migration to Gemmi Backend](#migration-to-gemmi-backend)
 12. [Legacy Support](#legacy-support)
 13. [Performance and Architecture](#performance-and-architecture)
@@ -50,7 +50,7 @@
 * Lazy construction of row and item objects for memory efficiency
 * Pythonic, dot-notation access to mmCIF data
 * Pluggable custom validation system
-* Export and import in JSON, XML, YAML, Pickle, CSV, and Pandas formats
+* Export and import in JSON format (nested and flat structures)
 
 ---
 
@@ -197,27 +197,30 @@ mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
 ### Export
 
 ```python
-# Export to JSON (pretty-printed by default, returns string if file_path not given)
-json_str = handler.export(mmcif, format_type="json", indent=2)
-handler.export(mmcif, format_type="json", file_path="out.json", indent=2)
+from sloth import StructureFormat
 
-# Export to XML (pretty-printed by default, returns string if file_path not given)
-xml_str = handler.export(mmcif, format_type="xml")
-handler.export(mmcif, format_type="xml", file_path="out.xml")
-```
+# Export to JSON nested format (default, pretty-printed)
+json_nested = handler.export(mmcif, structure_format=StructureFormat.NESTED, indent=2)
+handler.export(mmcif, structure_format=StructureFormat.NESTED, file_path="out_nested.json", indent=2)
 
-You can control pretty-printing for XML with the `pretty_print` argument (default: `True`):
+# Export to JSON flat format (optimized for large datasets)
+json_flat = handler.export(mmcif, structure_format=StructureFormat.FLAT, indent=2)
+handler.export(mmcif, structure_format=StructureFormat.FLAT, file_path="out_flat.json", indent=2)
 
-```python
-# Compact XML (no indentation)
-handler.export(mmcif, format_type="xml", file_path="out.xml", pretty_print=False)
+# Compact JSON (no indentation)
+handler.export(mmcif, structure_format=StructureFormat.NESTED, file_path="out_compact.json")
 ```
 
 ### Import
 
 ```python
-mmcif = handler.load("out.json", format_type="json")
-mmcif = handler.load("out.xml", format_type="xml")
+# Auto-detect structure format from JSON file
+mmcif = handler.load("out_nested.json")
+
+# Or specify format explicitly
+from sloth import DataSourceFormat
+
+mmcif = handler.load("out_flat.json", format_type=DataSourceFormat.JSON)
 ```
 
 ### Round-trip validation
@@ -251,11 +254,29 @@ mmcif.data_1ABC._atom_site.validate()
 
 ---
 
-## Example CLI Usage
+## Interactive Cookbook
+
+SLOTH includes a comprehensive Jupyter notebook cookbook that demonstrates all features interactively:
 
 ```bash
-python demo.py --demo
+jupyter notebook SLOTH_Cookbook.ipynb
 ```
+
+The cookbook covers:
+
+* Parsing mmCIF files with embedded data
+* Exploring data structures with dot notation
+* 2D slicing (column-wise and row-wise access)
+* Validating mmCIF data
+* Modifying data elegantly
+* Creating sample data (manual, programmatic, and auto-creation)
+* Exporting to JSON (nested and flat structures)
+* Importing from JSON
+* Round-trip validation
+* Writing modified mmCIF files
+* Complete workflow examples
+
+Perfect for learning SLOTH interactively or as a reference guide.
 
 ---
 
@@ -308,9 +329,6 @@ x = mmcif.data_1ABC._atom_site.Cartn_x
 
 # Dict access for dynamic fields
 val = mmcif.data[0]["_atom_site"]["Cartn_x"]
-
-# Auto-detect import
-mmcif = handler.import_auto_detect("file.ext")
 
 # Partial category loading
 mmcif = handler.read("file.cif", categories=["_atom_site"])
