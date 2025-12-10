@@ -14,13 +14,11 @@ from typing import Optional, Union, IO, Dict, Any
 from pathlib import Path
 from .models import MMCIFDataContainer, DataSourceFormat
 from .plugins import ValidatorFactory
-from .validator import SchemaValidator, ValidationError
 
 
 def auto_detect_format_and_load(
     file_path: str,
     validator_factory: Optional[ValidatorFactory] = None,
-    schema_validator: Optional[SchemaValidator] = None,
     permissive_schema: bool = False,
     nested: bool = True,
 ) -> MMCIFDataContainer:
@@ -34,9 +32,8 @@ def auto_detect_format_and_load(
     Args:
         file_path: Path to the file
         validator_factory: Optional validator factory for data validation (deprecated)
-        schema_validator: Optional schema validator for format-specific schema validation (deprecated)
         permissive_schema: Whether to skip schema validation
-        nested: Whether to expect nested structure (for JSON/XML)
+        nested: Whether to expect nested structure (for JSON)
 
     Returns:
         MMCIFDataContainer object
