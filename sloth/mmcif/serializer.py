@@ -12,14 +12,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple, Set
 from abc import ABC, abstractmethod
 
-from .models import MMCIFDataContainer, Category
-from .parser import MMCIFParser
+from .models import MMCIFDataContainer
 from .defaults import (
     CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
-    SchemaDataType, TypeSuffix, MappingDataKey,
+    MappingDataKey,
     # Consolidated classes
-    DataValue, DataType, SemanticPattern, FileOperation
+    DataValue, FileOperation
 )
 
 
@@ -752,13 +751,15 @@ class RelationshipResolver:
         self, 
         mapping_generator: MappingGenerator,
         enable_semantic_fallbacks: bool = False,
-        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None
+        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None,
+        strict_structural_only: bool = False
     ):
         self.mapping_generator = mapping_generator
         self.ownership_analyzer = OwnershipAnalyzer(
             self.mapping_generator, 
             enable_semantic_fallbacks=enable_semantic_fallbacks,
-            domain_overrides=domain_overrides
+            domain_overrides=domain_overrides,
+            strict_structural_only=strict_structural_only
         )
         self.nesting_builder = NestingBuilder()
         
@@ -999,15 +1000,32 @@ class RelationshipGraph:
 
 
 class OwnershipAnalyzer:
-    """Analyzes relationships to determine ownership using structural algorithms"""
+    """
+    Analyzes relationships to determine ownership using structural algorithms.
+    
+    Rule Hierarchy (applied in order):
+    0. Domain overrides (explicit expert knowledge)
+    1. PK extension (CORE STRUCTURAL - child PK extends parent PK)
+    2. Single-FK child (CORE STRUCTURAL - detail table with one FK)
+    3. Strong FK dependency (STRUCTURAL/SEMANTIC - mandatory FK + name tokens)
+    4. Explicit constraint type (dictionary metadata)
+    5. Semantic fallbacks (HEURISTIC - optional, disabled in strict mode)
+    
+    Modes:
+    - strict_structural_only=True: Only rules 0, 1, 2 (pure PK/FK structure)
+    - strict_structural_only=False: Rules 0-4 (includes strong FK dependency)
+    - enable_semantic_fallbacks=True: All rules including heuristics
+    """
     def __init__(
         self, 
         mapping_generator: MappingGenerator, 
         enable_semantic_fallbacks: bool = False,
-        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None
+        domain_overrides: Optional[Dict[Tuple[str, str, str, str], bool]] = None,
+        strict_structural_only: bool = False
     ):
         self.mapping_generator = mapping_generator
         self.enable_semantic_fallbacks = enable_semantic_fallbacks
+        self.strict_structural_only = strict_structural_only
         self.domain_overrides = domain_overrides or {}  # (child_cat, child_field, parent_cat, parent_field) -> is_ownership
         self.graph: Optional[RelationshipGraph] = None
         self.constraints: List[RelationshipConstraint] = []
@@ -1097,15 +1115,23 @@ class OwnershipAnalyzer:
             return True
         
         # Rule 2: Single-FK child ownership (detail/dependent table)
+        # CORE STRUCTURAL RULE
         if self._is_single_fk_child_ownership(child_cat, child_field, parent_cat, fk_map, primary_keys):
             self._log_decision(child_cat, child_field, parent_cat, parent_field, 
-                             True, "single_fk_child")
+                             True, "single_fk_child", confidence="high")
             return True
         
+        # In strict structural mode, stop here (only PK/FK structure rules)
+        if self.strict_structural_only:
+            self._log_decision(child_cat, child_field, parent_cat, parent_field, 
+                             False, "strict_structural_default", confidence="high")
+            return False
+        
         # Rule 3: Strong FK dependency (mandatory FK to parent's PK)
+        # STRUCTURAL/SEMANTIC RULE (uses mandatory flag + name tokens)
         if self._is_strong_fk_dependency(child_cat, child_field, parent_cat, parent_field, primary_keys, dict_meta):
             self._log_decision(child_cat, child_field, parent_cat, parent_field, 
-                             True, "strong_fk_dependency")
+                             True, "strong_fk_dependency", confidence="medium")
             return True
         
         # Rule 4: Check explicit relationship type from validated constraints
@@ -1132,12 +1158,13 @@ class OwnershipAnalyzer:
         return False
     
     def _log_decision(self, child_cat: str, child_field: str, parent_cat: str, 
-                     parent_field: str, decision: bool, rule: str):
-        """Log ownership decision for audit trail"""
+                     parent_field: str, decision: bool, rule: str, confidence: str = "medium"):
+        """Log ownership decision for audit trail with confidence level"""
         self.decision_log.append({
             "relationship": f"{child_cat}.{child_field} -> {parent_cat}.{parent_field}",
             "is_ownership": decision,
-            "rule_applied": rule
+            "rule_applied": rule,
+            "confidence": confidence  # "high" (structural), "medium" (structural/semantic), "low" (heuristic)
         })
     
     def get_decision_report(self) -> Dict[str, Any]:
@@ -1146,13 +1173,22 @@ class OwnershipAnalyzer:
             "total_decisions": len(self.decision_log),
             "ownership_count": sum(1 for d in self.decision_log if d["is_ownership"]),
             "referential_count": sum(1 for d in self.decision_log if not d["is_ownership"]),
-            "rules_applied": {}
+            "rules_applied": {},
+            "confidence_levels": {
+                "high": 0,
+                "medium": 0,
+                "low": 0
+            },
+            "mode": "strict_structural" if self.strict_structural_only else ("heuristic" if self.enable_semantic_fallbacks else "standard")
         }
         
         for decision in self.decision_log:
             rule = decision["rule_applied"]
             report["rules_applied"].setdefault(rule, 0)
             report["rules_applied"][rule] += 1
+            
+            confidence = decision.get("confidence", "medium")
+            report["confidence_levels"][confidence] += 1
         
         return report
     
@@ -1165,12 +1201,20 @@ class OwnershipAnalyzer:
         primary_keys: Dict[str, Union[str, List[str]]]
     ) -> bool:
         """
-        Structural ownership rule: Child's PK extends parent's PK.
+        CORE STRUCTURAL RULE: Child's PK extends parent's PK.
+        Confidence: HIGH (pure PK/FK structure analysis)
         
         Example: parent PK = {id}, child PK = {id, ordinal}
         This indicates child is a detail/component of parent.
         
+        Algorithm:
+        1. Normalize PKs to sets
+        2. Verify FK references parent's PK
+        3. Verify FK is part of child's PK
+        4. Verify parent PK ⊆ child PK and parent PK ≠ child PK
+        
         Pure structural analysis - no category names, no hardcoding.
+        Deterministic for a given dictionary.
         """
         # Normalize PKs to sets
         def norm_pk(pk):
@@ -1208,13 +1252,23 @@ class OwnershipAnalyzer:
         primary_keys: Dict[str, Union[str, List[str]]]
     ) -> bool:
         """
-        Single-FK child rule: Category with exactly one FK is owned by that parent.
+        CORE STRUCTURAL RULE: Category with exactly one FK is owned by that parent.
+        Confidence: HIGH (pure FK/PK graph structure)
+        
+        Algorithm:
+        1. Count FKs where child_cat is the child (must be exactly 1)
+        2. Verify it's the relationship being examined
+        3. Check if child has no PK → detail table → ownership
+        4. If child has PK, check if it's a surrogate key:
+           - Single-field PK only
+           - Not referenced as parent elsewhere
         
         This catches detail/dependent tables that:
         - Have only one foreign key relationship
         - Have no PK, or have a surrogate PK not referenced elsewhere
         
         Pure structural analysis - generic across all dictionaries.
+        Deterministic for a given dictionary.
         """
         # Find all FKs where this category is the child
         child_fks = [
@@ -1270,14 +1324,21 @@ class OwnershipAnalyzer:
         dict_meta: Dict
     ) -> bool:
         """
-        Strong FK dependency rule: FK is mandatory and references parent's PK.
+        STRUCTURAL/SEMANTIC RULE: FK is mandatory and references parent's PK.
+        Confidence: MEDIUM (uses mandatory flag + name token matching)
         
-        Purely structural - derives ownership from:
-        1. FK references parent's primary key
-        2. Field is mandatory in dictionary
-        3. Field name contains a token from parent category name
+        Algorithm:
+        1. Verify FK references parent's PK
+        2. Check item.mandatory_code in dictionary
+        3. Perform token-based name matching (generic, not hardcoded)
         
-        No hardcoded patterns - all derived from actual names.
+        Derives ownership from:
+        1. FK references parent's primary key (structural)
+        2. Field is mandatory in dictionary (structural)
+        3. Field name contains a token from parent category name (semantic)
+        
+        No hardcoded category names - all derived from actual schema.
+        Deterministic for a given dictionary.
         """
         # Normalize parent PK
         def norm_pk(pk):
