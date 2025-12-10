@@ -28,13 +28,11 @@
 8. [Import and Export](#import-and-export)
 9. [Validation](#validation)
 10. [Interactive Cookbook](#interactive-cookbook)
-11. [Migration to Gemmi Backend](#migration-to-gemmi-backend)
-12. [Legacy Support](#legacy-support)
-13. [Performance and Architecture](#performance-and-architecture)
-14. [Best Practices](#best-practices)
-15. [Contributing](#contributing)
-16. [License](#license)
-17. [Closing Notes](#closing-notes)
+11. [Performance and Architecture](#performance-and-architecture)
+12. [Best Practices](#best-practices)
+13. [Contributing](#contributing)
+14. [License](#license)
+15. [Closing Notes](#closing-notes)
 
 ---
 
@@ -277,32 +275,6 @@ The cookbook covers:
 * Complete workflow examples
 
 Perfect for learning SLOTH interactively or as a reference guide.
-
----
-
-## Migration to Gemmi Backend
-
-| Feature       | v0.1.x      | v0.2.0+ (current) |
-| ------------- | ----------- | ----------------- |
-| Backend       | Pure Python | Gemmi (C++)       |
-| `use_gemmi`   | Optional    | Removed           |
-| Performance   | Moderate    | High              |
-| Compatibility | N/A         | `sloth.legacy`    |
-
-Your code will continue to work. Only explicit `use_gemmi=False` needs updating.
-
----
-
-## Legacy Support
-
-```python
-from sloth.legacy import MMCIFParser, MMCIFWriter
-
-parser = MMCIFParser()
-mmcif = parser.parse("1abc.cif")
-```
-
-Same dot-notation access, same serialization features.
 
 ---
 

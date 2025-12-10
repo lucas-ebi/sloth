@@ -2,10 +2,7 @@
 SLOTH mmCIF Writer - High-Performance Gemmi Backend
 
 This module provides the main MMCIFWriter class that uses gemmi as the backend
-for optimal performance while maintaining the same elegant SLOTH API.
-
-Note: The original pure Python implementation is available in sloth.legacy
-for reference purposes if needed.
+for optimal performance while maintaining the elegant SLOTH API.
 """
 
 from typing import IO
@@ -39,8 +36,7 @@ class MMCIFWriter(BaseWriter):
             import gemmi
         except ImportError:
             raise ImportError(
-                "gemmi is required for MMCIFWriter. Install with: pip install gemmi\n"
-                "Note: Legacy writer is available in sloth.legacy for reference."
+                "gemmi is required for MMCIFWriter. Install with: pip install gemmi"
             )
         
         # Convert SLOTH structure back to gemmi format
