@@ -5,7 +5,7 @@
 <img width="256" height="256" alt="logo" src="logo.png" />
 
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/lucas-ebi/sloth/releases)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue)](https://github.com/lucas-ebi/sloth/releases)
 [![Python](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
 [![License](https://img.shields.io/github/license/lucas-ebi/sloth.svg)](https://github.com/lucas-ebi/sloth/blob/main/LICENSE)
 
