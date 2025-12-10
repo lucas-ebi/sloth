@@ -6,10 +6,10 @@ Lazy by design. Fast by default.
 A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
 Gemmi is now the default backend for optimal performance.
 
-Version: 0.3.1
+Version: 0.3.2
 """
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __author__ = "Lucas Carrijo de Oliveira"
 __email__ = "lucas@ebi.ac.uk"
 __license__ = "MIT"
