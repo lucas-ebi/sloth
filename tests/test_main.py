@@ -625,7 +625,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
             )
 
         # Parse the test file
-        self.handler = MMCIFHandler(validator_factory=None)  # Use permissive mode for exports
+        self.handler = MMCIFHandler(validator_factory=None)  # No validation for simple exports
         self.mmcif = self.handler.read(self.test_cif_path)
 
     def tearDown(self):
@@ -798,8 +798,8 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         self.assertEqual(original_block["_entry"]["id"], imported_block["_entry"]["id"])
 
 
-class TestValidationModes(unittest.TestCase):
-    """Test permissive vs compliant validation modes."""
+class TestHandlerValidationModes(unittest.TestCase):
+    """Test handler behavior with and without validators."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -825,9 +825,9 @@ _custom_category.custom_item custom_value
         """Tear down test fixtures."""
         shutil.rmtree(self.temp_dir)
 
-    def test_permissive_mode(self):
-        """Test that permissive mode allows flexible parsing."""
-        # Handler without validator should be permissive
+    def test_handler_without_validator(self):
+        """Test that handler without validator allows flexible parsing."""
+        # Handler without validator
         handler = MMCIFHandler(validator_factory=None)
         mmcif = handler.read(self.test_cif_path)
         
@@ -847,25 +847,25 @@ _custom_category.custom_item custom_value
         self.assertIn("data_test", mmcif.blocks)
         self.assertIn("_custom_category", mmcif["data_test"].categories)
 
-    def test_export_validation_modes(self):
-        """Test export works in both validation modes."""
-        # Test permissive export
-        handler_permissive = MMCIFHandler(validator_factory=None)
-        mmcif = handler_permissive.read(self.test_cif_path)
+    def test_export_with_different_handlers(self):
+        """Test export works with handlers with and without validators."""
+        # Test export with handler without validator
+        handler_no_validator = MMCIFHandler(validator_factory=None)
+        mmcif = handler_no_validator.read(self.test_cif_path)
         
-        json_str = handler_permissive.export(mmcif, format_type='json')
+        json_str = handler_no_validator.export(mmcif, format_type='json')
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
         
-        # Test compliant export with permissive flag
-        handler_compliant = MMCIFHandler(validator_factory=ValidatorFactory())
-        mmcif = handler_compliant.read(self.test_cif_path)
+        # Test export with handler with validator
+        handler_with_validator = MMCIFHandler(validator_factory=ValidatorFactory())
+        mmcif = handler_with_validator.read(self.test_cif_path)
         
-        json_str = handler_compliant.export(mmcif, format_type='json')
+        json_str = handler_with_validator.export(mmcif, format_type='json')
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
 
-    def test_strict_vs_permissive_export(self):
+    def test_export_with_standard_data(self):
         """Test export works with standard data."""
         # Create handler with valid data
         test_cif_path = os.path.join(self.temp_dir, "valid.cif")
@@ -986,11 +986,11 @@ class TestDefaultBackend(unittest.TestCase):
         """Test that the default handler can be created without parameters."""
         handler = MMCIFHandler()
         self.assertIsInstance(handler, MMCIFHandler)
-        # Default should be permissive (no validator)
+        # Default handler has no validator
         self.assertIsNone(handler.validator_factory)
 
     def test_default_parsing_behavior(self):
-        """Test default parsing behavior is optimized and permissive."""
+        """Test default parsing behavior is optimized without validation."""
         cif_content = """data_test
 #
 _entry.id test_structure
