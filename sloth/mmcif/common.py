@@ -19,7 +19,6 @@ from .plugins import ValidatorFactory
 def auto_detect_format_and_load(
     file_path: str,
     validator_factory: Optional[ValidatorFactory] = None,
-    permissive_schema: bool = False,
     nested: bool = True,
 ) -> MMCIFDataContainer:
     """
@@ -32,7 +31,6 @@ def auto_detect_format_and_load(
     Args:
         file_path: Path to the file
         validator_factory: Optional validator factory for data validation (deprecated)
-        permissive_schema: Whether to skip schema validation
         nested: Whether to expect nested structure (for JSON)
 
     Returns:
@@ -47,8 +45,8 @@ def auto_detect_format_and_load(
     ext = os.path.splitext(file_path.lower())[1]
     
     if ext == ".json":
-        importer = JSONImporter(permissive=not permissive_schema)
-        return importer.import_data(file_path, nested=nested, permissive=permissive_schema)
+        importer = JSONImporter()
+        return importer.import_data(file_path)
     elif ext == ".cif":
         # Import here to avoid circular imports
         from .handler import MMCIFHandler
@@ -133,7 +131,6 @@ class BaseImporter(ABC):
         dict_path: Optional[Union[str, Path]] = None,
         xsd_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
-        permissive: bool = False,
         quiet: bool = False
     ):
         """
@@ -143,10 +140,8 @@ class BaseImporter(ABC):
             dict_path: Path to mmCIF dictionary file
             xsd_path: Path to PDBML XSD schema file (deprecated)
             cache_dir: Directory for caching
-            permissive: If False, performs validation
             quiet: Suppress output messages
         """
-        self.permissive = permissive
         self.quiet = quiet
         
         # Set default schema paths
@@ -159,17 +154,13 @@ class BaseImporter(ABC):
     @abstractmethod
     def import_data(
         self, 
-        data: Union[str, Dict[str, Any], Path], 
-        nested: bool = True,
-        permissive: bool = None
+        data: Union[str, Dict[str, Any], Path]
     ) -> "MMCIFDataContainer":
         """
         Import data back to mmCIF format.
         
         Args:
             data: Data to import (string, dict, or file path)
-            nested: Whether to expect nested structure
-            permissive: Override permissive mode setting for schema validation
             
         Returns:
             MMCIFDataContainer with imported data
@@ -185,7 +176,6 @@ class BaseExporter(ABC):
         dict_path: Optional[Union[str, Path]] = None,
         xsd_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
-        permissive: bool = False,
         quiet: bool = False
     ):
         """
@@ -195,10 +185,8 @@ class BaseExporter(ABC):
             dict_path: Path to mmCIF dictionary file
             xsd_path: Path to PDBML XSD schema file (deprecated) 
             cache_dir: Directory for caching
-            permissive: If False, validates during export
             quiet: Suppress output messages
         """
-        self.permissive = permissive
         self.quiet = quiet
         
         # Set default schema paths
@@ -214,7 +202,6 @@ class BaseExporter(ABC):
         mmcif_data: "MMCIFDataContainer",
         file_path: Optional[Union[str, Path]] = None,
         nested: bool = True,
-        permissive: bool = None,
         **kwargs
     ) -> Optional[str]:
         """
@@ -224,7 +211,6 @@ class BaseExporter(ABC):
             mmcif_data: The mmCIF data container to export
             file_path: Path to save the file (optional)
             nested: Whether to use nested structure
-            permissive: Override permissive mode setting for schema validation
             **kwargs: Additional format-specific options
             
         Returns:

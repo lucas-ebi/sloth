@@ -25,8 +25,7 @@ class MMCIFHandler:
     def read(
         self, 
         filename: str, 
-        categories: Optional[List[str]] = None,
-        permissive: bool = True
+        categories: Optional[List[str]] = None
     ) -> MMCIFDataContainer:
         """
         Parse an mmCIF file and returns a data container using gemmi's high-performance backend.
@@ -35,8 +34,6 @@ class MMCIFHandler:
         :type filename: str
         :param categories: The categories to parse. If None, all categories are included.
         :type categories: Optional[List[str]]
-        :param permissive: Whether to skip validation after parsing
-        :type permissive: bool
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
@@ -48,8 +45,7 @@ class MMCIFHandler:
     def write(
         self, 
         mmcif: MMCIFDataContainer, 
-        filename: Optional[str] = None,
-        permissive: bool = True
+        filename: Optional[str] = None
     ) -> None:
         """
         Writes a data container to a file using gemmi's high-performance backend.
@@ -58,11 +54,9 @@ class MMCIFHandler:
         :type mmcif: MMCIFDataContainer
         :param filename: Optional filename to write to. If not provided, uses pre-set file object.
         :type filename: Optional[str]
-        :param permissive: Whether to skip validation before writing
-        :type permissive: bool
         :return: None
         """
-        self._writer = MMCIFWriter(permissive=permissive)
+        self._writer = MMCIFWriter()
         
         if filename:
             # Write to specified filename
@@ -79,7 +73,6 @@ class MMCIFHandler:
         mmcif: MMCIFDataContainer,
         format_type: Union[str, ExportFormat] = ExportFormat.JSON,
         file_path: Optional[str] = None,
-        permissive: bool = False,
         **kwargs
     ) -> Optional[str]:
         """
@@ -91,8 +84,6 @@ class MMCIFHandler:
         :type format_type: Union[str, ExportFormat]
         :param file_path: Path to save the file (optional)
         :type file_path: Optional[str]
-        :param permissive: Whether to skip validation
-        :type permissive: bool
         :param kwargs: Additional format-specific options
         :return: String representation if no file_path provided, otherwise None
         :rtype: Optional[str]
@@ -102,7 +93,7 @@ class MMCIFHandler:
             format_type = ExportFormat(format_type.lower())
         
         if format_type == ExportFormat.JSON:
-            return self._export_json(mmcif, file_path, permissive, **kwargs)
+            return self._export_json(mmcif, file_path, **kwargs)
         else:
             raise ValueError(f"Unsupported export format: {format_type}")
 
@@ -110,7 +101,6 @@ class MMCIFHandler:
         self,
         file_path: str,
         format_type: Union[str, ExportFormat] = ExportFormat.JSON,
-        permissive: bool = False,
         **kwargs
     ) -> MMCIFDataContainer:
         """
@@ -120,8 +110,6 @@ class MMCIFHandler:
         :type file_path: str
         :param format_type: Import format ('json' or 'xml')
         :type format_type: Union[str, ExportFormat]
-        :param permissive: Whether to skip validation
-        :type permissive: bool
         :param kwargs: Additional format-specific options
         :return: An MMCIFDataContainer instance
         :rtype: MMCIFDataContainer
@@ -131,9 +119,9 @@ class MMCIFHandler:
             format_type = ExportFormat(format_type.lower())
         
         if format_type == ExportFormat.JSON:
-            return self._import_json(file_path, permissive, **kwargs)
+            return self._import_json(file_path, **kwargs)
         elif format_type == ExportFormat.XML:
-            return self._import_xml(file_path, permissive, **kwargs)
+            return self._import_xml(file_path, **kwargs)
         else:
             raise ValueError(f"Unsupported import format: {format_type}")
 
@@ -142,7 +130,6 @@ class MMCIFHandler:
         self,
         mmcif: MMCIFDataContainer,
         file_path: Optional[str],
-        permissive: bool,
         **kwargs
     ) -> Optional[str]:
         """Export to JSON format (always nested)."""
@@ -153,11 +140,10 @@ class MMCIFHandler:
     def _import_json(
         self,
         file_path: str,
-        permissive: bool,
         **kwargs
     ) -> MMCIFDataContainer:
         """Import from JSON format (assumes nested structure)."""
         importer = JSONImporter()
-        container = importer.import_data(file_path, permissive)
+        container = importer.import_data(file_path)
         container.source_format = DataSourceFormat.JSON
         return container

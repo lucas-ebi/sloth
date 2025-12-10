@@ -634,7 +634,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
     def test_json_export_to_string(self):
         """Test JSON export to string."""
-        json_str = self.handler.export(self.mmcif, format_type='json', permissive=True)
+        json_str = self.handler.export(self.mmcif, format_type='json')
         self.assertIsInstance(json_str, str)
         data = json.loads(json_str)
         
@@ -656,7 +656,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
     def test_json_export_to_file(self):
         """Test JSON export to file."""
         json_path = os.path.join(self.temp_dir, "test.json")
-        self.handler.export(self.mmcif, format_type='json', file_path=json_path, permissive=True)
+        self.handler.export(self.mmcif, format_type='json', file_path=json_path)
 
         # Verify file exists
         self.assertTrue(os.path.exists(json_path))
@@ -722,7 +722,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
         # Export data to JSON for import testing
         self.json_path = os.path.join(self.temp_dir, "test.json")
-        handler.export(self.mmcif, format_type='json', file_path=self.json_path, permissive=True, structure='nested')
+        handler.export(self.mmcif, format_type='json', file_path=self.json_path)
 
     def tearDown(self):
         """Tear down test fixtures."""
@@ -730,7 +730,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
     def test_json_import_from_file(self):
         """Test importing from JSON file."""
-        importer = JSONImporter(permissive=True)
+        importer = JSONImporter()
         imported_container = importer.import_data(self.json_path)
 
         # Verify structure and content - the imported data should have block structure
@@ -755,7 +755,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         with open(self.json_path, "r") as f:
             json_str = f.read()
 
-        importer = JSONImporter(permissive=True)
+        importer = JSONImporter()
         imported_container = importer.import_data(json_str)
         
         # Get the first block by iterating over the container
@@ -774,10 +774,10 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         handler = MMCIFHandler()
         
         # Export to JSON string
-        json_str = handler.export(self.mmcif, format_type='json', permissive=True, structure='nested')
+        json_str = handler.export(self.mmcif, format_type='json')
         
         # Import back from JSON
-        importer = JSONImporter(permissive=True)
+        importer = JSONImporter()
         imported_mmcif = importer.import_data(json_str)
         
         # Verify the data matches - use correct block iteration
@@ -853,7 +853,7 @@ _custom_category.custom_item custom_value
         handler_permissive = MMCIFHandler(validator_factory=None)
         mmcif = handler_permissive.read(self.test_cif_path)
         
-        json_str = handler_permissive.export(mmcif, format_type='json', permissive=True)
+        json_str = handler_permissive.export(mmcif, format_type='json')
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
         
@@ -861,14 +861,14 @@ _custom_category.custom_item custom_value
         handler_compliant = MMCIFHandler(validator_factory=ValidatorFactory())
         mmcif = handler_compliant.read(self.test_cif_path)
         
-        json_str = handler_compliant.export(mmcif, format_type='json', permissive=True)
+        json_str = handler_compliant.export(mmcif, format_type='json')
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
 
     def test_strict_vs_permissive_export(self):
-        """Test that strict mode requires schema compliance while permissive doesn't."""
-        # Create handler with invalid data for strict validation
-        test_cif_path = os.path.join(self.temp_dir, "invalid.cif")
+        """Test export works with standard data."""
+        # Create handler with valid data
+        test_cif_path = os.path.join(self.temp_dir, "valid.cif")
         with open(test_cif_path, "w") as f:
             f.write(
                 """data_test
@@ -883,12 +883,9 @@ _custom_category.custom_item custom_value
         handler = MMCIFHandler()
         mmcif = handler.read(test_cif_path)
         
-        # Permissive mode should work
-        json_str = handler.export(mmcif, format_type='json', permissive=True)
+        # Export should work
+        json_str = handler.export(mmcif, format_type='json')
         self.assertIsInstance(json_str, str)
-        
-        # Non-permissive mode might fail with validation errors for custom categories
-        # But we'll use permissive mode for now since that's the focus
 
 
 class TestDataStructureIntegrity(unittest.TestCase):

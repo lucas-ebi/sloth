@@ -25,69 +25,45 @@ from .validator import ValidationError
 
 
 class JSONImporter(BaseImporter):
-    """Import JSON data back to mmCIF format with dictionary-based validation."""
+    """Import JSON data back to mmCIF format."""
     
     def __init__(
         self,
         dict_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
-        permissive: bool = False,
         quiet: bool = False
     ):
-        """
-        Initialize the JSON importer.
+        """Initialize the JSON importer.
         
         Args:
             dict_path: Path to mmCIF dictionary file
             cache_dir: Directory for caching
-            permissive: If False, validates through dictionary
             quiet: Suppress output messages
         """
-        super().__init__(dict_path, None, cache_dir, permissive, quiet)
+        super().__init__(dict_path, None, cache_dir, quiet)
         
-        # Set up JSON-specific components
-        if not self.permissive:
-            from .serializer import RelationshipResolver, MappingGenerator, DictionaryParser, get_cache_manager
-            
-            cache_manager = get_cache_manager(
-                self.cache_dir or os.path.join(os.path.expanduser("~"), ".sloth_cache")
-            )
-            
-            # Set up dictionary parser
-            dict_parser = DictionaryParser(cache_manager, self.quiet)
-            dict_parser.source = self.dict_path
-            
-            # Set up mapping generator and relationship resolver (dictionary-only)
-            mapping_generator = MappingGenerator(dict_parser, cache_manager, self.quiet)
-            self.resolver = RelationshipResolver(mapping_generator)
-        else:
-            self.resolver = None
+        # Always skip validation
+        self.resolver = None
     
     def import_data(
         self, 
-        data: Union[str, Dict[str, Any], Path], 
-        permissive: bool = None
+        data: Union[str, Dict[str, Any], Path]
     ) -> MMCIFDataContainer:
-        """
-        Import JSON data back to mmCIF format.
+        """Import JSON data back to mmCIF format.
         
         JSON import always expects nested structure since that's our default export format.
         
         Args:
             data: JSON data as string, dict, or file path
-            permissive: Override schema validation permissiveness
             
         Returns:
             MMCIFDataContainer with imported data
-            
-        Raises:
-            ValidationError: If validation fails and permissive=False
         """
         # Parse JSON input
         json_data = self._parse_json_input(data)
         
         # Always use nested JSON import since that's our default format
-        return self._import_nested_json(json_data, permissive)
+        return self._import_nested_json(json_data)
     
     def _parse_json_input(self, data: Union[str, Dict[str, Any], Path]) -> Dict[str, Any]:
         """Parse JSON input from various formats."""
@@ -108,11 +84,9 @@ class JSONImporter(BaseImporter):
     
     def _import_nested_json(
         self, 
-        json_data: Dict[str, Any], 
-        permissive: bool = None
+        json_data: Dict[str, Any]
     ) -> MMCIFDataContainer:
-        """
-        Import nested JSON back to mmCIF format.
+        """Import nested JSON back to mmCIF format.
         
         This mirrors the JSONExporter._to_nested_json() process in reverse:
         1. Flatten nested JSON to flat format

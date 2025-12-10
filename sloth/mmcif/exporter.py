@@ -29,16 +29,14 @@ class JSONExporter(BaseExporter):
         cache_dir: Optional[str] = None,
         quiet: bool = False
     ):
-        """
-        Initialize the JSON exporter.
+        """Initialize the JSON exporter.
         
         Args:
             dict_path: Path to mmCIF dictionary file
             cache_dir: Directory for caching
             quiet: Suppress output messages
         """
-        # Note: BaseExporter expects xsd_path and permissive, we'll pass None/False
-        super().__init__(dict_path, None, cache_dir, False, quiet)
+        super().__init__(dict_path, None, cache_dir, quiet)
         
         # Set up JSON-specific components
         cache_manager = get_cache_manager(
