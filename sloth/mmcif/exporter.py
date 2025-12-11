@@ -53,7 +53,7 @@ class JSONExporter(BaseExporter):
         mapping_generator = MappingGenerator(dict_parser, cache_manager, self.quiet)
         
         self.resolver = RelationshipResolver(mapping_generator)
-        self.resolver.set_denormalize_all(denormalize)
+        self.resolver.set_denormalize(denormalize)
     
     def export_data(
         self, 

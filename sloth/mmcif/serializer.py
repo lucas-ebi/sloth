@@ -827,7 +827,7 @@ class RelationshipResolver:
         )
         self.nesting_builder = NestingBuilder()
         
-    def set_denormalize_all(self, value: bool):
+    def set_denormalize(self, value: bool):
         """Enable/disable full denormalization mode"""
         self.denormalize = value
     
