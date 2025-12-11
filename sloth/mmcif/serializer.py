@@ -1549,13 +1549,112 @@ class NestingBuilder:
         fk_map: Dict
     ):
         """Assign children to parents using foreign key relationships"""
-        for (child_cat, child_col), (parent_cat, _parent_col) in fk_map.items():
+        # Filter FK map to only include relationships where data exists
+        usable_fk_map = self._filter_usable_relationships(indexed, fk_map)
+        
+        # Select primary nesting parent for each child from usable relationships
+        nesting_fk_map = self._select_primary_nesting_parents(usable_fk_map)
+        
+        for (child_cat, child_col), (parent_cat, _parent_col) in nesting_fk_map.items():
             for _child_pk, row in indexed.get(child_cat, {}).items():
                 if fk := row.get(child_col):
                     if parent := indexed.get(parent_cat, {}).get(str(fk)):
                         # Ensure nested category names have underscore prefix
                         nested_cat_name = f"_{child_cat}" if not child_cat.startswith("_") else child_cat
                         parent.setdefault(nested_cat_name, []).append(row)
+    
+    def _filter_usable_relationships(
+        self,
+        indexed: Dict[str, Any],
+        fk_map: Dict
+    ) -> Dict:
+        """
+        Filter FK relationships to only include those where:
+        1. The child field actually exists in the child data
+        2. The parent category exists in the data
+        
+        This ensures we only consider viable nesting relationships.
+        """
+        usable_fk_map = {}
+        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+            # Check if parent category exists
+            if parent_cat not in indexed:
+                continue
+            
+            # Check if any child rows have the FK field
+            child_data = indexed.get(child_cat, {})
+            has_fk_field = any(child_col in row for row in child_data.values())
+            
+            if has_fk_field:
+                usable_fk_map[(child_cat, child_col)] = (parent_cat, parent_col)
+        
+        return usable_fk_map
+    
+    def _select_primary_nesting_parents(self, fk_map: Dict) -> Dict:
+        """
+        When a child has multiple parent relationships, select the primary parent for nesting.
+        
+        This prevents duplication when a child can nest under multiple parents (e.g., atom_site
+        has relationships to both entity and struct_asym, but should only nest under struct_asym).
+        
+        Priority rules:
+        1. Prefer more specific/detailed parents (e.g., struct_asym over entity)
+        2. Prefer non-type/non-enumeration parents (e.g., struct_asym over atom_type)
+        3. Among equals, prefer shorter parent category names (less prefixes = more core)
+        """
+        # Group FK relationships by child category
+        child_to_parents = {}
+        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+            if child_cat not in child_to_parents:
+                child_to_parents[child_cat] = []
+            child_to_parents[child_cat].append(((child_cat, child_col), (parent_cat, parent_col)))
+        
+        # Select primary parent for each child
+        nesting_fk_map = {}
+        for child_cat, parents in child_to_parents.items():
+            if len(parents) == 1:
+                # Only one parent, use it
+                nesting_fk_map[parents[0][0]] = parents[0][1]
+            else:
+                # Multiple parents - select most specific one
+                primary = self._choose_primary_parent(parents)
+                nesting_fk_map[primary[0]] = primary[1]
+        
+        return nesting_fk_map
+    
+    def _choose_primary_parent(self, parents: List[Tuple[Tuple[str, str], Tuple[str, str]]]) -> Tuple[Tuple[str, str], Tuple[str, str]]:
+        """
+        Choose the primary parent for nesting from multiple candidates.
+        
+        For NESTING, we want the most SPECIFIC parent (opposite of FK collision resolution):
+        1. More underscores = more specific (e.g., struct_asym over entity)
+        2. Penalize pdbx_ prefix (still avoid extension tables)
+        3. Longer name = more specific (e.g., struct_asym over entity)
+        
+        This ensures atom_site nests under struct_asym (specific structural context)
+        rather than entity (too general).
+        
+        Returns the FK relationship that should be used for nesting.
+        """
+        def nesting_priority_score(fk_rel):
+            ((child_cat, child_col), (parent_cat, parent_col)) = fk_rel
+            
+            # Count underscores (MORE = more specific for nesting)
+            # Invert: -underscore_count so more underscores = lower score = wins
+            underscore_count = -parent_cat.count('_')
+            
+            # Penalize extension prefixes (still want core categories)
+            has_prefix = 1 if parent_cat.startswith(('pdbx_', 'cif_', 'rcsb_')) else 0
+            
+            # Longer names = more specific (invert to prefer longer)
+            # Negate so longer names have lower score
+            name_length = -len(parent_cat)
+            
+            return (underscore_count, has_prefix, name_length)
+        
+        # Select parent with lowest priority score (most specific for nesting)
+        return min(parents, key=nesting_priority_score)
+
 
     def _build_top_level(self, indexed: Dict[str, Any]) -> Dict[str, Any]:
         """Build top-level structure from indexed data"""
