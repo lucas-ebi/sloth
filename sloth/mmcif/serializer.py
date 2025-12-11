@@ -664,6 +664,7 @@ class MappingBuilder:
         self.category_mapping = {}
         self.item_mapping = {}
         self.fk_map = {}
+        self._temp_fk_relationships = {}  # Stores all FK candidates before priority selection
     
     def build_primary_mappings(self):
         """Build primary category and item mappings"""
@@ -706,11 +707,15 @@ class MappingBuilder:
     
     def build_foreign_key_map(self):
         """Build foreign key mapping from relationships"""
+        # First pass: collect all relationships
         for rel in self.dict_meta['relationships']:
             self._process_relationship(rel)
+        
+        # Second pass: resolve collisions using priority-based selection
+        self._resolve_fk_collisions()
     
     def _process_relationship(self, rel: Dict[str, Any]):
-        """Process a single relationship entry"""
+        """Process a single relationship entry and store for collision resolution"""
         # Extract relationship data
         child_name = rel.get("item_linked.child_name") or rel.get("child_name")
         parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
@@ -726,7 +731,13 @@ class MappingBuilder:
             # New format with explicit categories
             child_field = self._extract_field_name(child_name)
             parent_field = self._extract_field_name(parent_name)
-            self.fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+            child_key = (child_cat, child_field)
+            parent_value = (parent_cat, parent_field)
+            
+            # Store relationship (may be multiple per child field)
+            if child_key not in self._temp_fk_relationships:
+                self._temp_fk_relationships[child_key] = []
+            self._temp_fk_relationships[child_key].append(parent_value)
         else:
             # Legacy format - extract from field names
             self._process_legacy_relationship(child_name, parent_name)
@@ -741,7 +752,59 @@ class MappingBuilder:
         parent_parts = parent_name.strip("_").split(".")
         
         if len(child_parts) == 2 and len(parent_parts) == 2:
-            self.fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
+            child_key = (child_parts[0], child_parts[1])
+            parent_value = (parent_parts[0], parent_parts[1])
+            
+            # Store relationship (may be multiple per child field)
+            if child_key not in self._temp_fk_relationships:
+                self._temp_fk_relationships[child_key] = []
+            self._temp_fk_relationships[child_key].append(parent_value)
+    
+    def _resolve_fk_collisions(self):
+        """Resolve FK collisions using priority-based selection.
+        
+        When multiple foreign key targets exist for the same child field,
+        select the "most primary" parent using these heuristics:
+        1. Prefer parents with simpler names (fewer underscores)
+        2. Prefer non-prefixed names over pdbx_/cif_ prefixed names
+        3. Prefer shorter category names (more general)
+        
+        This ensures that subtype patterns like entity_poly -> entity
+        and pdbx_entity_nonpoly -> entity are correctly identified.
+        """
+        for child_key, parent_candidates in self._temp_fk_relationships.items():
+            if len(parent_candidates) == 1:
+                # No collision, use the single relationship
+                self.fk_map[child_key] = parent_candidates[0]
+            else:
+                # Collision detected - select best parent by priority
+                best_parent = self._select_primary_parent(parent_candidates)
+                self.fk_map[child_key] = best_parent
+    
+    def _select_primary_parent(self, candidates: List[Tuple[str, str]]) -> Tuple[str, str]:
+        """Select the most primary parent from multiple candidates.
+        
+        Priority rules (lower score = more primary):
+        1. Count underscores in category name (fewer is better)
+        2. Penalize pdbx_/cif_ prefixes (indicates extension tables)
+        3. Prefer shorter names (more general concepts)
+        """
+        def parent_priority_score(parent: Tuple[str, str]) -> Tuple[int, int, int]:
+            parent_cat, _parent_field = parent
+            
+            # Count underscores (fewer = more primary)
+            underscore_count = parent_cat.count('_')
+            
+            # Penalize extension prefixes
+            has_prefix = 1 if parent_cat.startswith(('pdbx_', 'cif_', 'rcsb_')) else 0
+            
+            # Prefer shorter names (more general)
+            name_length = len(parent_cat)
+            
+            return (underscore_count, has_prefix, name_length)
+        
+        # Sort by priority score (lowest = best)
+        return min(candidates, key=parent_priority_score)
 
 
 # ====================== Relationship Resolver ======================
