@@ -10,7 +10,6 @@ import pickle
 import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple, Set
-from abc import ABC, abstractmethod
 
 from .models import MMCIFDataContainer
 from .defaults import (
@@ -173,20 +172,11 @@ def get_cache_manager(cache_dir: Optional[str] = None) -> CacheManager:
     return _default_cache_manager
 
 # ====================== Metadata Parsers ======================
-class MetadataParser(ABC):
-    """Base class for metadata parsers"""
+class DictionaryParser:
+    """Parses mmCIF dictionary files"""
     def __init__(self, cache_manager: CacheManager, quiet: bool = False):
         self.cache_manager = cache_manager
         self.quiet = quiet
-
-    @abstractmethod
-    def parse(self, source: Union[str, Path]) -> Dict[str, Any]:
-        pass
-
-class DictionaryParser(MetadataParser):
-    """Parses mmCIF dictionary files"""
-    def __init__(self, cache_manager: CacheManager, quiet: bool = False):
-        super().__init__(cache_manager, quiet)
         self.source = None
 
     def parse(self, source: Union[str, Path]) -> Dict[str, Any]:  # pylint: disable=arguments-renamed
@@ -653,49 +643,39 @@ class MappingBuilder:
     
     def _process_relationship(self, rel: Dict[str, Any]):
         """Process a single relationship entry and store for collision resolution"""
-        # Extract relationship data
+        # Extract relationship data (both formats)
         child_name = rel.get("item_linked.child_name") or rel.get("child_name")
         parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
         child_cat = rel.get("child_category")
         parent_cat = rel.get("parent_category")
         
-        # Skip if missing required data
         if not child_name or not parent_name:
             return
         
-        # Handle different relationship formats
+        # Extract category and field names (unified for both formats)
         if child_cat and parent_cat:
-            # New format with explicit categories
+            # Explicit categories provided
             child_field = self._extract_field_name(child_name)
             parent_field = self._extract_field_name(parent_name)
-            child_key = (child_cat, child_field)
-            parent_value = (parent_cat, parent_field)
-            
-            # Store relationship (may be multiple per child field)
-            if child_key not in self._temp_fk_relationships:
-                self._temp_fk_relationships[child_key] = []
-            self._temp_fk_relationships[child_key].append(parent_value)
         else:
-            # Legacy format - extract from field names
-            self._process_legacy_relationship(child_name, parent_name)
+            # Extract from dotted notation
+            child_parts = child_name.strip("_").split(".")
+            parent_parts = parent_name.strip("_").split(".")
+            if len(child_parts) != 2 or len(parent_parts) != 2:
+                return
+            child_cat, child_field = child_parts
+            parent_cat, parent_field = parent_parts
+        
+        # Store relationship (may be multiple per child field)
+        child_key = (child_cat, child_field)
+        parent_value = (parent_cat, parent_field)
+        if child_key not in self._temp_fk_relationships:
+            self._temp_fk_relationships[child_key] = []
+        self._temp_fk_relationships[child_key].append(parent_value)
     
     def _extract_field_name(self, name: str) -> str:
         """Extract field name from full item name"""
         return name.strip("_").split(".")[-1] if "." in name else name
-    
-    def _process_legacy_relationship(self, child_name: str, parent_name: str):
-        """Process legacy relationship format"""
-        child_parts = child_name.strip("_").split(".")
-        parent_parts = parent_name.strip("_").split(".")
-        
-        if len(child_parts) == 2 and len(parent_parts) == 2:
-            child_key = (child_parts[0], child_parts[1])
-            parent_value = (parent_parts[0], parent_parts[1])
-            
-            # Store relationship (may be multiple per child field)
-            if child_key not in self._temp_fk_relationships:
-                self._temp_fk_relationships[child_key] = []
-            self._temp_fk_relationships[child_key].append(parent_value)
     
     def _resolve_fk_collisions(self):
         """Resolve FK collisions using priority-based selection.
@@ -864,33 +844,28 @@ class ConstraintExtractor:
     
     def _determine_relationship_type(self, rel: Dict, child_cat: str, 
                                     child_field: str, parent_cat: str) -> str:
-        """Determine relationship type using explicit dictionary metadata and deterministic rules"""
+        """Determine relationship type using dictionary metadata and naming patterns"""
         description = rel.get('description', '').lower()
         
-        # Rule 1: Check explicit ownership indicators in dictionary
+        # Check explicit indicators in dictionary description
         ownership_terms = ['belongs to', 'owned by', 'part of', 'contained in', 'member of']
+        reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for', 'category of']
+        
         if any(term in description for term in ownership_terms):
             return RelationshipType.COMPOSITIONAL
-        
-        # Rule 2: Check explicit reference indicators in dictionary
-        reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for', 'category of']
         if any(term in description for term in reference_terms):
             return RelationshipType.REFERENTIAL
         
-        # Rule 3: Deterministic naming pattern analysis
-        # Pattern: field named <parent_cat>_id indicates compositional
-        if child_field == f'{parent_cat}_id' or child_field == parent_cat:
-            return RelationshipType.COMPOSITIONAL
-        
-        # Pattern: field ending with _type, _code, _symbol indicates referential
-        if any(child_field.endswith(suffix) for suffix in ['_type', '_code', '_symbol', '_method', '_class']):
+        # Naming pattern analysis: field names indicate relationship type
+        lookup_suffixes = ['_type', '_code', '_symbol', '_method', '_class']
+        if any(child_field.endswith(suffix) for suffix in lookup_suffixes):
             return RelationshipType.REFERENTIAL
         
-        # Rule 4: Category hierarchy - child contains parent name
-        if parent_cat in child_cat and parent_cat != child_cat:
+        # Category hierarchy pattern: parent name in child name suggests composition
+        if child_field == f'{parent_cat}_id' or (parent_cat in child_cat and parent_cat != child_cat):
             return RelationshipType.COMPOSITIONAL
         
-        # Rule 5: Lookup table patterns (deterministic category name patterns)
+        # Lookup table pattern: parent category name suggests reference
         lookup_patterns = ['_type', '_class', '_method', '_status', '_code', '_symbol', 
                           '_enum', '_dict', '_list', '_table', '_ref']
         if any(pattern in parent_cat for pattern in lookup_patterns):
