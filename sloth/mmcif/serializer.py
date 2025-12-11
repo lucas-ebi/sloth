@@ -664,6 +664,7 @@ class MappingBuilder:
         self.category_mapping = {}
         self.item_mapping = {}
         self.fk_map = {}
+        self._temp_fk_relationships = {}  # Stores all FK candidates before priority selection
     
     def build_primary_mappings(self):
         """Build primary category and item mappings"""
@@ -706,11 +707,15 @@ class MappingBuilder:
     
     def build_foreign_key_map(self):
         """Build foreign key mapping from relationships"""
+        # First pass: collect all relationships
         for rel in self.dict_meta['relationships']:
             self._process_relationship(rel)
+        
+        # Second pass: resolve collisions using priority-based selection
+        self._resolve_fk_collisions()
     
     def _process_relationship(self, rel: Dict[str, Any]):
-        """Process a single relationship entry"""
+        """Process a single relationship entry and store for collision resolution"""
         # Extract relationship data
         child_name = rel.get("item_linked.child_name") or rel.get("child_name")
         parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
@@ -726,7 +731,13 @@ class MappingBuilder:
             # New format with explicit categories
             child_field = self._extract_field_name(child_name)
             parent_field = self._extract_field_name(parent_name)
-            self.fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+            child_key = (child_cat, child_field)
+            parent_value = (parent_cat, parent_field)
+            
+            # Store relationship (may be multiple per child field)
+            if child_key not in self._temp_fk_relationships:
+                self._temp_fk_relationships[child_key] = []
+            self._temp_fk_relationships[child_key].append(parent_value)
         else:
             # Legacy format - extract from field names
             self._process_legacy_relationship(child_name, parent_name)
@@ -741,7 +752,59 @@ class MappingBuilder:
         parent_parts = parent_name.strip("_").split(".")
         
         if len(child_parts) == 2 and len(parent_parts) == 2:
-            self.fk_map[(child_parts[0], child_parts[1])] = (parent_parts[0], parent_parts[1])
+            child_key = (child_parts[0], child_parts[1])
+            parent_value = (parent_parts[0], parent_parts[1])
+            
+            # Store relationship (may be multiple per child field)
+            if child_key not in self._temp_fk_relationships:
+                self._temp_fk_relationships[child_key] = []
+            self._temp_fk_relationships[child_key].append(parent_value)
+    
+    def _resolve_fk_collisions(self):
+        """Resolve FK collisions using priority-based selection.
+        
+        When multiple foreign key targets exist for the same child field,
+        select the "most primary" parent using these heuristics:
+        1. Prefer parents with simpler names (fewer underscores)
+        2. Prefer non-prefixed names over pdbx_/cif_ prefixed names
+        3. Prefer shorter category names (more general)
+        
+        This ensures that subtype patterns like entity_poly -> entity
+        and pdbx_entity_nonpoly -> entity are correctly identified.
+        """
+        for child_key, parent_candidates in self._temp_fk_relationships.items():
+            if len(parent_candidates) == 1:
+                # No collision, use the single relationship
+                self.fk_map[child_key] = parent_candidates[0]
+            else:
+                # Collision detected - select best parent by priority
+                best_parent = self._select_primary_parent(parent_candidates)
+                self.fk_map[child_key] = best_parent
+    
+    def _select_primary_parent(self, candidates: List[Tuple[str, str]]) -> Tuple[str, str]:
+        """Select the most primary parent from multiple candidates.
+        
+        Priority rules (lower score = more primary):
+        1. Count underscores in category name (fewer is better)
+        2. Penalize pdbx_/cif_ prefixes (indicates extension tables)
+        3. Prefer shorter names (more general concepts)
+        """
+        def parent_priority_score(parent: Tuple[str, str]) -> Tuple[int, int, int]:
+            parent_cat, _parent_field = parent
+            
+            # Count underscores (fewer = more primary)
+            underscore_count = parent_cat.count('_')
+            
+            # Penalize extension prefixes
+            has_prefix = 1 if parent_cat.startswith(('pdbx_', 'cif_', 'rcsb_')) else 0
+            
+            # Prefer shorter names (more general)
+            name_length = len(parent_cat)
+            
+            return (underscore_count, has_prefix, name_length)
+        
+        # Sort by priority score (lowest = best)
+        return min(candidates, key=parent_priority_score)
 
 
 # ====================== Relationship Resolver ======================
@@ -1486,13 +1549,112 @@ class NestingBuilder:
         fk_map: Dict
     ):
         """Assign children to parents using foreign key relationships"""
-        for (child_cat, child_col), (parent_cat, _parent_col) in fk_map.items():
+        # Filter FK map to only include relationships where data exists
+        usable_fk_map = self._filter_usable_relationships(indexed, fk_map)
+        
+        # Select primary nesting parent for each child from usable relationships
+        nesting_fk_map = self._select_primary_nesting_parents(usable_fk_map)
+        
+        for (child_cat, child_col), (parent_cat, _parent_col) in nesting_fk_map.items():
             for _child_pk, row in indexed.get(child_cat, {}).items():
                 if fk := row.get(child_col):
                     if parent := indexed.get(parent_cat, {}).get(str(fk)):
                         # Ensure nested category names have underscore prefix
                         nested_cat_name = f"_{child_cat}" if not child_cat.startswith("_") else child_cat
                         parent.setdefault(nested_cat_name, []).append(row)
+    
+    def _filter_usable_relationships(
+        self,
+        indexed: Dict[str, Any],
+        fk_map: Dict
+    ) -> Dict:
+        """
+        Filter FK relationships to only include those where:
+        1. The child field actually exists in the child data
+        2. The parent category exists in the data
+        
+        This ensures we only consider viable nesting relationships.
+        """
+        usable_fk_map = {}
+        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+            # Check if parent category exists
+            if parent_cat not in indexed:
+                continue
+            
+            # Check if any child rows have the FK field
+            child_data = indexed.get(child_cat, {})
+            has_fk_field = any(child_col in row for row in child_data.values())
+            
+            if has_fk_field:
+                usable_fk_map[(child_cat, child_col)] = (parent_cat, parent_col)
+        
+        return usable_fk_map
+    
+    def _select_primary_nesting_parents(self, fk_map: Dict) -> Dict:
+        """
+        When a child has multiple parent relationships, select the primary parent for nesting.
+        
+        This prevents duplication when a child can nest under multiple parents (e.g., atom_site
+        has relationships to both entity and struct_asym, but should only nest under struct_asym).
+        
+        Priority rules:
+        1. Prefer more specific/detailed parents (e.g., struct_asym over entity)
+        2. Prefer non-type/non-enumeration parents (e.g., struct_asym over atom_type)
+        3. Among equals, prefer shorter parent category names (less prefixes = more core)
+        """
+        # Group FK relationships by child category
+        child_to_parents = {}
+        for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
+            if child_cat not in child_to_parents:
+                child_to_parents[child_cat] = []
+            child_to_parents[child_cat].append(((child_cat, child_col), (parent_cat, parent_col)))
+        
+        # Select primary parent for each child
+        nesting_fk_map = {}
+        for child_cat, parents in child_to_parents.items():
+            if len(parents) == 1:
+                # Only one parent, use it
+                nesting_fk_map[parents[0][0]] = parents[0][1]
+            else:
+                # Multiple parents - select most specific one
+                primary = self._choose_primary_parent(parents)
+                nesting_fk_map[primary[0]] = primary[1]
+        
+        return nesting_fk_map
+    
+    def _choose_primary_parent(self, parents: List[Tuple[Tuple[str, str], Tuple[str, str]]]) -> Tuple[Tuple[str, str], Tuple[str, str]]:
+        """
+        Choose the primary parent for nesting from multiple candidates.
+        
+        For NESTING, we want the most SPECIFIC parent (opposite of FK collision resolution):
+        1. More underscores = more specific (e.g., struct_asym over entity)
+        2. Penalize pdbx_ prefix (still avoid extension tables)
+        3. Longer name = more specific (e.g., struct_asym over entity)
+        
+        This ensures atom_site nests under struct_asym (specific structural context)
+        rather than entity (too general).
+        
+        Returns the FK relationship that should be used for nesting.
+        """
+        def nesting_priority_score(fk_rel):
+            ((child_cat, child_col), (parent_cat, parent_col)) = fk_rel
+            
+            # Count underscores (MORE = more specific for nesting)
+            # Invert: -underscore_count so more underscores = lower score = wins
+            underscore_count = -parent_cat.count('_')
+            
+            # Penalize extension prefixes (still want core categories)
+            has_prefix = 1 if parent_cat.startswith(('pdbx_', 'cif_', 'rcsb_')) else 0
+            
+            # Longer names = more specific (invert to prefer longer)
+            # Negate so longer names have lower score
+            name_length = -len(parent_cat)
+            
+            return (underscore_count, has_prefix, name_length)
+        
+        # Select parent with lowest priority score (most specific for nesting)
+        return min(parents, key=nesting_priority_score)
+
 
     def _build_top_level(self, indexed: Dict[str, Any]) -> Dict[str, Any]:
         """Build top-level structure from indexed data"""
