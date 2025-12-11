@@ -818,6 +818,7 @@ class RelationshipResolver:
         strict_structural_only: bool = False
     ):
         self.mapping_generator = mapping_generator
+        self.denormalize = False  # Will be set via setter if needed
         self.ownership_analyzer = OwnershipAnalyzer(
             self.mapping_generator, 
             enable_semantic_fallbacks=enable_semantic_fallbacks,
@@ -826,6 +827,10 @@ class RelationshipResolver:
         )
         self.nesting_builder = NestingBuilder()
         
+    def set_denormalize_all(self, value: bool):
+        """Enable/disable full denormalization mode"""
+        self.denormalize = value
+    
     @property
     def mapping_rules(self) -> Dict[str, Any]:
         """Cached access to mapping rules"""
@@ -841,11 +846,17 @@ class RelationshipResolver:
         fk_map = mapping["fk_map"]
         primary_keys = mapping.get("primary_keys", {})
         
-        # Filter FK map to only include ownership relationships
-        ownership_fk_map = self.ownership_analyzer.filter_ownership_relationships(fk_map, flat)
+        # Separate FK map into ownership vs reference relationships
+        ownership_fk_map, reference_fk_map = self.ownership_analyzer.filter_ownership_relationships(fk_map, flat)
         
         # Build nested structure
-        return self.nesting_builder.build_nested_structure(flat, ownership_fk_map, primary_keys)
+        # If denormalize=True, pass reference_fk_map for reverse nesting
+        return self.nesting_builder.build_nested_structure(
+            flat, 
+            ownership_fk_map, 
+            primary_keys,
+            reference_fk_map if self.denormalize else {}
+        )
     
     def get_decision_report(self) -> Dict[str, Any]:
         """Get report on how ownership relationships were determined"""
@@ -1094,8 +1105,15 @@ class OwnershipAnalyzer:
         self.constraints: List[RelationshipConstraint] = []
         self.decision_log: List[Dict[str, Any]] = []  # Audit trail of decisions
 
-    def filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> Dict:
-        """Filter FK map to include only ownership relationships using structural analysis"""
+    def filter_ownership_relationships(self, fk_map: Dict, data: Dict) -> tuple:
+        """
+        Filter FK map to separate ownership vs reference relationships.
+        
+        Returns:
+            tuple: (ownership_fk_map, reference_fk_map)
+            - ownership_fk_map: Compositional relationships (child owned by parent)
+            - reference_fk_map: Referential/lookup relationships (child references parent)
+        """
         # Get dictionary metadata for structural analysis
         dict_meta = self.mapping_generator.dict_parser.parse(
             self.mapping_generator.dict_parser.source
@@ -1113,16 +1131,20 @@ class OwnershipAnalyzer:
         # Build relationship graph
         self.graph = self._build_relationship_graph()
         
-        # Filter FK map based on structural ownership analysis
+        # Separate FK map into ownership vs reference relationships
         ownership_fk_map = {}
+        reference_fk_map = {}
         
         for (child_cat, child_field), (parent_cat, parent_field) in fk_map.items():
             if self._is_ownership_relationship(
                 child_cat, child_field, parent_cat, parent_field, fk_map, primary_keys, dict_meta
             ):
                 ownership_fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
+            else:
+                # This is a reference/lookup relationship
+                reference_fk_map[(child_cat, child_field)] = (parent_cat, parent_field)
         
-        return ownership_fk_map
+        return ownership_fk_map, reference_fk_map
     
     def _build_relationship_graph(self) -> RelationshipGraph:
         """Build formal relationship graph from validated constraints"""
@@ -1486,17 +1508,32 @@ class NestingBuilder:
         self, 
         flat: Dict[str, Any], 
         fk_map: Dict, 
-        primary_keys: Dict[str, Any]
+        primary_keys: Dict[str, Any],
+        reference_fk_map: Dict = None
     ) -> Dict[str, Any]:
-        """Build nested structure from flat data"""
+        """
+        Build nested structure from flat data.
+        
+        Args:
+            flat: Flat data dictionary
+            fk_map: Ownership FK relationships (standard nesting: child in parent)
+            primary_keys: Primary key definitions
+            reference_fk_map: Reference/lookup relationships (for denormalization: parent in child)
+        """
+        reference_fk_map = reference_fk_map or {}
+        
         # Identify child-only categories
         child_only_cats = self._identify_child_only_categories(fk_map, flat, primary_keys)
         
         # Create indexed structure
         indexed = self._create_indexed_structure(flat, primary_keys, child_only_cats)
         
-        # Assign children to parents
+        # Standard ownership nesting: child IN parent
         self._assign_children(indexed, fk_map)
+        
+        # Denormalization: reverse-nest reference relationships (parent IN child)
+        if reference_fk_map:
+            self._assign_parents_to_children(indexed, reference_fk_map)
         
         # Build top-level structure
         return self._build_top_level(indexed)
@@ -1562,6 +1599,34 @@ class NestingBuilder:
                         # Ensure nested category names have underscore prefix
                         nested_cat_name = f"_{child_cat}" if not child_cat.startswith("_") else child_cat
                         parent.setdefault(nested_cat_name, []).append(row)
+    
+    def _assign_parents_to_children(
+        self,
+        indexed: Dict[str, Any],
+        reference_fk_map: Dict
+    ):
+        """
+        Reverse-nest reference/lookup relationships for denormalization.
+        
+        For reference relationships like pdbx_entity_nonpoly.comp_id → chem_comp.id,
+        embed the parent (chem_comp) data INTO the child (pdbx_entity_nonpoly).
+        
+        This creates self-contained documents where lookup data is embedded.
+        """
+        usable_refs = self._filter_usable_relationships(indexed, reference_fk_map)
+        
+        for (child_cat, child_col), (parent_cat, parent_col) in usable_refs.items():
+            for _child_pk, child_row in indexed.get(child_cat, {}).items():
+                if fk_value := child_row.get(child_col):
+                    if parent_row := indexed.get(parent_cat, {}).get(str(fk_value)):
+                        # Embed parent data INTO child (reverse direction from standard nesting)
+                        nested_parent_name = f"_{parent_cat}" if not parent_cat.startswith("_") else parent_cat
+                        
+                        # Copy parent data, excluding any nested children to avoid deep recursion
+                        parent_copy = {k: v for k, v in parent_row.items() if not k.startswith("_")}
+                        
+                        # Embed as a list for consistency with mmCIF structure
+                        child_row.setdefault(nested_parent_name, []).append(parent_copy)
     
     def _filter_usable_relationships(
         self,

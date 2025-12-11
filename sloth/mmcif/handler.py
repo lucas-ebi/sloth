@@ -110,7 +110,8 @@ class MMCIFHandler:
         **kwargs
     ) -> Optional[str]:
         """Export to JSON format (always nested)."""
-        exporter = JSONExporter(quiet=kwargs.get('quiet', False))
+        denormalize = kwargs.get('denormalize', False)
+        exporter = JSONExporter(quiet=kwargs.get('quiet', False), denormalize=denormalize)
         indent = kwargs.get('indent', 2)
         return exporter.export_data(mmcif, file_path, indent)
 

@@ -27,7 +27,8 @@ class JSONExporter(BaseExporter):
         self,
         dict_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
-        quiet: bool = False
+        quiet: bool = False,
+        denormalize: bool = False
     ):
         """Initialize the JSON exporter.
         
@@ -35,6 +36,7 @@ class JSONExporter(BaseExporter):
             dict_path: Path to mmCIF dictionary file
             cache_dir: Directory for caching
             quiet: Suppress output messages
+            denormalize: If True, embed reference/lookup data for full denormalization
         """
         super().__init__(dict_path, None, cache_dir, quiet)
         
@@ -51,6 +53,7 @@ class JSONExporter(BaseExporter):
         mapping_generator = MappingGenerator(dict_parser, cache_manager, self.quiet)
         
         self.resolver = RelationshipResolver(mapping_generator)
+        self.resolver.set_denormalize_all(denormalize)
     
     def export_data(
         self, 
