@@ -71,9 +71,7 @@ class RelationshipConstraint:
 # Global caches for maximum performance (similar to legacy implementation)
 _GLOBAL_CACHES = {
     CacheType.DICTIONARY.value: {},
-    CacheType.XSD.value: {},
-    CacheType.MAPPING_RULES.value: {},
-    CacheType.XSD_TREES.value: {}
+    CacheType.MAPPING_RULES.value: {}
 }
 _CACHE_LOCK = threading.Lock()
 

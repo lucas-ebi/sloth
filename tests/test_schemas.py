@@ -3,7 +3,7 @@
 Test suite for dictionary-based schema validation.
 
 This module tests the dictionary parser and validation functionality
-based on the mmCIF dictionary instead of XSD schemas.
+based on the mmCIF dictionary.
 """
 
 import unittest

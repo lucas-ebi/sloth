@@ -132,9 +132,7 @@ def is_null_value(value: str) -> bool:
 class CacheType(Enum):
     """Cache type identifiers"""
     DICTIONARY = 'dictionary'
-    XSD = 'xsd'
     MAPPING_RULES = 'mapping_rules'
-    XSD_TREES = 'xsd_trees'
 
 class DictDataType(Enum):
     """Dictionary data structure keys"""
@@ -144,14 +142,6 @@ class DictDataType(Enum):
     ENUMERATIONS = 'enumerations'
     ITEM_TYPES = 'item_types'
     PRIMARY_KEYS = 'primary_keys'
-
-class SchemaDataType(Enum):
-    """XSD schema data structure keys"""
-    ELEMENTS = 'elements'
-    ATTRIBUTES = 'attributes'
-    REQUIRED_ELEMENTS = 'required_elements'
-    DEFAULT_VALUES = 'default_values'
-    COMPLEX_TYPES = 'complex_types'
 
 class LoopDataKey(Enum):
     """Loop data structure keys"""

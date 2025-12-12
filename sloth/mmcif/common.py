@@ -80,7 +80,6 @@ class BaseImporter(ABC):
     def __init__(
         self,
         dict_path: Optional[Union[str, Path]] = None,
-        xsd_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
         quiet: bool = False
     ):
@@ -89,7 +88,6 @@ class BaseImporter(ABC):
         
         Args:
             dict_path: Path to mmCIF dictionary file
-            xsd_path: Path to PDBML XSD schema file (deprecated)
             cache_dir: Directory for caching
             quiet: Suppress output messages
         """
@@ -99,7 +97,6 @@ class BaseImporter(ABC):
         if dict_path is None:
             dict_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
         self.dict_path = dict_path
-        self.xsd_path = xsd_path  # Kept for backward compatibility
         self.cache_dir = cache_dir
     
     @abstractmethod
@@ -125,7 +122,6 @@ class BaseExporter(ABC):
     def __init__(
         self,
         dict_path: Optional[Union[str, Path]] = None,
-        xsd_path: Optional[Union[str, Path]] = None,
         cache_dir: Optional[str] = None,
         quiet: bool = False
     ):
@@ -134,7 +130,6 @@ class BaseExporter(ABC):
         
         Args:
             dict_path: Path to mmCIF dictionary file
-            xsd_path: Path to PDBML XSD schema file (deprecated) 
             cache_dir: Directory for caching
             quiet: Suppress output messages
         """
@@ -144,7 +139,6 @@ class BaseExporter(ABC):
         if dict_path is None:
             dict_path = Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
         self.dict_path = dict_path
-        self.xsd_path = xsd_path  # Kept for backward compatibility
         self.cache_dir = cache_dir
     
     @abstractmethod
