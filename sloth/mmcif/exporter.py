@@ -38,7 +38,7 @@ class JSONExporter(BaseExporter):
             quiet: Suppress output messages
             denormalize: If True, embed reference/lookup data for full denormalization
         """
-        super().__init__(dict_path, None, cache_dir, quiet)
+        super().__init__(dict_path, cache_dir, quiet)
         
         # Set up JSON-specific components
         cache_manager = get_cache_manager(

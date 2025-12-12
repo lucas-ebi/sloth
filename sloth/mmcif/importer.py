@@ -40,7 +40,7 @@ class JSONImporter(BaseImporter):
             cache_dir: Directory for caching
             quiet: Suppress output messages
         """
-        super().__init__(dict_path, None, cache_dir, quiet)
+        super().__init__(dict_path, cache_dir, quiet)
         
         # Always skip validation
         self.resolver = None
