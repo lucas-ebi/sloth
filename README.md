@@ -4,9 +4,14 @@
 
 <img width="256" height="256" alt="logo" src="logo.png" />
 
+<!-- Uncomment when published to PyPI:
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
+-->
 [![Version](https://img.shields.io/badge/version-0.3.44-blue)](https://github.com/lucas-ebi/sloth/releases)
+<!-- 
 [![Python](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
+-->
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/lucas-ebi/sloth.svg)](https://github.com/lucas-ebi/sloth/blob/main/LICENSE)
 
 ---
