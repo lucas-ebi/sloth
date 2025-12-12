@@ -7,7 +7,7 @@ for optimal performance while maintaining the elegant SLOTH API.
 
 from typing import Optional, List, Union
 from pathlib import Path
-from .models import MMCIFDataContainer, DataBlock, Category
+from .models import MMCIFDataContainer, DataBlock, Category, LazyGemmiColumn
 from .common import BaseParser
 from .plugins import ValidatorFactory
 
@@ -109,17 +109,11 @@ class MMCIFParser(BaseParser):
                 if category_name not in category_items:
                     category_items[category_name] = {}
                 
-                # Process loop data
+                # Store lazy column wrappers instead of eagerly loading data
                 for i, tag in enumerate(tags):
                     field_name = self._extract_field_name(tag)
-                    column_data = []
-                    
-                    # Extract column data
-                    for row_idx in range(loop.length()):
-                        value = loop[row_idx, i]
-                        column_data.append(str(value))
-                    
-                    category_items[category_name][field_name] = column_data
+                    # Create lazy column that will load data only when accessed
+                    category_items[category_name][field_name] = LazyGemmiColumn(loop, i)
         
         # Create SLOTH categories
         for category_name, items in category_items.items():

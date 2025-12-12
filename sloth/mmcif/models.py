@@ -199,6 +199,60 @@ class LazyRowList:
         return f"LazyRowList({self._row_count} rows, {len(self._cached_rows)} cached)"
 
 
+class LazyGemmiColumn(list):
+    """
+    Lazy wrapper for gemmi loop columns - data extracted only when accessed.
+    Behaves like a list but loads data from gemmi on first access.
+    """
+    
+    def __init__(self, gemmi_loop, column_index: int):
+        """
+        Initialize lazy column wrapper.
+        
+        Args:
+            gemmi_loop: The gemmi loop object containing the data
+            column_index: The column index in the loop
+        """
+        super().__init__()  # Don't populate the list yet
+        self._gemmi_loop = gemmi_loop
+        self._column_index = column_index
+        self._loaded = False
+    
+    def _ensure_loaded(self):
+        """Load column data from gemmi loop on first access."""
+        if not self._loaded:
+            # Extract all values from gemmi and populate the list
+            for row_idx in range(self._gemmi_loop.length()):
+                value = self._gemmi_loop[row_idx, self._column_index]
+                super().append(str(value))
+            self._loaded = True
+            # Clear gemmi reference to save memory
+            self._gemmi_loop = None
+    
+    def __getitem__(self, index):
+        self._ensure_loaded()
+        return super().__getitem__(index)
+    
+    def __len__(self):
+        if self._loaded:
+            return super().__len__()
+        return self._gemmi_loop.length()
+    
+    def __iter__(self):
+        self._ensure_loaded()
+        return super().__iter__()
+    
+    def __repr__(self):
+        if not self._loaded:
+            return f"LazyGemmiColumn({self._gemmi_loop.length()} rows, not loaded)"
+        return f"LazyGemmiColumn({super().__len__()} rows, loaded)"
+    
+    def __str__(self):
+        if not self._loaded:
+            return f"<LazyGemmiColumn: {self._gemmi_loop.length()} rows (not loaded)>"
+        return super().__str__()
+
+
 class LazyItemDict:
     """A dict-like object that only loads Item values when accessed, providing O(1) creation."""
 
