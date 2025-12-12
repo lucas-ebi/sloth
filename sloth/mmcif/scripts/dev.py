@@ -5,6 +5,12 @@ Development utilities for the Sloth package.
 
 import subprocess
 import sys
+import os
+from pathlib import Path
+
+# Change to project root directory
+project_root = Path(__file__).parent.parent.parent.parent
+os.chdir(project_root)
 
 
 def run_command(command, description):
@@ -53,7 +59,7 @@ def clean():
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python dev.py [build|test|install|check|clean|all]")
+        print("Usage: python sloth/mmcif/scripts/dev.py [build|test|install|check|clean|all]")
         sys.exit(1)
 
     command = sys.argv[1]
