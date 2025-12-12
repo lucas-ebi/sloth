@@ -32,6 +32,7 @@ keywords = ["mmcif", "cif", "crystallography", "structural-biology", "parser", "
 dependencies = [
     "msgpack",
     "gemmi>=0.6.0",
+    "jsonschema>=4.0.0",
 ]
 requires-python = ">=3.8"
 
@@ -98,4 +99,4 @@ disallow_untyped_defs = true
 
 # Dynamic versioning configuration
 [tool.setuptools.dynamic]
-version = {attr = "sloth.__version__"}
+version = {attr = "sloth.mmcif.__version__"}

@@ -2,12 +2,12 @@
 
 > *Lazy by design. Fast by default.*
 
-![logo](logo.png)
+![logo](https://raw.githubusercontent.com/lucas-ebi/sloth/main/logo.png)
 
 <!-- Uncomment when published to PyPI:
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
 -->
-[![Version](https://img.shields.io/badge/version-0.3.44-blue)](https://github.com/lucas-ebi/sloth/releases)
+[![Version](https://img.shields.io/badge/version-0.3.45-blue)](https://github.com/lucas-ebi/sloth/releases)
 <!-- 
 [![Python](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
 -->
