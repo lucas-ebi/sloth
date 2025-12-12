@@ -15,20 +15,14 @@ from .models import MMCIFDataContainer
 from .defaults import (
     CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
-    MappingDataKey,
+    MappingDataKey, CategoryPrefix, BooleanValue, SemanticToken,
+    RelationshipType,
     # Consolidated classes
     DataValue, FileOperation
 )
 
 
 # ====================== Formal Relationship Type Definitions ======================
-class RelationshipType:
-    """Formal relationship type definitions"""
-    COMPOSITIONAL = "compositional"  # Child is part of parent (ownership)
-    REFERENTIAL = "referential"      # Child references parent (lookup)
-    UNKNOWN = "unknown"              # Cannot be determined
-
-
 class RelationshipMetadata:
     """Formal relationship metadata extracted from dictionary"""
     def __init__(
@@ -37,7 +31,7 @@ class RelationshipMetadata:
         child_field: str,
         parent_cat: str,
         parent_field: str,
-        relationship_type: str = RelationshipType.UNKNOWN
+        relationship_type: RelationshipType = RelationshipType.UNKNOWN
     ):
         self.child_cat = child_cat
         self.child_field = child_field
@@ -77,9 +71,7 @@ class RelationshipConstraint:
 # Global caches for maximum performance (similar to legacy implementation)
 _GLOBAL_CACHES = {
     CacheType.DICTIONARY.value: {},
-    CacheType.XSD.value: {},
-    CacheType.MAPPING_RULES.value: {},
-    CacheType.XSD_TREES.value: {}
+    CacheType.MAPPING_RULES.value: {}
 }
 _CACHE_LOCK = threading.Lock()
 
@@ -623,19 +615,19 @@ class MappingBuilder:
     def _map_item(self, cat_name: str, field_name: str):
         """Map a single item from dictionary metadata"""
         item_name = f"_{cat_name}.{field_name}"
-        item_data = self.dict_meta['items'].get(item_name, {})
+        item_data = self.dict_meta[DictDataType.ITEMS.value].get(item_name, {})
         
         # Create item mapping
         self.item_mapping[cat_name][field_name] = {
-            "type": item_data.get("item_type.code", "string"),
-            "enum": self.dict_meta['enumerations'].get(item_name),
-            "description": item_data.get("item_description.description", "")
+            MappingDataKey.TYPE.value: item_data.get(DictItemKey.ITEM_TYPE_CODE.value, DataValue.EMPTY_STRING.value),
+            MappingDataKey.ENUM.value: self.dict_meta[DictDataType.ENUMERATIONS.value].get(item_name),
+            MappingDataKey.DESCRIPTION.value: item_data.get(DictItemKey.ITEM_DESCRIPTION.value, DataValue.EMPTY_STRING.value)
         }
     
     def build_foreign_key_map(self):
         """Build foreign key mapping from relationships"""
         # First pass: collect all relationships
-        for rel in self.dict_meta['relationships']:
+        for rel in self.dict_meta[DictDataType.RELATIONSHIPS.value]:
             self._process_relationship(rel)
         
         # Second pass: resolve collisions using priority-based selection
@@ -644,10 +636,10 @@ class MappingBuilder:
     def _process_relationship(self, rel: Dict[str, Any]):
         """Process a single relationship entry and store for collision resolution"""
         # Extract relationship data (both formats)
-        child_name = rel.get("item_linked.child_name") or rel.get("child_name")
-        parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
-        child_cat = rel.get("child_category")
-        parent_cat = rel.get("parent_category")
+        child_name = rel.get(RelationshipKey.ITEM_LINKED_CHILD_NAME.value) or rel.get(RelationshipKey.CHILD_NAME.value)
+        parent_name = rel.get(RelationshipKey.ITEM_LINKED_PARENT_NAME.value) or rel.get(RelationshipKey.PARENT_NAME.value)
+        child_cat = rel.get(RelationshipKey.CHILD_CATEGORY.value)
+        parent_cat = rel.get(RelationshipKey.PARENT_CATEGORY.value)
         
         if not child_name or not parent_name:
             return
@@ -713,7 +705,7 @@ class MappingBuilder:
             underscore_count = parent_cat.count('_')
             
             # Penalize extension prefixes
-            has_prefix = 1 if parent_cat.startswith(('pdbx_', 'cif_', 'rcsb_')) else 0
+            has_prefix = 1 if parent_cat.startswith((CategoryPrefix.PDBX.value, CategoryPrefix.CIF.value, CategoryPrefix.RCSB.value)) else 0
             
             # Prefer shorter names (more general)
             name_length = len(parent_cat)
@@ -752,8 +744,8 @@ class RelationshipResolver:
         
         # Get mapping rules
         mapping = self.mapping_rules
-        fk_map = mapping["fk_map"]
-        primary_keys = mapping.get("primary_keys", {})
+        fk_map = mapping[MappingDataKey.FK_MAP.value]
+        primary_keys = mapping.get(DictDataType.PRIMARY_KEYS.value, {})
         
         # Separate FK map into ownership vs reference relationships
         ownership_fk_map, reference_fk_map = self.ownership_analyzer.filter_ownership_relationships(fk_map, flat)
@@ -794,7 +786,7 @@ class ConstraintExtractor:
         """Extract formal relationship constraints from dictionary"""
         constraints = []
         
-        for rel in self.dict_meta.get('relationships', []):
+        for rel in self.dict_meta.get(DictDataType.RELATIONSHIPS.value, []):
             metadata = self._build_relationship_metadata(rel)
             if metadata:
                 constraints.append(RelationshipConstraint(metadata))
@@ -804,10 +796,10 @@ class ConstraintExtractor:
     def _build_relationship_metadata(self, rel: Dict[str, Any]) -> Optional[RelationshipMetadata]:
         """Build relationship metadata from dictionary entry"""
         # Extract relationship data
-        child_name = rel.get("item_linked.child_name") or rel.get("child_name")
-        parent_name = rel.get("item_linked.parent_name") or rel.get("parent_name")
-        child_cat = rel.get("child_category")
-        parent_cat = rel.get("parent_category")
+        child_name = rel.get(RelationshipKey.ITEM_LINKED_CHILD_NAME.value) or rel.get(RelationshipKey.CHILD_NAME.value)
+        parent_name = rel.get(RelationshipKey.ITEM_LINKED_PARENT_NAME.value) or rel.get(RelationshipKey.PARENT_NAME.value)
+        child_cat = rel.get(RelationshipKey.CHILD_CATEGORY.value)
+        parent_cat = rel.get(RelationshipKey.PARENT_CATEGORY.value)
         
         if not child_name or not parent_name:
             return None
@@ -843,13 +835,18 @@ class ConstraintExtractor:
         return name.strip("_").split(".")[-1] if "." in name else name
     
     def _determine_relationship_type(self, rel: Dict, child_cat: str, 
-                                    child_field: str, parent_cat: str) -> str:
+                                    child_field: str, parent_cat: str) -> RelationshipType:
         """Determine relationship type using dictionary metadata and naming patterns"""
-        description = rel.get('description', '').lower()
+        from .defaults import RelationshipTerm
+        description = rel.get(MappingDataKey.DESCRIPTION.value, DataValue.EMPTY_STRING.value).lower()
         
         # Check explicit indicators in dictionary description
-        ownership_terms = ['belongs to', 'owned by', 'part of', 'contained in', 'member of']
-        reference_terms = ['refers to', 'references', 'lookup', 'type of', 'code for', 'category of']
+        ownership_terms = [RelationshipTerm.BELONGS_TO.value, RelationshipTerm.OWNED_BY.value, 
+                          RelationshipTerm.PART_OF.value, RelationshipTerm.CONTAINED_IN.value, 
+                          RelationshipTerm.MEMBER_OF.value]
+        reference_terms = [RelationshipTerm.REFERS_TO.value, RelationshipTerm.REFERENCES.value, 
+                          RelationshipTerm.LOOKUP.value, RelationshipTerm.TYPE_OF.value, 
+                          RelationshipTerm.CODE_FOR.value, RelationshipTerm.CATEGORY_OF.value]
         
         if any(term in description for term in ownership_terms):
             return RelationshipType.COMPOSITIONAL
@@ -1137,10 +1134,10 @@ class OwnershipAnalyzer:
         
         # Rule 2: Check if field is mandatory in dictionary
         child_item_name = f'_{child_cat}.{child_field}'
-        child_item = dict_meta.get('items', {}).get(child_item_name, {})
+        child_item = dict_meta.get(DictDataType.ITEMS.value, {}).get(child_item_name, {})
         
-        mandatory = child_item.get('item.mandatory_code', '').strip().lower()
-        is_mandatory = mandatory in ['yes', 'y', 'true', '1']
+        mandatory = child_item.get(DictItemKey.ITEM_MANDATORY_CODE.value, DataValue.EMPTY_STRING.value).strip().lower()
+        is_mandatory = BooleanValue.is_true(mandatory)
         
         if not is_mandatory:
             # Not mandatory → not a strong dependency
@@ -1152,7 +1149,7 @@ class OwnershipAnalyzer:
         parent_tokens = set(parent_cat.lower().split('_'))
         
         # Remove common non-semantic tokens
-        non_semantic = {'id', 'pdbx', 'auth', 'label'}
+        non_semantic = SemanticToken.get_non_semantic_tokens()
         field_tokens -= non_semantic
         parent_tokens -= non_semantic
         
@@ -1370,7 +1367,7 @@ class NestingBuilder:
             underscore_count = -parent_cat.count('_')
             
             # Penalize extension prefixes (still want core categories)
-            has_prefix = 1 if parent_cat.startswith(('pdbx_', 'cif_', 'rcsb_')) else 0
+            has_prefix = 1 if parent_cat.startswith((CategoryPrefix.PDBX.value, CategoryPrefix.CIF.value, CategoryPrefix.RCSB.value)) else 0
             
             # Longer names = more specific (invert to prefer longer)
             # Negate so longer names have lower score

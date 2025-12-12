@@ -132,9 +132,7 @@ def is_null_value(value: str) -> bool:
 class CacheType(Enum):
     """Cache type identifiers"""
     DICTIONARY = 'dictionary'
-    XSD = 'xsd'
     MAPPING_RULES = 'mapping_rules'
-    XSD_TREES = 'xsd_trees'
 
 class DictDataType(Enum):
     """Dictionary data structure keys"""
@@ -144,14 +142,6 @@ class DictDataType(Enum):
     ENUMERATIONS = 'enumerations'
     ITEM_TYPES = 'item_types'
     PRIMARY_KEYS = 'primary_keys'
-
-class SchemaDataType(Enum):
-    """XSD schema data structure keys"""
-    ELEMENTS = 'elements'
-    ATTRIBUTES = 'attributes'
-    REQUIRED_ELEMENTS = 'required_elements'
-    DEFAULT_VALUES = 'default_values'
-    COMPLEX_TYPES = 'complex_types'
 
 class LoopDataKey(Enum):
     """Loop data structure keys"""
@@ -177,6 +167,7 @@ class DictItemKey(Enum):
     ITEM_ENUMERATION_VALUE = 'item_enumeration.value'
     CATEGORY_KEY_NAME = 'category_key.name'
     CATEGORY_DESCRIPTION = 'category.description'
+    ITEM_MANDATORY_CODE = 'item.mandatory_code'
 
 class RelationshipKey(Enum):
     """Relationship field keys"""
@@ -215,6 +206,7 @@ class MappingDataKey(Enum):
     ITEM_MAPPING = 'item_mapping'
     FK_MAP = 'fk_map'
     FIELDS = 'fields'
+    TYPE = 'type'
     ENUM = 'enum'
     DESCRIPTION = 'description'
 
@@ -280,6 +272,7 @@ class RelationshipTerm(Enum):
     LOOKUP = 'lookup'
     TYPE_OF = 'type of'
     CODE_FOR = 'code for'
+    CATEGORY_OF = 'category of'
     
     # Hierarchy terms
     DETAIL = 'detail'
@@ -301,3 +294,43 @@ class FileOperation(Enum):
     # Quote characters for parsing
     DOUBLE_QUOTE = '"'
     SINGLE_QUOTE = "'"
+
+
+class CategoryPrefix(Enum):
+    """Category name prefixes for extension tables"""
+    PDBX = 'pdbx_'
+    CIF = 'cif_'
+    RCSB = 'rcsb_'
+
+
+class BooleanValue(Enum):
+    """Boolean value representations in mmCIF dictionaries"""
+    YES = 'yes'
+    Y = 'y'
+    TRUE = 'true'
+    ONE = '1'
+    
+    @classmethod
+    def is_true(cls, value: str) -> bool:
+        """Check if a value represents true"""
+        return value.lower() in {cls.YES.value, cls.Y.value, cls.TRUE.value, cls.ONE.value}
+
+
+class SemanticToken(Enum):
+    """Non-semantic tokens to exclude from pattern matching"""
+    ID = 'id'
+    PDBX = 'pdbx'
+    AUTH = 'auth'
+    LABEL = 'label'
+    
+    @classmethod
+    def get_non_semantic_tokens(cls) -> Set[str]:
+        """Get all non-semantic tokens as a set"""
+        return {cls.ID.value, cls.PDBX.value, cls.AUTH.value, cls.LABEL.value}
+
+
+class RelationshipType(Enum):
+    """Formal relationship type definitions for mmCIF relationships"""
+    COMPOSITIONAL = 'compositional'  # Child is part of parent (ownership)
+    REFERENTIAL = 'referential'      # Child references parent (lookup)
+    UNKNOWN = 'unknown'              # Cannot be determined

@@ -688,7 +688,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
 
 
 class TestImportFunctionality(unittest.TestCase):
-    """Test case for import functionality through JSONImporter and XMLImporter."""
+    """Test case for import functionality through JSONImporter."""
 
     def setUp(self):
         """Set up test fixtures."""
