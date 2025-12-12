@@ -323,16 +323,27 @@ Perfect for learning SLOTH interactively or as a reference guide.
 
 ## Performance and Architecture
 
-| File Size     | Full Parse | Selective Parse | Access Speed | Memory Usage |
-| ------------- | ---------- | --------------- | ------------ | ------------ |
-| <10KB         | 28μs       | 204μs           | 51μs         | 4.0MB        |
-| 10KB–100KB    | 703μs      | 634μs           | 22μs         | 172KB        |
-| 100KB–1MB     | 6ms        | 5ms             | 35μs         | 2.1MB        |
-| 1MB–10MB      | 77ms       | 57ms            | 52μs         | 18.8MB       |
-| 10MB–50MB     | 601ms      | 540ms           | 64μs         | 243MB        |
-| >50MB         | 2.9s       | 3.2s            | 66μs         | 271MB        |
+Performance benchmarks on synthetic mmCIF files (measured on macOS with Python 3.10):
 
-SLOTH's lazy object creation ensures minimal overhead even on large files.
+| File Size | Full Parse | Selective | Access Speed | Memory (Parse) | Memory (Access) |
+| --------- | ---------- | --------- | ------------ | -------------- | --------------- |
+| 1KB       | 12ms       | 13ms      | 40μs         | 198KB          | 4KB             |
+| 10KB      | 12ms       | 13ms      | 97μs         | 222KB          | 13KB            |
+| 100KB     | 13ms       | 14ms      | 594μs        | 1.0MB          | 104KB           |
+| 1.0MB     | 19ms       | 25ms      | 6ms          | 7.7MB          | 954KB           |
+| 50.7MB    | 394ms      | 693ms     | 298ms        | 205.4MB        | 46.1MB          |
+| 102.0MB   | 817ms      | 1.4s      | 607ms        | 386.8MB        | 75.5MB          |
+
+**Memory Architecture:**
+
+* **Parse Memory**: Gemmi C++ structures (eager loading, ~4-8x file size for typical files)
+* **SLOTH overhead**: ~0KB (lazy wrappers add no measurable memory cost)
+* **Access Memory**: Python string conversion cost (only when data is accessed)
+* **Multiplier trend**: Small files show higher relative overhead due to fixed costs, stabilizing at ~4x for large files (>50MB)
+
+SLOTH's lazy object creation ensures minimal overhead - `LazyGemmiColumn` defers Python string conversions until needed, adding virtually no memory cost beyond Gemmi's parsing.
+
+**Note**: Medium-sized files (5-20MB) may show measurement anomalies due to C++ allocation timing. Trust measurements for small (<1MB) and large (>50MB) files.
 
 ---
 
