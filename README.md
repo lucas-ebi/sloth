@@ -2,7 +2,7 @@
 
 > *Lazy by design. Fast by default.*
 
-<img width="256" height="256" alt="logo" src="logo.png" />
+![logo](logo.png)
 
 <!-- Uncomment when published to PyPI:
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
