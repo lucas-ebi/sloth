@@ -8,60 +8,11 @@ all parsers and writers must implement, ensuring consistency across different ba
 (native SLOTH, gemmi, etc.).
 """
 
-import os
 from abc import ABC, abstractmethod
 from typing import Optional, Union, IO, Dict, Any
 from pathlib import Path
-from .models import MMCIFDataContainer, DataSourceFormat
+from .models import MMCIFDataContainer
 from .plugins import ValidatorFactory
-
-
-def auto_detect_format_and_load(
-    file_path: str,
-    validator_factory: Optional[ValidatorFactory] = None,
-    nested: bool = True,
-) -> MMCIFDataContainer:
-    """
-    Auto-detect the format of the input file and load it using the unified architecture.
-
-    This function supports the formats handled by the new unified importer/exporter system:
-    - JSON (nested structure with relationship resolution)
-    - CIF (mmCIF)
-
-    Args:
-        file_path: Path to the file
-        validator_factory: Optional validator factory for data validation (deprecated)
-        nested: Whether to expect nested structure (for JSON)
-
-    Returns:
-        MMCIFDataContainer object
-        
-    Raises:
-        ValueError: If file format is not supported
-    """
-    # Import unified importers
-    from .importer import JSONImporter
-
-    ext = os.path.splitext(file_path.lower())[1]
-    
-    if ext == ".json":
-        importer = JSONImporter()
-        return importer.import_data(file_path)
-    elif ext == ".cif":
-        # Import here to avoid circular imports
-        from .handler import MMCIFHandler
-        handler = MMCIFHandler()
-        container = handler.read(file_path)
-        container.source_format = DataSourceFormat.MMCIF
-        return container
-    else:
-        # Only support formats handled by the unified architecture
-        supported_formats = ['.json', '.cif']
-        raise ValueError(
-            f"Unsupported file extension: {ext}. "
-            f"Supported formats: {', '.join(supported_formats)}. "
-            f"Note: For additional format support, consider using the export/import system."
-        )
 
 
 class BaseParser(ABC):
