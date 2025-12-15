@@ -243,14 +243,19 @@ class LazyGemmiColumn(list):
         return super().__iter__()
     
     def __repr__(self):
-        if not self._loaded:
-            return f"LazyGemmiColumn({self._gemmi_loop.length()} rows, not loaded)"
-        return f"LazyGemmiColumn({super().__len__()} rows, loaded)"
+        # Automatically load data when repr is called (used in print, f-strings, etc.)
+        self._ensure_loaded()
+        return super().__repr__()
     
     def __str__(self):
-        if not self._loaded:
-            return f"<LazyGemmiColumn: {self._gemmi_loop.length()} rows (not loaded)>"
+        # Automatically load data when converting to string
+        self._ensure_loaded()
         return super().__str__()
+    
+    def __format__(self, format_spec):
+        # Automatically load data when used in f-strings
+        self._ensure_loaded()
+        return super().__format__(format_spec)
 
 
 class LazyItemDict:
