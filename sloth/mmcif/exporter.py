@@ -59,7 +59,7 @@ class JSONExporter(BaseExporter):
         self, 
         mmcif_data: MMCIFDataContainer,
         file_path: Optional[Union[str, Path]] = None,
-        indent: int = 2
+        indent: Optional[int] = 2
     ) -> Optional[str]:
         """
         Export mmCIF data to JSON format (always nested).
@@ -67,7 +67,7 @@ class JSONExporter(BaseExporter):
         Args:
             mmcif_data: The mmCIF data container to export
             file_path: Path to save the file (optional)
-            indent: Number of spaces for indentation
+            indent: Number of spaces for indentation (None for compact output)
             
         Returns:
             JSON string if no file_path provided, otherwise None
