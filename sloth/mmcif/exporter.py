@@ -56,10 +56,10 @@ class JSONExporter(BaseExporter):
         self.resolver.set_denormalize(denormalize)
     
     def export_data(
-        self, 
+        self,
         mmcif_data: MMCIFDataContainer,
         file_path: Optional[Union[str, Path]] = None,
-        indent: Optional[int] = 2
+        indent: Optional[int] = None
     ) -> Optional[str]:
         """
         Export mmCIF data to JSON format (always nested).
