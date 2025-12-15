@@ -282,8 +282,10 @@ verify_round_trip(mmcif, imported)
 
 ## Validation
 
+### Single Category Validation
+
 ```python
-from sloth import ValidatorFactory
+from sloth import MMCIFHandler, ValidatorFactory
 
 vf = ValidatorFactory()
 vf.register_validator("_atom_site", lambda cat: print("Validating", cat.name))
@@ -291,6 +293,19 @@ vf.register_validator("_atom_site", lambda cat: print("Validating", cat.name))
 handler = MMCIFHandler(validator_factory=vf)
 mmcif = handler.read("1abc.cif")
 mmcif.data_1ABC._atom_site.validate()
+```
+
+### Cross-Category Validation
+
+```python
+# Cross-checker receives two Category objects
+vf.register_cross_checker(
+    ("_entity", "_atom_site"),
+    lambda e, a: print(f"Cross-checking {e.name} ↔ {a.name}") or set(e.id).issuperset(set(a.label_entity_id))
+)
+
+# Run cross-validation
+mmcif.data_1ABC._entity.validate().against(mmcif.data_1ABC._atom_site)
 ```
 
 ---

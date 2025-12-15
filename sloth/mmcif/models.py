@@ -429,7 +429,7 @@ class Category(DataContainer):
         elif item_name == "validate":
             if self._validator_factory is None:
                 raise ValueError("No validator factory provided to this category")
-            return CategoryValidator(self.name, self._validator_factory)
+            return CategoryValidator(self, self._validator_factory)
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{item_name}'"
         )
