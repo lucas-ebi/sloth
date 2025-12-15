@@ -181,8 +181,8 @@ class TestCategoryValidation(unittest.TestCase):
         self.category = Category(name="_database_2", validator_factory=self.factory)
 
     def test_validate(self):
-        def validator(category_name: str):
-            self.assertEqual(category_name, "_database_2")
+        def validator(category: Category):
+            self.assertEqual(category.name, "_database_2")
 
         self.factory.register_validator("_database_2", validator)
         self.category.validate()
@@ -190,9 +190,9 @@ class TestCategoryValidation(unittest.TestCase):
     def test_validate_against(self):
         other_category = Category(name="_database_1", validator_factory=self.factory)
 
-        def cross_checker(category1: str, category2: str):
-            self.assertEqual(category1, "_database_2")
-            self.assertEqual(category2, "_database_1")
+        def cross_checker(category1: Category, category2: Category):
+            self.assertEqual(category1.name, "_database_2")
+            self.assertEqual(category2.name, "_database_1")
 
         self.factory.register_cross_checker(
             ("_database_2", "_database_1"), cross_checker

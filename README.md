@@ -304,7 +304,10 @@ vf.register_cross_checker(
     lambda e, a: print(f"Cross-checking {e.name} ↔ {a.name}") or set(e.id).issuperset(set(a.label_entity_id))
 )
 
-# Run cross-validation
+# Run cross-validation only
+mmcif.data_1ABC._entity.validate.against(mmcif.data_1ABC._atom_site)
+
+# Or validate first, then cross-check
 mmcif.data_1ABC._entity.validate().against(mmcif.data_1ABC._atom_site)
 ```
 
