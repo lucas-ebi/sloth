@@ -173,7 +173,7 @@ with open("sample.cif", "w") as f:
 ### Programmatic using object model
 
 ```python
-from sloth.models import MMCIFDataContainer, DataBlock, Category
+from sloth.mmcif import MMCIFDataContainer, DataBlock, Category
 
 mmcif = MMCIFDataContainer()
 block = DataBlock("1ABC")
