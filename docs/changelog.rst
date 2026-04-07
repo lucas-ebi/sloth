@@ -8,6 +8,7 @@ Unreleased
 - Validation as a plugin: ``ValidatorPlugin`` + ``CategoryValidator`` in ``validator.py``
 - Delete support: ``del block._category``, ``block.delete("_category")``, same for items
 - Safe access mode: ``auto_create=False`` on ``DataBlock`` / ``MMCIFDataContainer``
+- Strict mode: ``MMCIFHandler(strict=True)`` wires ``auto_create=False`` through the full parse chain
 - Remove backward-compat shims: ``ValidatorFactory``, ``validator_factory=`` kwargs, property aliases
 - Update docs, cookbook, and API reference for new plugin API
 

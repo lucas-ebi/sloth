@@ -863,6 +863,35 @@ _custom_category.custom_item custom_value
         self.assertIn("data_test", mmcif.blocks)
         self.assertIn("_custom_category", mmcif["data_test"].categories)
 
+    def test_strict_mode_prevents_auto_creation(self):
+        """Test that strict=True prevents silent auto-creation of categories."""
+        handler = MMCIFHandler(strict=True)
+        mmcif = handler.read(self.test_cif_path)
+
+        # Parsed categories should still be accessible
+        self.assertIn("data_test", mmcif.blocks)
+        block = mmcif["data_test"]
+        self.assertEqual(block["_entry"]["id"], ["test_structure"])
+
+        # Accessing a non-existent category should raise AttributeError
+        with self.assertRaises(AttributeError):
+            _ = block._nonexistent_category
+
+        # Accessing a non-existent data block should raise too
+        with self.assertRaises(AttributeError):
+            _ = mmcif.data_nonexistent
+
+    def test_default_mode_allows_auto_creation(self):
+        """Test that default (non-strict) mode still auto-creates."""
+        handler = MMCIFHandler()  # strict=False by default
+        mmcif = handler.read(self.test_cif_path)
+        block = mmcif["data_test"]
+
+        # Auto-create should work
+        new_cat = block._brand_new_category
+        self.assertIsNotNone(new_cat)
+        self.assertIn("_brand_new_category", block.categories)
+
     def test_export_with_different_handlers(self):
         """Test export works with handlers with and without plugin factories."""
         # Test export with handler without plugin factory

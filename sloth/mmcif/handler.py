@@ -12,13 +12,17 @@ class MMCIFHandler:
 
     def __init__(
         self,
+        strict: bool = False,
         plugin_factory: Optional[PluginFactory] = None,
     ):
         """
         Initialize the handler with gemmi backend for optimal performance.
 
+        :param strict: If ``True``, prevent silent auto-creation of categories
+            and data blocks on attribute access (sets ``auto_create=False``).
         :param plugin_factory: Optional plugin factory for dot-notation extensions
         """
+        self.strict = strict
         self.plugin_factory = plugin_factory
         self._parser = None
         self._writer = None
@@ -39,7 +43,11 @@ class MMCIFHandler:
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
-        self._parser = MMCIFParser(self.plugin_factory, categories)
+        self._parser = MMCIFParser(
+            strict=self.strict,
+            plugin_factory=self.plugin_factory,
+            categories=categories,
+        )
         container = self._parser.parse(filename)
         
         return container

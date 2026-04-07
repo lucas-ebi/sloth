@@ -22,16 +22,18 @@ class MMCIFParser(BaseParser):
     
     def __init__(
         self,
+        strict: bool = False,
         plugin_factory: Optional[PluginFactory] = None,
         categories: Optional[List[str]] = None,
     ):
         """
         Initialize the MMCIFParser with gemmi backend.
         
+        :param strict: If ``True``, disable auto-creation on parsed data objects.
         :param plugin_factory: Optional plugin factory for dot-notation extensions
         :param categories: Optional list of categories to parse (for performance)
         """
-        super().__init__(plugin_factory, categories)
+        super().__init__(strict=strict, plugin_factory=plugin_factory, categories=categories)
         
     def parse(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """
@@ -60,7 +62,10 @@ class MMCIFParser(BaseParser):
         doc = gemmi.cif.read_file(file_path_str)
         
         # Convert gemmi structure to SLOTH format
-        container = MMCIFDataContainer()
+        container = MMCIFDataContainer(
+            plugin_factory=self.plugin_factory,
+            auto_create=not self.strict,
+        )
         
         for block in doc:
             sloth_block = self._convert_gemmi_block_to_sloth(block, parse_categories)
@@ -70,7 +75,11 @@ class MMCIFParser(BaseParser):
     
     def _convert_gemmi_block_to_sloth(self, gemmi_block, categories: Optional[List[str]] = None) -> DataBlock:
         """Convert gemmi block to SLOTH DataBlock with same API"""
-        sloth_block = DataBlock(gemmi_block.name, plugin_factory=self.plugin_factory)
+        sloth_block = DataBlock(
+            gemmi_block.name,
+            plugin_factory=self.plugin_factory,
+            auto_create=not self.strict,
+        )
         
         # Collect all category names and their items
         category_items = {}
