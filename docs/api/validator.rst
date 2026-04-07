@@ -2,7 +2,7 @@ Validation
 ==========
 
 .. module:: sloth.mmcif.validator
-   :synopsis: Validation exceptions and severity levels
+   :synopsis: Validation plugin, wrapper, and exception classes
 
 Exceptions
 ----------
@@ -15,17 +15,37 @@ Exceptions
    :members:
    :undoc-members:
 
-Plugin System
--------------
+Validator Plugin
+----------------
 
-.. module:: sloth.mmcif.plugins
-   :synopsis: Pluggable validator factory and category validators
-
-.. autoclass:: ValidatorFactory
+.. autoclass:: ValidatorPlugin
    :members:
    :undoc-members:
    :show-inheritance:
 
 .. autoclass:: CategoryValidator
+   :members:
+   :show-inheritance:
+
+Plugin System
+-------------
+
+.. module:: sloth.mmcif.plugins
+   :synopsis: Generic plugin factory and base classes
+
+.. autoclass:: PluginFactory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: Plugin
+   :members:
+   :show-inheritance:
+
+.. autoclass:: PluginWrapper
+   :members:
+   :show-inheritance:
+
+.. autoclass:: FunctionPlugin
    :members:
    :show-inheritance:

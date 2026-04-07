@@ -31,8 +31,18 @@ from .exporter import JSONExporter
 from .importer import JSONImporter
 from .handler import MMCIFHandler
 from .common import BaseImporter, BaseExporter
-from .plugins import ValidatorFactory
-from .validator import ValidationError, ValidationSeverity
+from .plugins import (
+    PluginFactory,
+    Plugin,
+    PluginWrapper,
+    FunctionPlugin,
+)
+from .validator import (
+    ValidationError,
+    ValidationSeverity,
+    ValidatorPlugin,
+    CategoryValidator,
+)
 from .serializer import (
     MappingGenerator,
     DictionaryParser,
@@ -59,8 +69,14 @@ __all__ = [
     # Base classes
     "BaseImporter",
     "BaseExporter",
+    # Plugin system
+    "PluginFactory",
+    "Plugin",
+    "PluginWrapper",
+    "FunctionPlugin",
     # Validation components
-    "ValidatorFactory",
+    "ValidatorPlugin",
+    "CategoryValidator",
     "ValidationError",
     "ValidationSeverity",
     # Serializer components

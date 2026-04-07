@@ -1,6 +1,16 @@
 Changelog
 =========
 
+Unreleased
+----------
+
+- Generic plugin system: ``PluginFactory``, ``Plugin``, ``PluginWrapper``, ``FunctionPlugin``
+- Validation as a plugin: ``ValidatorPlugin`` + ``CategoryValidator`` in ``validator.py``
+- Delete support: ``del block._category``, ``block.delete("_category")``, same for items
+- Safe access mode: ``auto_create=False`` on ``DataBlock`` / ``MMCIFDataContainer``
+- Remove backward-compat shims: ``ValidatorFactory``, ``validator_factory=`` kwargs, property aliases
+- Update docs, cookbook, and API reference for new plugin API
+
 v0.5.4 (2026-04-07)
 --------------------
 

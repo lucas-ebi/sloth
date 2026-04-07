@@ -9,7 +9,7 @@ from typing import Optional, List, Union
 from pathlib import Path
 from .models import MMCIFDataContainer, DataBlock, Category, LazyGemmiColumn
 from .common import BaseParser
-from .plugins import ValidatorFactory
+from .plugins import PluginFactory
 
 
 class MMCIFParser(BaseParser):
@@ -22,16 +22,16 @@ class MMCIFParser(BaseParser):
     
     def __init__(
         self,
-        validator_factory: Optional[ValidatorFactory] = None,
+        plugin_factory: Optional[PluginFactory] = None,
         categories: Optional[List[str]] = None,
     ):
         """
         Initialize the MMCIFParser with gemmi backend.
         
-        :param validator_factory: Optional validator factory for data validation
+        :param plugin_factory: Optional plugin factory for dot-notation extensions
         :param categories: Optional list of categories to parse (for performance)
         """
-        super().__init__(validator_factory, categories)
+        super().__init__(plugin_factory, categories)
         
     def parse(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """
@@ -70,7 +70,7 @@ class MMCIFParser(BaseParser):
     
     def _convert_gemmi_block_to_sloth(self, gemmi_block, categories: Optional[List[str]] = None) -> DataBlock:
         """Convert gemmi block to SLOTH DataBlock with same API"""
-        sloth_block = DataBlock(gemmi_block.name)
+        sloth_block = DataBlock(gemmi_block.name, plugin_factory=self.plugin_factory)
         
         # Collect all category names and their items
         category_items = {}
@@ -117,7 +117,7 @@ class MMCIFParser(BaseParser):
         
         # Create SLOTH categories
         for category_name, items in category_items.items():
-            sloth_category = Category(category_name, self.validator_factory)
+            sloth_category = Category(category_name, plugin_factory=self.plugin_factory)
             
             # Add all items to the category
             for field_name, values in items.items():

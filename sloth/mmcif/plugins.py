@@ -1,92 +1,139 @@
-from typing import Callable, Dict, Tuple, Optional, TYPE_CHECKING
+"""
+SLOTH Plugin System
+
+Generic, instance-level plugin registry that extends dot-notation access
+on any level of the data hierarchy (Category, DataBlock, MMCIFDataContainer).
+
+Plugins are accessed as attributes::
+
+    block._atom_site.validate()          # validation plugin
+    block._atom_site.statistics()        # custom stats plugin
+    block._atom_site.statistics().result # access computed value
+"""
+
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List, Tuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .models import Category
+    from .models import Category, DataBlock, MMCIFDataContainer
 
 
-class ValidatorFactory:
-    """A factory class for creating validators and cross-checkers."""
+# ---------------------------------------------------------------------------
+# Base classes
+# ---------------------------------------------------------------------------
+
+class PluginWrapper:
+    """Chainable wrapper returned when a plugin is accessed via dot-notation.
+
+    Calling the wrapper executes the plugin and returns ``self`` so that
+    additional methods (defined by subclasses) can be chained::
+
+        block._atom_site.validate().against(block._entity)
+        value = block._atom_site.statistics().result
+    """
+
+    def __init__(self, target, plugin: "Plugin"):
+        self._target = target
+        self._plugin = plugin
+        self._result = None
+
+    def __call__(self, *args, **kwargs) -> "PluginWrapper":
+        """Execute the plugin on the bound target. Returns *self* for chaining."""
+        self._result = self._plugin.execute(self._target, *args, **kwargs)
+        return self
+
+    @property
+    def result(self) -> Any:
+        """The return value of the last :meth:`__call__` invocation."""
+        return self._result
+
+
+class Plugin(ABC):
+    """Abstract base class for plugins that extend dot-notation functionality."""
+
+    @abstractmethod
+    def create_wrapper(self, target) -> PluginWrapper:
+        """Return a :class:`PluginWrapper` (or subclass) bound to *target*."""
+        pass
+
+    @abstractmethod
+    def execute(self, target, *args, **kwargs) -> Any:
+        """Run the plugin logic on *target*. Called by :meth:`PluginWrapper.__call__`."""
+        pass
+
+
+class FunctionPlugin(Plugin):
+    """Adapter that wraps a plain callable as a :class:`Plugin`."""
+
+    def __init__(self, func: Callable):
+        self._func = func
+
+    def create_wrapper(self, target) -> PluginWrapper:
+        return PluginWrapper(target, self)
+
+    def execute(self, target, *args, **kwargs) -> Any:
+        return self._func(target, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Plugin factory
+# ---------------------------------------------------------------------------
+
+class PluginFactory:
+    """Instance-level plugin registry for extending dot-notation access.
+
+    Plugins are registered with a *name* (the attribute that will appear on
+    the data object) and a *scope* that determines which hierarchy level
+    exposes the plugin:
+
+    * ``"category"``  – available on :class:`Category` objects
+    * ``"block"``     – available on :class:`DataBlock` objects
+    * ``"container"`` – available on :class:`MMCIFDataContainer` objects
+    """
+
+    VALID_SCOPES = {"category", "block", "container"}
 
     def __init__(self):
-        self.validators: Dict[str, Callable[["Category"], None]] = {}
-        self.cross_checkers: Dict[Tuple[str, str], Callable[["Category", "Category"], None]] = {}
+        self._plugins: Dict[Tuple[str, str], Plugin] = {}
 
-    def register_validator(
-        self, category_name: str, validator_function: Callable[["Category"], None]
-    ) -> None:
+    # -- registration -------------------------------------------------------
+
+    def register(self, name: str, plugin, scope: str = "category") -> None:
+        """Register a plugin.
+
+        :param name: The dot-notation attribute name (e.g. ``"validate"``).
+        :param plugin: A :class:`Plugin` instance **or** a plain callable
+            (auto-wrapped as :class:`FunctionPlugin`).
+        :param scope: ``"category"``, ``"block"``, or ``"container"``.
         """
-        Registers a validator function for a category.
+        if scope not in self.VALID_SCOPES:
+            raise ValueError(
+                f"Invalid scope '{scope}'. Must be one of {self.VALID_SCOPES}"
+            )
+        if not isinstance(plugin, Plugin):
+            if callable(plugin):
+                plugin = FunctionPlugin(plugin)
+            else:
+                raise TypeError(
+                    f"Plugin must be a Plugin instance or callable, got {type(plugin)}"
+                )
+        self._plugins[(name, scope)] = plugin
 
-        :param category_name: The name of the category.
-        :type category_name: str
-        :param validator_function: The validator function that receives a Category object.
-        :type validator_function: Callable[[Category], None]
-        :return: None
-        """
-        self.validators[category_name] = validator_function
+    # -- lookup -------------------------------------------------------------
 
-    def register_cross_checker(
-        self,
-        category_pair: Tuple[str, str],
-        cross_checker_function: Callable[["Category", "Category"], None],
-    ) -> None:
-        """
-        Registers a cross-checker function for a pair of categories.
+    def get_wrapper(self, name: str, target, scope: str) -> Optional[PluginWrapper]:
+        """Return a bound :class:`PluginWrapper` for *name*, or ``None``."""
+        plugin = self._plugins.get((name, scope))
+        if plugin is None:
+            return None
+        return plugin.create_wrapper(target)
 
-        :param category_pair: The pair of category names.
-        :type category_pair: Tuple[str, str]
-        :param cross_checker_function: The cross-checker function that receives two Category objects.
-        :type cross_checker_function: Callable[[Category, Category], None]
-        :return: None
-        """
-        self.cross_checkers[category_pair] = cross_checker_function
+    def has_plugin(self, name: str, scope: str) -> bool:
+        """Return ``True`` if a plugin is registered for *(name, scope)*."""
+        return (name, scope) in self._plugins
 
-    def get_validator(self, category_name: str) -> Optional[Callable[["Category"], None]]:
-        """
-        Retrieves a validator function for a category.
-
-        :param category_name: The name of the category.
-        :type category_name: str
-        :return: The validator function that receives a Category object.
-        :rtype: Optional[Callable[[Category], None]]
-        """
-        return self.validators.get(category_name)
-
-    def get_cross_checker(
-        self, category_pair: Tuple[str, str]
-    ) -> Optional[Callable[["Category", "Category"], None]]:
-        """
-        Retrieves a cross-checker function for a pair of categories.
-
-        :param category_pair: The pair of category names.
-        :type category_pair: Tuple[str, str]
-        :return: The cross-checker function that receives two Category objects.
-        :rtype: Optional[Callable[[Category, Category], None]]
-        """
-        return self.cross_checkers.get(category_pair)
-
-
-class CategoryValidator:
-    """A class to validate a category - extracted from Category.Validator"""
-
-    def __init__(self, category: "Category", factory: ValidatorFactory):
-        self._category = category
-        self._factory = factory
-        self._other_category: Optional["Category"] = None
-
-    def __call__(self) -> "CategoryValidator":
-        """Execute validation for the category"""
-        validator = self._factory.get_validator(self._category.name)
-        if validator:
-            validator(self._category)
-        return self
-
-    def against(self, other_category: "Category") -> "CategoryValidator":
-        """Execute cross-validation against another category"""
-        self._other_category = other_category
-        cross_checker = self._factory.get_cross_checker(
-            (self._category.name, other_category.name)
-        )
-        if cross_checker:
-            cross_checker(self._category, other_category)
-        return self
+    def list_plugins(self, scope: Optional[str] = None) -> List[str]:
+        """Return registered plugin names, optionally filtered by *scope*."""
+        if scope is not None:
+            return [n for (n, s) in self._plugins if s == scope]
+        return list({n for (n, _) in self._plugins})

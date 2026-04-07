@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union, IO, Dict, Any
 from pathlib import Path
 from .models import MMCIFDataContainer
-from .plugins import ValidatorFactory
+from .plugins import PluginFactory
 
 
 class BaseParser(ABC):
@@ -25,18 +25,18 @@ class BaseParser(ABC):
     
     def __init__(
         self,
-        validator_factory: Optional[ValidatorFactory] = None,
+        plugin_factory: Optional[PluginFactory] = None,
         categories: Optional[list] = None,
     ):
         """
         Initialize the parser.
         
-        :param validator_factory: Optional validator factory for data validation
+        :param plugin_factory: Optional plugin factory for dot-notation extensions
         :param categories: Optional list of categories to parse (for performance)
         """
-        self.validator_factory = validator_factory
+        self.plugin_factory = plugin_factory
         self.categories = categories
-    
+
     @abstractmethod
     def parse(self, file_path: Union[str, Path]) -> MMCIFDataContainer:
         """

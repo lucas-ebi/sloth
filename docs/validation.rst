@@ -2,26 +2,28 @@ Validation
 ==========
 
 SLOTH provides a pluggable validation system that supports per-category validators
-and cross-category checkers.
+and cross-category checkers, built on the generic plugin architecture.
 
-Validator Factory
------------------
+Setting Up Validation
+---------------------
 
-Register validators using :class:`~sloth.mmcif.plugins.ValidatorFactory`:
+Create a :class:`~sloth.mmcif.plugins.PluginFactory`, register a
+:class:`~sloth.mmcif.validator.ValidatorPlugin`, and pass it to the handler:
 
 .. code-block:: python
 
-   from sloth import MMCIFHandler, ValidatorFactory
+   from sloth import MMCIFHandler, PluginFactory, ValidatorPlugin
 
-   vf = ValidatorFactory()
-
-   # Register a category validator
-   vf.register_validator(
+   plugin = ValidatorPlugin()
+   plugin.register_validator(
        "_atom_site",
        lambda cat: print(f"Validating {cat.name} ({cat.row_count} rows)")
    )
 
-   handler = MMCIFHandler(validator_factory=vf)
+   pf = PluginFactory()
+   pf.register("validate", plugin, scope="category")
+
+   handler = MMCIFHandler(plugin_factory=pf)
    mmcif = handler.read("1abc.cif")
 
 Single Category Validation
@@ -38,7 +40,7 @@ Register a cross-checker for related categories:
 
 .. code-block:: python
 
-   vf.register_cross_checker(
+   plugin.register_cross_checker(
        ("_entity", "_atom_site"),
        lambda e, a: set(e.id).issuperset(set(a.label_entity_id))
    )

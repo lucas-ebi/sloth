@@ -7,7 +7,7 @@ from typing import (
 from functools import cached_property
 from enum import Enum, auto
 from abc import ABC, abstractmethod
-from .plugins import ValidatorFactory, CategoryValidator
+from .plugins import PluginFactory
 import sys
 
 
@@ -383,25 +383,29 @@ class Category(DataContainer):
     _RESERVED_ATTRS = {
         "_name",
         "_items",
-        "_validator_factory",
+        "_plugin_factory",
         "_batch_buffer",
         "_row_cache",
         "name",
-        "validator_factory",
+        "plugin_factory",
         "items",
         "data",
         "row_count",
         "rows",
     }
 
-    def __init__(self, name: str, validator_factory: Optional[ValidatorFactory] = None):
+    def __init__(
+        self,
+        name: str,
+        plugin_factory: Optional[PluginFactory] = None,
+    ):
         # Store the stripped name internally (remove _ prefix if present)
         if name.startswith("_"):
             self._name = name[1:]  # Store without the _ prefix
         else:
             self._name = name  # Already stripped
         self._items: Dict[str, Union[List[str], Item]] = {}
-        self._validator_factory = validator_factory
+        self._plugin_factory = plugin_factory
         self._batch_buffer: Dict[str, List] = {}  # For batching value additions
         self._row_cache: Dict[int, "Row"] = {}  # Cache for Row objects
 
@@ -411,25 +415,26 @@ class Category(DataContainer):
         return f"_{self._name}"
 
     @property
-    def validator_factory(self) -> Optional[ValidatorFactory]:
-        return self._validator_factory
+    def plugin_factory(self) -> Optional[PluginFactory]:
+        return self._plugin_factory
 
     @cached_property
     def items(self) -> LazyKeyList:
         """Get names of contained items - O(1) lazy list."""
         return LazyKeyList(self._items, "")
 
-    def __getattr__(self, item_name: str) -> Union[List[str], Item, CategoryValidator]:
+    def __getattr__(self, item_name: str) -> Union[List[str], Item, "PluginWrapper"]:
         if item_name in self._items:
             item = self._items[item_name]
             # Return values for Item objects, the Item itself for direct access
             if isinstance(item, Item):
                 return item.values
             return item
-        elif item_name == "validate":
-            if self._validator_factory is None:
-                raise ValueError("No validator factory provided to this category")
-            return CategoryValidator(self, self._validator_factory)
+        # Check for registered plugins (covers "validate" and any user plugins)
+        if self._plugin_factory is not None:
+            wrapper = self._plugin_factory.get_wrapper(item_name, self, "category")
+            if wrapper is not None:
+                return wrapper
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{item_name}'"
         )
@@ -470,6 +475,32 @@ class Category(DataContainer):
             delattr(self, "data")
         if hasattr(self, "rows"):
             delattr(self, "rows")
+
+    def __delattr__(self, name: str) -> None:
+        """Delete an mmCIF item via ``del category.item_name``."""
+        if name in self._RESERVED_ATTRS or name.startswith("__") or name.startswith("_"):
+            super().__delattr__(name)
+            return
+        if name in self._items:
+            del self._items[name]
+            self._invalidate_caches()
+            return
+        raise AttributeError(
+            f"Item '{name}' not found in category '{self.name}'"
+        )
+
+    def delete(self, item_name: str) -> None:
+        """Delete an mmCIF item by name (string-based API).
+
+        :param item_name: The item name to remove.
+        :raises KeyError: If the item does not exist.
+        """
+        if item_name not in self._items:
+            raise KeyError(
+                f"Item '{item_name}' not found in category '{self.name}'"
+            )
+        del self._items[item_name]
+        self._invalidate_caches()
 
     def __getitem__(
         self, key: Union[str, int, slice]
@@ -690,10 +721,21 @@ class DataBlock(DataContainer):
     """A class to represent a data block in an mmCIF file."""
 
     # Define attributes that should be handled as normal Python attributes
-    _RESERVED_ATTRS = {"_name", "_categories", "name", "categories", "data"}
+    _RESERVED_ATTRS = {
+        "_name", "_categories", "_plugin_factory", "_auto_create",
+        "name", "categories", "data", "plugin_factory",
+    }
 
-    def __init__(self, name: str, categories: Dict[str, Category] = None):
+    def __init__(
+        self,
+        name: str,
+        categories: Dict[str, Category] = None,
+        plugin_factory: Optional[PluginFactory] = None,
+        auto_create: bool = True,
+    ):
         self._name = name
+        self._plugin_factory = plugin_factory
+        self._auto_create = auto_create
         # Convert categories to use CategoryCollection with stripped names
         if categories is not None:
             # Strip _ prefix from category names for internal storage
@@ -710,6 +752,10 @@ class DataBlock(DataContainer):
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def plugin_factory(self) -> Optional[PluginFactory]:
+        return self._plugin_factory
 
     @cached_property
     def categories(self) -> LazyKeyList:
@@ -738,9 +784,20 @@ class DataBlock(DataContainer):
             # CategoryCollection automatically handles _ prefix stripping/adding
             return self._categories[category_name]
         except KeyError:
-            # Auto-create the category if it starts with _ (typical mmCIF category)
-            if category_name.startswith("_"):
-                new_category = Category(category_name)
+            pass
+
+        # Check for registered plugins
+        if self._plugin_factory is not None:
+            wrapper = self._plugin_factory.get_wrapper(category_name, self, "block")
+            if wrapper is not None:
+                return wrapper
+
+        # Auto-create the category if it starts with _ (typical mmCIF category)
+        if category_name.startswith("_"):
+            if self._auto_create:
+                new_category = Category(
+                    category_name, plugin_factory=self._plugin_factory
+                )
                 self._categories[
                     category_name
                 ] = new_category  # CategoryCollection handles _ stripping
@@ -748,9 +805,15 @@ class DataBlock(DataContainer):
                 if hasattr(self, "categories"):
                     delattr(self, "categories")
                 return new_category
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute '{category_name}'"
-            )
+            else:
+                raise AttributeError(
+                    f"Category '{category_name}' does not exist in data block "
+                    f"'{self.name}'. Available: {list(self.categories)}"
+                )
+
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{category_name}'"
+        )
 
     def __setattr__(self, name: str, value) -> None:
         """
@@ -787,6 +850,37 @@ class DataBlock(DataContainer):
         else:
             # Non-category attributes are handled normally
             super().__setattr__(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        """Delete a category via ``del block._category_name``."""
+        if name in self._RESERVED_ATTRS or name.startswith("__"):
+            super().__delattr__(name)
+            return
+        # Resolve key (CategoryCollection handles _ prefix)
+        key = name[1:] if name.startswith("_") else name
+        if key in self._categories:
+            del self._categories[key]
+            if hasattr(self, "categories"):
+                delattr(self, "categories")
+            return
+        raise AttributeError(
+            f"Category '{name}' not found in data block '{self.name}'"
+        )
+
+    def delete(self, category_name: str) -> None:
+        """Delete a category by name (string-based API).
+
+        :param category_name: The category name to remove (with or without ``_`` prefix).
+        :raises KeyError: If the category does not exist.
+        """
+        key = category_name[1:] if category_name.startswith("_") else category_name
+        if key not in self._categories:
+            raise KeyError(
+                f"Category '{category_name}' not found in data block '{self.name}'"
+            )
+        del self._categories[key]
+        if hasattr(self, "categories"):
+            delattr(self, "categories")
 
     def __iter__(self):
         return iter(self._categories.values())
@@ -853,21 +947,32 @@ class MMCIFDataContainer(DataContainer):
     """A class to represent an mmCIF data container."""
 
     # Define attributes that should be handled as normal Python attributes
-    _RESERVED_ATTRS = {"_data_blocks", "source_format", "name", "blocks", "data"}
+    _RESERVED_ATTRS = {
+        "_data_blocks", "_plugin_factory", "_auto_create",
+        "source_format", "name", "blocks", "data", "plugin_factory",
+    }
 
     def __init__(
         self,
         data_blocks: Dict[str, DataBlock] = None,
         source_format: DataSourceFormat = DataSourceFormat.MMCIF,
+        plugin_factory: Optional[PluginFactory] = None,
+        auto_create: bool = True,
     ):
         self._data_blocks = DataBlockCollection(
             data_blocks if data_blocks is not None else {}
         )
+        self._plugin_factory = plugin_factory
+        self._auto_create = auto_create
         self.source_format = source_format
 
     @property
     def name(self) -> str:
         return f"MMCIFDataContainer({len(self)} blocks)"
+
+    @property
+    def plugin_factory(self) -> Optional[PluginFactory]:
+        return self._plugin_factory
 
     def __getitem__(self, block_name: str) -> DataBlock:
         # Handle both prefixed (data_block) and unprefixed (block) names
@@ -885,14 +990,30 @@ class MMCIFDataContainer(DataContainer):
             actual_block_name = block_name[5:]  # Remove the 'data_' prefix
             if actual_block_name in self._data_blocks:
                 return self._data_blocks[actual_block_name]
-            else:
+            elif self._auto_create:
                 # Auto-create the data block
-                new_block = DataBlock(actual_block_name)
+                new_block = DataBlock(
+                    actual_block_name,
+                    plugin_factory=self._plugin_factory,
+                    auto_create=self._auto_create,
+                )
                 self._data_blocks[actual_block_name] = new_block
                 # Invalidate cached properties when blocks change
                 if hasattr(self, "blocks"):
                     delattr(self, "blocks")
                 return new_block
+            else:
+                raise AttributeError(
+                    f"Data block 'data_{actual_block_name}' does not exist. "
+                    f"Available: {list(self.blocks)}"
+                )
+
+        # Check for registered plugins
+        if self._plugin_factory is not None:
+            wrapper = self._plugin_factory.get_wrapper(block_name, self, "container")
+            if wrapper is not None:
+                return wrapper
+
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{block_name}'"
         )
@@ -928,6 +1049,35 @@ class MMCIFDataContainer(DataContainer):
         else:
             # Non-block attributes are handled normally
             super().__setattr__(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        """Delete a data block via ``del container.data_blockname``."""
+        if name in self._RESERVED_ATTRS or name.startswith("__"):
+            super().__delattr__(name)
+            return
+        if name.startswith("data_"):
+            key = name[5:]
+            if key in self._data_blocks:
+                del self._data_blocks[key]
+                if hasattr(self, "blocks"):
+                    delattr(self, "blocks")
+                return
+        raise AttributeError(
+            f"Data block '{name}' not found in container"
+        )
+
+    def delete(self, block_name: str) -> None:
+        """Delete a data block by name (string-based API).
+
+        :param block_name: The block name (with or without ``data_`` prefix).
+        :raises KeyError: If the block does not exist.
+        """
+        key = block_name[5:] if block_name.startswith("data_") else block_name
+        if key not in self._data_blocks:
+            raise KeyError(f"Data block '{block_name}' not found in container")
+        del self._data_blocks[key]
+        if hasattr(self, "blocks"):
+            delattr(self, "blocks")
 
     def __iter__(self):
         return iter(self._data_blocks.values())

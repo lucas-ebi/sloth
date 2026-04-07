@@ -23,7 +23,8 @@ from sloth.mmcif import (
     Category,
     Row,
     Item,
-    ValidatorFactory,
+    PluginFactory,
+    ValidatorPlugin,
     DataSourceFormat,
 )
 
@@ -38,7 +39,7 @@ _database_2.database_code    7XJP
 """
 
     def setUp(self):
-        self.handler = MMCIFHandler(validator_factory=None)
+        self.handler = MMCIFHandler()
 
     def test_read_empty_file(self):
         # Create a temporary file since mmap requires a real file
@@ -83,7 +84,7 @@ class TestMMCIFWriter(unittest.TestCase):
         self.data_block = DataBlock(
             name="7XJP",
             categories={
-                "_database_2": Category(name="_database_2", validator_factory=None)
+                "_database_2": Category(name="_database_2")
             },
         )
         self.data_block["_database_2"]._add_item_value("database_id", "PDB")
@@ -112,7 +113,7 @@ _database_2.database_code    7XJP
 """
 
     def setUp(self):
-        self.handler = MMCIFHandler(validator_factory=None)
+        self.handler = MMCIFHandler()
 
     def test_parse_file(self):
         # Create a temporary file since mmap requires a real file
@@ -139,7 +140,7 @@ _database_2.database_code    7XJP
         data_block = DataBlock(
             name="7XJP",
             categories={
-                "_database_2": Category(name="_database_2", validator_factory=None)
+                "_database_2": Category(name="_database_2")
             },
         )
         data_block["_database_2"]._add_item_value("database_id", "PDB")
@@ -154,47 +155,49 @@ _database_2.database_code    7XJP
         mock_file().write.assert_called_with(expected_content)
 
 
-class TestValidatorFactory(unittest.TestCase):
+class TestValidatorPlugin(unittest.TestCase):
     def setUp(self):
-        self.factory = ValidatorFactory()
+        self.plugin = ValidatorPlugin()
 
     def test_register_and_get_validator(self):
         def validator(category_name: str):
             pass
 
-        self.factory.register_validator("test_category", validator)
-        self.assertEqual(self.factory.get_validator("test_category"), validator)
+        self.plugin.register_validator("test_category", validator)
+        self.assertEqual(self.plugin.get_validator("test_category"), validator)
 
     def test_register_and_get_cross_checker(self):
         def cross_checker(category1: str, category2: str):
             pass
 
-        self.factory.register_cross_checker(("category1", "category2"), cross_checker)
+        self.plugin.register_cross_checker(("category1", "category2"), cross_checker)
         self.assertEqual(
-            self.factory.get_cross_checker(("category1", "category2")), cross_checker
+            self.plugin.get_cross_checker(("category1", "category2")), cross_checker
         )
 
 
 class TestCategoryValidation(unittest.TestCase):
     def setUp(self):
-        self.factory = ValidatorFactory()
-        self.category = Category(name="_database_2", validator_factory=self.factory)
+        self.plugin = ValidatorPlugin()
+        self.factory = PluginFactory()
+        self.factory.register("validate", self.plugin, scope="category")
+        self.category = Category(name="_database_2", plugin_factory=self.factory)
 
     def test_validate(self):
         def validator(category: Category):
             self.assertEqual(category.name, "_database_2")
 
-        self.factory.register_validator("_database_2", validator)
+        self.plugin.register_validator("_database_2", validator)
         self.category.validate()
 
     def test_validate_against(self):
-        other_category = Category(name="_database_1", validator_factory=self.factory)
+        other_category = Category(name="_database_1", plugin_factory=self.factory)
 
         def cross_checker(category1: Category, category2: Category):
             self.assertEqual(category1.name, "_database_2")
             self.assertEqual(category2.name, "_database_1")
 
-        self.factory.register_cross_checker(
+        self.plugin.register_cross_checker(
             ("_database_2", "_database_1"), cross_checker
         )
         self.category.validate().against(other_category)
@@ -625,7 +628,7 @@ ATOM   3    C  12.345 22.678 32.901 35.0
             )
 
         # Parse the test file
-        self.handler = MMCIFHandler(validator_factory=None)  # No validation for simple exports
+        self.handler = MMCIFHandler()  # No validation for simple exports
         self.mmcif = self.handler.read(self.test_cif_path)
 
     def tearDown(self):
@@ -839,10 +842,9 @@ _custom_category.custom_item custom_value
         """Tear down test fixtures."""
         shutil.rmtree(self.temp_dir)
 
-    def test_handler_without_validator(self):
-        """Test that handler without validator allows flexible parsing."""
-        # Handler without validator
-        handler = MMCIFHandler(validator_factory=None)
+    def test_handler_without_plugin_factory(self):
+        """Test that handler without plugin factory allows flexible parsing."""
+        handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif_path)
         
         # Should parse successfully
@@ -850,11 +852,11 @@ _custom_category.custom_item custom_value
         self.assertIn("_custom_category", mmcif["data_test"].categories)
         self.assertEqual(mmcif["data_test"]["_custom_category"]["custom_item"], ["custom_value"])
 
-    def test_compliant_mode_with_validator(self):
+    def test_compliant_mode_with_plugin_factory(self):
         """Test that compliant mode uses validation when available."""
-        # Handler with validator factory should be compliant
-        validator_factory = ValidatorFactory()
-        handler = MMCIFHandler(validator_factory=validator_factory)
+        pf = PluginFactory()
+        pf.register("validate", ValidatorPlugin(), scope="category")
+        handler = MMCIFHandler(plugin_factory=pf)
         mmcif = handler.read(self.test_cif_path)
         
         # Should still parse but might validate
@@ -862,20 +864,22 @@ _custom_category.custom_item custom_value
         self.assertIn("_custom_category", mmcif["data_test"].categories)
 
     def test_export_with_different_handlers(self):
-        """Test export works with handlers with and without validators."""
-        # Test export with handler without validator
-        handler_no_validator = MMCIFHandler(validator_factory=None)
-        mmcif = handler_no_validator.read(self.test_cif_path)
+        """Test export works with handlers with and without plugin factories."""
+        # Test export with handler without plugin factory
+        handler_no_plugins = MMCIFHandler()
+        mmcif = handler_no_plugins.read(self.test_cif_path)
         
-        json_str = handler_no_validator.export(mmcif)
+        json_str = handler_no_plugins.export(mmcif)
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
         
-        # Test export with handler with validator
-        handler_with_validator = MMCIFHandler(validator_factory=ValidatorFactory())
-        mmcif = handler_with_validator.read(self.test_cif_path)
+        # Test export with handler with plugin factory
+        pf = PluginFactory()
+        pf.register("validate", ValidatorPlugin(), scope="category")
+        handler_with_plugins = MMCIFHandler(plugin_factory=pf)
+        mmcif = handler_with_plugins.read(self.test_cif_path)
         
-        json_str = handler_with_validator.export(mmcif)
+        json_str = handler_with_plugins.export(mmcif)
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
 
@@ -1001,7 +1005,7 @@ class TestDefaultBackend(unittest.TestCase):
         handler = MMCIFHandler()
         self.assertIsInstance(handler, MMCIFHandler)
         # Default handler has no validator
-        self.assertIsNone(handler.validator_factory)
+        self.assertIsNone(handler.plugin_factory)
 
     def test_default_parsing_behavior(self):
         """Test default parsing behavior is optimized without validation."""
@@ -1034,7 +1038,7 @@ _database_2.database_code 1ABC
         data_block = DataBlock(
             name="test",
             categories={
-                "_entry": Category(name="_entry", validator_factory=None)
+                "_entry": Category(name="_entry")
             },
         )
         data_block["_entry"]._add_item_value("id", "test_structure")

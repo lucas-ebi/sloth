@@ -4,19 +4,22 @@ from .writer import MMCIFWriter
 from .exporter import JSONExporter
 from .importer import JSONImporter
 from .models import MMCIFDataContainer, DataSourceFormat
-from .plugins import ValidatorFactory
+from .plugins import PluginFactory
 
 
 class MMCIFHandler:
     """A class to handle reading and writing mmCIF files with high-performance gemmi backend."""
 
-    def __init__(self, validator_factory: Optional[ValidatorFactory] = None):
+    def __init__(
+        self,
+        plugin_factory: Optional[PluginFactory] = None,
+    ):
         """
         Initialize the handler with gemmi backend for optimal performance.
 
-        :param validator_factory: Optional validator factory for data validation
+        :param plugin_factory: Optional plugin factory for dot-notation extensions
         """
-        self.validator_factory = validator_factory
+        self.plugin_factory = plugin_factory
         self._parser = None
         self._writer = None
         self._file_obj = None
@@ -36,7 +39,7 @@ class MMCIFHandler:
         :return: The data container with lazy-loaded items.
         :rtype: MMCIFDataContainer
         """
-        self._parser = MMCIFParser(self.validator_factory, categories)
+        self._parser = MMCIFParser(self.plugin_factory, categories)
         container = self._parser.parse(filename)
         
         return container
