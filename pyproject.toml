@@ -38,7 +38,7 @@ requires-python = ">=3.8"
 
 [project.urls]
 Homepage = "https://github.com/lucas/sloth"
-Documentation = "https://github.com/lucas/sloth#readme"
+Documentation = "https://sloth-mmcif.readthedocs.io/"
 Repository = "https://github.com/lucas/sloth.git"
 "Bug Tracker" = "https://github.com/lucas/sloth/issues"
 Changelog = "https://github.com/lucas/sloth/releases"
@@ -60,6 +60,12 @@ test = [
 gemmi = [
     "gemmi>=0.6.0",
 ]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints",
+    "sphinx-copybutton",
+]
 all = [
     "pytest>=6.0",
     "pytest-cov",
@@ -69,6 +75,10 @@ all = [
     "twine",
     "build",
     "gemmi>=0.6.0",
+    "sphinx",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints",
+    "sphinx-copybutton",
 ]
 
 [project.scripts]

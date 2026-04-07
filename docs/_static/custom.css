@@ -1,0 +1,28 @@
+/* Custom CSS for SLOTH documentation */
+
+/* Improve code block styling */
+.rst-content code.literal {
+    color: #e74c3c;
+    font-size: 90%;
+}
+
+/* Better table styling */
+.rst-content table.docutils td,
+.rst-content table.docutils th {
+    padding: 8px 12px;
+}
+
+/* Signature styling */
+.rst-content dl.py dt {
+    font-size: 0.95em;
+}
+
+/* Make the logo smaller in the sidebar */
+.wy-side-nav-search img.logo {
+    max-width: 160px;
+}
+
+/* Admonition tweaks */
+.rst-content .admonition-title {
+    font-weight: bold;
+}
