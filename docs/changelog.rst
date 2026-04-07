@@ -1,6 +1,11 @@
 Changelog
 =========
 
+v0.5.4 (2026-04-07)
+--------------------
+
+- Fix project URLs in pyproject.toml (lucas/sloth → lucas-ebi/sloth)
+
 v0.5.3 (2026-04-07)
 --------------------
 

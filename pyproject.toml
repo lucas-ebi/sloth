@@ -37,11 +37,11 @@ dependencies = [
 requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/lucas/sloth"
+Homepage = "https://github.com/lucas-ebi/sloth"
 Documentation = "https://sloth-mmcif.readthedocs.io/"
-Repository = "https://github.com/lucas/sloth.git"
-"Bug Tracker" = "https://github.com/lucas/sloth/issues"
-Changelog = "https://github.com/lucas/sloth/releases"
+Repository = "https://github.com/lucas-ebi/sloth.git"
+"Bug Tracker" = "https://github.com/lucas-ebi/sloth/issues"
+Changelog = "https://github.com/lucas-ebi/sloth/releases"
 
 [project.optional-dependencies]
 dev = [
