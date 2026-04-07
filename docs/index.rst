@@ -62,6 +62,7 @@ Getting Started
    api/importer
    api/serializer
    api/validator
+   api/rules
    api/common
 
 .. toctree::

@@ -4,8 +4,16 @@ Changelog
 Unreleased
 ----------
 
+- **Validation rules module** (``sloth.mmcif.rules``):
+  - ``DictionaryValidator``: auto-generates checks from the bundled mmCIF
+    dictionary via ``DictionaryParser`` (mandatory items, enumerations,
+    type-regex patterns, FK/composite-key integrity, parent/child presence)
+  - ``MmcifValidator``: extends ``DictionaryValidator`` with wwPDB deposition
+    business rules expressed as declarative class-level data tables
+  - 18 composable rule factory functions for custom validation
+- ``ValidatorPlugin`` supports multiple validators per category (list-based)
+- ``MMCIFHandler(strict=True)`` auto-registers ``MmcifValidator``
 - Generic plugin system: ``PluginFactory``, ``Plugin``, ``PluginWrapper``, ``FunctionPlugin``
-- Validation as a plugin: ``ValidatorPlugin`` + ``CategoryValidator`` in ``validator.py``
 - Streamlined registration: ``handler.register("_cat", func)`` for validators, tuples for cross-checkers
 - Delete support: ``del block._category``, ``block.delete("_category")``, same for items
 - Safe access mode: ``auto_create=False`` on ``DataBlock`` / ``MMCIFDataContainer``
