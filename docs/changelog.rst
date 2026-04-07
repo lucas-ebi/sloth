@@ -6,6 +6,7 @@ Unreleased
 
 - Generic plugin system: ``PluginFactory``, ``Plugin``, ``PluginWrapper``, ``FunctionPlugin``
 - Validation as a plugin: ``ValidatorPlugin`` + ``CategoryValidator`` in ``validator.py``
+- Streamlined registration: ``handler.register("_cat", func)`` for validators, tuples for cross-checkers
 - Delete support: ``del block._category``, ``block.delete("_category")``, same for items
 - Safe access mode: ``auto_create=False`` on ``DataBlock`` / ``MMCIFDataContainer``
 - Strict mode: ``MMCIFHandler(strict=True)`` wires ``auto_create=False`` through the full parse chain

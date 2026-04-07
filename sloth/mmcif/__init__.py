@@ -43,6 +43,30 @@ from .validator import (
     ValidatorPlugin,
     CategoryValidator,
 )
+from .rules import (
+    # Validator classes
+    DictionaryValidator,
+    MmcifValidator,
+    # Single-category rule factories
+    mandatory_items,
+    one_of_following,
+    value_length,
+    value_range,
+    conditional_mandatory,
+    regex_check,
+    ordering_check,
+    allowed_pairs,
+    min_rows,
+    enumeration_check,
+    type_check,
+    # Cross-category rule factories
+    foreign_key,
+    parent_child,
+    composite_key,
+    oper_expression,
+    cross_mandatory,
+    cross_ordering,
+)
 from .serializer import (
     MappingGenerator,
     DictionaryParser,
@@ -79,6 +103,26 @@ __all__ = [
     "CategoryValidator",
     "ValidationError",
     "ValidationSeverity",
+    # Rules
+    "DictionaryValidator",
+    "MmcifValidator",
+    "mandatory_items",
+    "one_of_following",
+    "value_length",
+    "value_range",
+    "conditional_mandatory",
+    "regex_check",
+    "ordering_check",
+    "allowed_pairs",
+    "min_rows",
+    "enumeration_check",
+    "type_check",
+    "foreign_key",
+    "parent_child",
+    "composite_key",
+    "oper_expression",
+    "cross_mandatory",
+    "cross_ordering",
     # Serializer components
     "MappingGenerator", 
     "DictionaryParser",

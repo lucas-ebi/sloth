@@ -7,7 +7,7 @@ chainable wrapper).
 """
 
 from enum import Enum, auto
-from typing import Any, Callable, Dict, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Tuple, Optional, TYPE_CHECKING
 
 from .plugins import Plugin, PluginWrapper
 
@@ -54,19 +54,26 @@ class ValidationError(Exception):
 # ---------------------------------------------------------------------------
 
 class ValidatorPlugin(Plugin):
-    """Plugin for per-category validation with cross-checker support."""
+    """Plugin for per-category validation with cross-checker support.
+
+    Multiple validators can be registered for the same category — they
+    will all run in registration order.
+    """
 
     def __init__(self):
-        self._validators: Dict[str, Callable] = {}
-        self._cross_checkers: Dict[Tuple[str, str], Callable] = {}
+        self._validators: Dict[str, List[Callable]] = {}
+        self._cross_checkers: Dict[Tuple[str, str], List[Callable]] = {}
 
     # -- registration helpers -----------------------------------------------
 
     def register_validator(
         self, category_name: str, validator_function: Callable
     ) -> None:
-        """Register a validator callable for a category name."""
-        self._validators[category_name] = validator_function
+        """Register a validator callable for a category name.
+
+        Multiple validators for the same category are allowed.
+        """
+        self._validators.setdefault(category_name, []).append(validator_function)
 
     def register_cross_checker(
         self,
@@ -74,17 +81,19 @@ class ValidatorPlugin(Plugin):
         cross_checker_function: Callable,
     ) -> None:
         """Register a cross-checker callable for a pair of category names."""
-        self._cross_checkers[category_pair] = cross_checker_function
+        self._cross_checkers.setdefault(category_pair, []).append(cross_checker_function)
 
     # -- lookup helpers -----------------------------------------------------
 
-    def get_validator(self, category_name: str) -> Optional[Callable]:
-        return self._validators.get(category_name)
+    def get_validators(self, category_name: str) -> List[Callable]:
+        """Return all validators for *category_name*."""
+        return self._validators.get(category_name, [])
 
-    def get_cross_checker(
+    def get_cross_checkers(
         self, category_pair: Tuple[str, str]
-    ) -> Optional[Callable]:
-        return self._cross_checkers.get(category_pair)
+    ) -> List[Callable]:
+        """Return all cross-checkers for *category_pair*."""
+        return self._cross_checkers.get(category_pair, [])
 
     # -- Plugin interface ---------------------------------------------------
 
@@ -92,10 +101,12 @@ class ValidatorPlugin(Plugin):
         return CategoryValidator(target, self)
 
     def execute(self, target, *args, **kwargs) -> Any:
-        validator = self._validators.get(target.name)
-        if validator:
-            return validator(target)
-        return None
+        results = []
+        for validator in self._validators.get(target.name, []):
+            result = validator(target)
+            if result is not None:
+                results.append(result)
+        return results or None
 
 
 class CategoryValidator(PluginWrapper):
@@ -110,9 +121,8 @@ class CategoryValidator(PluginWrapper):
 
     def against(self, other_category: "Category") -> "CategoryValidator":
         """Execute cross-validation against *other_category*."""
-        cross_checker = self._plugin.get_cross_checker(
+        for cross_checker in self._plugin.get_cross_checkers(
             (self._target.name, other_category.name)
-        )
-        if cross_checker:
+        ):
             cross_checker(self._target, other_category)
         return self
