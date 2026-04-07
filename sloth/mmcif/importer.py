@@ -284,7 +284,7 @@ class JSONImporter(BaseImporter):
             
             for category_name, category_data in block_data.items():
                 # Create category (name should already have underscore prefix)
-                category = Category(name=category_name, validator_factory=None)
+                category = Category(name=category_name)
                 
                 if isinstance(category_data, list):
                     # Multi-row category

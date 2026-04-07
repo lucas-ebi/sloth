@@ -6,10 +6,10 @@ Lazy by design. Fast by default.
 A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
 Gemmi is now the default backend for optimal performance.
 
-Version: 0.5.4
+Version: 0.6.0
 """
 
-__version__ = "0.5.4"
+__version__ = "0.6.0"
 __author__ = "Lucas Carrijo de Oliveira"
 __email__ = "lucas@ebi.ac.uk"
 __license__ = "MIT"
@@ -31,8 +31,42 @@ from .exporter import JSONExporter
 from .importer import JSONImporter
 from .handler import MMCIFHandler
 from .common import BaseImporter, BaseExporter
-from .plugins import ValidatorFactory
-from .validator import ValidationError, ValidationSeverity
+from .plugins import (
+    PluginFactory,
+    Plugin,
+    PluginWrapper,
+    FunctionPlugin,
+)
+from .validator import (
+    ValidationError,
+    ValidationSeverity,
+    ValidatorPlugin,
+    CategoryValidator,
+)
+from .rules import (
+    # Validator classes
+    DictionaryValidator,
+    MmcifValidator,
+    # Single-category rule factories
+    mandatory_items,
+    one_of_following,
+    value_length,
+    value_range,
+    conditional_mandatory,
+    regex_check,
+    ordering_check,
+    allowed_pairs,
+    min_rows,
+    enumeration_check,
+    type_check,
+    # Cross-category rule factories
+    foreign_key,
+    parent_child,
+    composite_key,
+    oper_expression,
+    cross_mandatory,
+    cross_ordering,
+)
 from .serializer import (
     MappingGenerator,
     DictionaryParser,
@@ -59,10 +93,36 @@ __all__ = [
     # Base classes
     "BaseImporter",
     "BaseExporter",
+    # Plugin system
+    "PluginFactory",
+    "Plugin",
+    "PluginWrapper",
+    "FunctionPlugin",
     # Validation components
-    "ValidatorFactory",
+    "ValidatorPlugin",
+    "CategoryValidator",
     "ValidationError",
     "ValidationSeverity",
+    # Rules
+    "DictionaryValidator",
+    "MmcifValidator",
+    "mandatory_items",
+    "one_of_following",
+    "value_length",
+    "value_range",
+    "conditional_mandatory",
+    "regex_check",
+    "ordering_check",
+    "allowed_pairs",
+    "min_rows",
+    "enumeration_check",
+    "type_check",
+    "foreign_key",
+    "parent_child",
+    "composite_key",
+    "oper_expression",
+    "cross_mandatory",
+    "cross_ordering",
     # Serializer components
     "MappingGenerator", 
     "DictionaryParser",

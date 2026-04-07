@@ -1,10 +1,18 @@
 """
-SLOTH Validation Exceptions
+SLOTH Validation
 
-This module provides validation exception classes used throughout SLOTH.
+Validation exception classes, the :class:`ValidatorPlugin` that powers
+per-category and cross-category checks, and :class:`CategoryValidator` (the
+chainable wrapper).
 """
 
 from enum import Enum, auto
+from typing import Any, Callable, Dict, List, Tuple, Optional, TYPE_CHECKING
+
+from .plugins import Plugin, PluginWrapper
+
+if TYPE_CHECKING:
+    from .models import Category
 
 
 class ValidationSeverity(Enum):
@@ -39,3 +47,82 @@ class ValidationError(Exception):
             super().__init__(f"{path}: {message}")
         else:
             super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# Validation plugin
+# ---------------------------------------------------------------------------
+
+class ValidatorPlugin(Plugin):
+    """Plugin for per-category validation with cross-checker support.
+
+    Multiple validators can be registered for the same category — they
+    will all run in registration order.
+    """
+
+    def __init__(self):
+        self._validators: Dict[str, List[Callable]] = {}
+        self._cross_checkers: Dict[Tuple[str, str], List[Callable]] = {}
+
+    # -- registration helpers -----------------------------------------------
+
+    def register_validator(
+        self, category_name: str, validator_function: Callable
+    ) -> None:
+        """Register a validator callable for a category name.
+
+        Multiple validators for the same category are allowed.
+        """
+        self._validators.setdefault(category_name, []).append(validator_function)
+
+    def register_cross_checker(
+        self,
+        category_pair: Tuple[str, str],
+        cross_checker_function: Callable,
+    ) -> None:
+        """Register a cross-checker callable for a pair of category names."""
+        self._cross_checkers.setdefault(category_pair, []).append(cross_checker_function)
+
+    # -- lookup helpers -----------------------------------------------------
+
+    def get_validators(self, category_name: str) -> List[Callable]:
+        """Return all validators for *category_name*."""
+        return self._validators.get(category_name, [])
+
+    def get_cross_checkers(
+        self, category_pair: Tuple[str, str]
+    ) -> List[Callable]:
+        """Return all cross-checkers for *category_pair*."""
+        return self._cross_checkers.get(category_pair, [])
+
+    # -- Plugin interface ---------------------------------------------------
+
+    def create_wrapper(self, target) -> "CategoryValidator":
+        return CategoryValidator(target, self)
+
+    def execute(self, target, *args, **kwargs) -> Any:
+        results = []
+        for validator in self._validators.get(target.name, []):
+            result = validator(target)
+            if result is not None:
+                results.append(result)
+        return results or None
+
+
+class CategoryValidator(PluginWrapper):
+    """Chainable wrapper for category validation with cross-checking."""
+
+    _plugin: "ValidatorPlugin"
+
+    def __call__(self) -> "CategoryValidator":
+        """Execute the registered validator for this category."""
+        super().__call__()
+        return self
+
+    def against(self, other_category: "Category") -> "CategoryValidator":
+        """Execute cross-validation against *other_category*."""
+        for cross_checker in self._plugin.get_cross_checkers(
+            (self._target.name, other_category.name)
+        ):
+            cross_checker(self._target, other_category)
+        return self

@@ -139,3 +139,62 @@ The most concise approach — objects are created on the fly:
    mmcif = MMCIFDataContainer()
    mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
    mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
+
+
+Strict Mode
+-----------
+
+By default, accessing a non-existent category or data block silently creates it.
+This is convenient when *building* structures, but can mask typos when *reading*
+data.  Pass ``strict=True`` to prevent this:
+
+.. code-block:: python
+
+   handler = MMCIFHandler(strict=True)
+   mmcif = handler.read("1abc.cif")
+
+   block = mmcif.data_1ABC
+   block._atom_site          # OK — parsed from the file
+   block._atm_site           # AttributeError with a helpful message
+
+The error message lists the available categories so you can spot the typo quickly.
+
+Strict mode can also be set at the model level:
+
+.. code-block:: python
+
+   from sloth.mmcif import DataBlock
+
+   block = DataBlock("test", auto_create=False)
+   block._nonexistent  # AttributeError
+
+
+Deleting Data
+-------------
+
+Remove categories from a block or items from a category using ``del`` or the
+``.delete()`` method.
+
+Using ``del``
+~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   # Delete a category
+   del block._obsolete_category
+
+   # Delete an item from a category
+   del block._atom_site.auth_asym_id
+
+Using ``.delete()``
+~~~~~~~~~~~~~~~~~~~
+
+The string-based API is useful when the name is dynamic:
+
+.. code-block:: python
+
+   block.delete("_obsolete_category")
+   block._atom_site.delete("auth_asym_id")
+
+Both raise an error if the target does not exist (``AttributeError`` for ``del``,
+``KeyError`` for ``.delete()``).
