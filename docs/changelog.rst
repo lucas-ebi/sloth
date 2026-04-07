@@ -1,6 +1,14 @@
 Changelog
 =========
 
+v0.5.3 (2026-04-07)
+--------------------
+
+- Add Sphinx + Read the Docs documentation with full API reference
+- Integrate interactive cookbook notebook into docs
+- Streamline README as concise PyPI landing page
+- Add string interning note to performance table
+
 v0.5.2 (2025-12-15)
 --------------------
 
