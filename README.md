@@ -318,7 +318,7 @@ mmcif.data_1ABC._entity.validate().against(mmcif.data_1ABC._atom_site)
 SLOTH includes a comprehensive Jupyter notebook cookbook that demonstrates all features interactively:
 
 ```bash
-jupyter notebook SLOTH_Cookbook.ipynb
+jupyter notebook docs/cookbook.ipynb
 ```
 
 The cookbook covers:

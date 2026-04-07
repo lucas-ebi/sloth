@@ -48,6 +48,7 @@ Getting Started
    usage
    validation
    import_export
+   cookbook
 
 .. toctree::
    :maxdepth: 2

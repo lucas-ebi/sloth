@@ -25,10 +25,15 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
+    "nbsphinx",
 ]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+# -- Options for nbsphinx (notebook rendering) ------------------------------
+nbsphinx_execute = "never"  # don't re-execute; render stored outputs
+nbsphinx_allow_errors = True
 
 # -- Options for autodoc -----------------------------------------------------
 autodoc_default_options = {
