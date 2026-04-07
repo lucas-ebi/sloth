@@ -13,82 +13,34 @@
 -->
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/lucas-ebi/sloth.svg)](https://github.com/lucas-ebi/sloth/blob/main/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-Read%20the%20Docs-blue)](https://sloth-mmcif.readthedocs.io/)
 
 ---
 
-## Table of Contents
+**SLOTH** is a fast, flexible mmCIF parser for structural biology workflows.
+Built on the C++ [gemmi](https://gemmi.readthedocs.io/) backend, it performs
+eager parsing and lazy object construction — efficient for both large-scale
+pipelines and interactive exploration.
 
-1. [Overview](#overview)
-2. [Features](#features)
-3. [Philosophy](#philosophy)
-4. [Installation](#installation)
-5. [Quick Start](#quick-start)
-6. [API and Access Patterns](#api-and-access-patterns)
-
-   * [Dot and Dictionary Notation](#dot-and-dictionary-notation)
-   * [Row-wise and Column-wise Access](#row-wise-and-column-wise-access)
-   * [Filtering and Slicing](#filtering-and-slicing)
-   * [Iterative Access](#iterative-access)
-7. [Data Creation](#data-creation)
-8. [Import and Export](#import-and-export)
-9. [Validation](#validation)
-10. [Interactive Cookbook](#interactive-cookbook)
-11. [Performance and Architecture](#performance-and-architecture)
-12. [Best Practices](#best-practices)
-13. [Contributing](#contributing)
-14. [License](#license)
-15. [Closing Notes](#closing-notes)
-
----
-
-## Overview
-
-**SLOTH** (***S**tructural **L**oader with **O**n-demand **T**raversal **H**andling*) is a fast, flexible mmCIF parser designed for structural biology workflows. Built on the C++ [gemmi](https://gemmi.readthedocs.io/) backend, SLOTH performs eager parsing and lazy object construction, making it efficient for both large-scale pipelines and interactive exploration.
-
----
-
-## Features
-
-* High-speed parsing via gemmi
-* Lazy construction of row and item objects for memory efficiency
-* Pythonic, dot-notation access to mmCIF data
-* Pluggable custom validation system
-* Export and import in nested JSON format with automatic relationship resolution
-
----
-
-## Philosophy
-
-> *"Why rush when you can be lazy?"*  
-> *"Parse eagerly. Construct lazily. Access quickly."*
-
-SLOTH is unapologetically Pythonic:
-
-* No runtime flags
-* No manual optimizations
-* No overengineering
-
-Just smart defaults, clear abstractions, and expressive maintainable code.
-
----
+- **High-speed parsing** via gemmi
+- **Lazy construction** of row and item objects for memory efficiency
+- **Pythonic dot-notation** access to mmCIF data
+- **Pluggable validation** with cross-category support
+- **JSON export/import** with automatic relationship resolution
 
 ## Installation
 
-<!-- Install via PyPI:
-
 ```bash
-pip install sloth-mmcif
-``` -->
+pip install -i https://test.pypi.org/simple/ sloth-mmcif
+```
 
-Install from source:
+Or from source:
 
 ```bash
 git clone https://github.com/lucas-ebi/sloth.git
 cd sloth
 pip install -e ".[dev]"
 ```
-
----
 
 ## Quick Start
 
@@ -98,250 +50,20 @@ from sloth import MMCIFHandler
 handler = MMCIFHandler()
 mmcif = handler.read("1abc.cif")
 
+# Dot notation
 print(mmcif.data_1ABC._struct.title[0])
 print(mmcif.data_1ABC._atom_site.Cartn_x[0])
+
+# Dictionary notation
+x = mmcif.data[0]["_atom_site"]["Cartn_x"]
+
+# Export to nested JSON
+handler.export(mmcif, file_path="output.json", indent=2)
 ```
 
----
+## Performance
 
-## API and Access Patterns
-
-### Dot and Dictionary Notation
-
-```python
-# Dot notation
-block = mmcif.data_1ABC
-atom_site = block._atom_site
-print(atom_site.Cartn_x[0])
-
-# Dictionary notation (dynamic fields)
-category_name = "_atom_site"
-field_name = "Cartn_x"
-x = mmcif.data[0][category_name][field_name]
-```
-
-### Row-wise and Column-wise Access
-
-```python
-x_coords = atom_site.Cartn_x
-first_atom = atom_site[0]
-print(first_atom.type_symbol, first_atom.Cartn_x)
-```
-
-### Filtering and Slicing
-
-```python
-# CA atoms from chain A
-ca_atoms = [a for a in atom_site if a.label_atom_id == "CA" and a.label_asym_id == "A"]
-
-# Mean X coordinate
-avg_x = sum(float(x) for x in atom_site.Cartn_x) / atom_site.row_count
-```
-
-### Iterative Access
-
-```python
-for cat_name in block.categories:
-    category = block[cat_name]
-    for item_name in category.items:
-        print(f"{cat_name}.{item_name}: {len(category[item_name])} values")
-```
-
----
-
-## Data Creation
-
-### Manual file creation
-
-```python
-sample = """data_1ABC
-_entry.id 1ABC_STRUCTURE
-loop_
-_atom_site.group_PDB
-_atom_site.id
-_atom_site.type_symbol
-_atom_site.Cartn_x
-_atom_site.Cartn_y
-_atom_site.Cartn_z
-ATOM 1 N 10.123 20.456 30.789
-ATOM 2 C 11.234 21.567 31.890
-"""
-with open("sample.cif", "w") as f:
-    f.write(sample)
-```
-
-### Programmatic using object model
-
-```python
-from sloth.mmcif import MMCIFDataContainer, DataBlock, Category
-
-mmcif = MMCIFDataContainer()
-block = DataBlock("1ABC")
-
-cat = Category("_entry")
-cat["id"] = ["1ABC_STRUCTURE"]
-block["_entry"] = cat
-
-mmcif["1ABC"] = block
-```
-
-### Dot-based auto-creation
-
-```python
-mmcif = MMCIFDataContainer()
-mmcif.data_1ABC._entry.id = ["1ABC_STRUCTURE"]
-mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
-```
-
----
-
-## Import and Export
-
-### Export
-
-```python
-# Export to nested JSON format (with resolved parent-child relationships)
-# Returns JSON string
-json_str = handler.export(mmcif, indent=2)
-
-# Export to file (pretty-printed)
-handler.export(mmcif, file_path="out_nested.json", indent=2)
-
-# Compact JSON (no indentation)
-handler.export(mmcif, file_path="out_compact.json")
-```
-
-**Nested JSON Structure:**
-
-SLOTH automatically resolves mmCIF dictionary relationships when exporting to JSON. Child categories are nested within their parent categories, creating a hierarchical structure:
-
-```json
-{
-  "data_DEMO": {
-    "_entry": [...],
-    "_entity": [
-      {
-        "id": "1",
-        "type": "polymer",
-        "_entity_poly": [
-          {
-            "entity_id": "1",
-            "_entity_poly_seq": [...]
-          }
-        ],
-        "_struct_asym": [
-          {
-            "id": "A",
-            "_atom_site": [...]
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Note: All category names maintain the `_` prefix convention, whether at the top level or nested.
-
-### Import
-
-```python
-# Import from JSON file (automatically flattens nested structure back to mmCIF)
-mmcif = handler.load("out_nested.json")
-
-# Access data using standard mmCIF notation
-print(mmcif.data[0]._entity.id)
-print(mmcif.data[0]._atom_site.Cartn_x)
-```
-
-### Round-trip validation
-
-```python
-def verify_round_trip(original, imported):
-    """Verify data integrity after JSON export/import round-trip."""
-    orig_block = original.data[0]
-    imp_block = imported.data[0]
-    
-    # Check categories preserved
-    if set(orig_block.categories) == set(imp_block.categories):
-        print("✅ Categories: OK")
-    
-    # Check atom data preserved
-    if "_atom_site" in orig_block.categories:
-        orig_count = len(orig_block._atom_site.Cartn_x)
-        imp_count = len(imp_block._atom_site.Cartn_x)
-        print(f"✅ Atoms: {'OK' if orig_count == imp_count else 'Mismatch'}")
-
-# Test round-trip
-handler.export(mmcif, file_path="test.json")
-imported = handler.load("test.json")
-verify_round_trip(mmcif, imported)
-```
-
----
-
-## Validation
-
-### Single Category Validation
-
-```python
-from sloth import MMCIFHandler, ValidatorFactory
-
-vf = ValidatorFactory()
-vf.register_validator("_atom_site", lambda cat: print("Validating", cat.name))
-
-handler = MMCIFHandler(validator_factory=vf)
-mmcif = handler.read("1abc.cif")
-mmcif.data_1ABC._atom_site.validate()
-```
-
-### Cross-Category Validation
-
-```python
-# Cross-checker receives two Category objects
-vf.register_cross_checker(
-    ("_entity", "_atom_site"),
-    lambda e, a: print(f"Cross-checking {e.name} ↔ {a.name}") or set(e.id).issuperset(set(a.label_entity_id))
-)
-
-# Run cross-validation only
-mmcif.data_1ABC._entity.validate.against(mmcif.data_1ABC._atom_site)
-
-# Or validate first, then cross-check
-mmcif.data_1ABC._entity.validate().against(mmcif.data_1ABC._atom_site)
-```
-
----
-
-## Interactive Cookbook
-
-SLOTH includes a comprehensive Jupyter notebook cookbook that demonstrates all features interactively:
-
-```bash
-jupyter notebook docs/cookbook.ipynb
-```
-
-The cookbook covers:
-
-* Parsing mmCIF files with embedded data
-* Exploring data structures with dot notation
-* 2D slicing (column-wise and row-wise access)
-* Validating mmCIF data
-* Modifying data elegantly
-* Creating sample data (manual, programmatic, and auto-creation)
-* Exporting to nested JSON with automatic relationship resolution
-* Importing from JSON with automatic flattening
-* Round-trip validation
-* Writing modified mmCIF files
-* Complete workflow examples
-
-Perfect for learning SLOTH interactively or as a reference guide.
-
----
-
-## Performance and Architecture
-
-Performance benchmarks on synthetic mmCIF files (measured on macOS with Python 3.10):
+Benchmarks on synthetic mmCIF files (macOS, Python 3.10):
 
 | File Size | Full Parse | Selective | Access Speed | Memory (Parse) | Memory (Access) |
 | --------- | ---------- | --------- | ------------ | -------------- | --------------- |
@@ -352,50 +74,27 @@ Performance benchmarks on synthetic mmCIF files (measured on macOS with Python 3
 | 50.7MB    | 394ms      | 693ms     | 298ms        | 205.4MB        | 46.1MB          |
 | 102.0MB   | 817ms      | 1.4s      | 607ms        | 386.8MB        | 75.5MB          |
 
-**Memory Architecture:**
+> **Note:** Access memory can appear smaller than the file on disk because
+> Python's [string interning](https://docs.python.org/3/library/sys.html#sys.intern)
+> deduplicates repeated values in mmCIF columns (e.g., atom type symbols,
+> residue names, chain IDs). When many rows share the same string, Python
+> stores it only once — so memory usage after access reflects unique string
+> content rather than total row count.
 
-* **Parse Memory**: Gemmi C++ structures (eager loading, ~4-8x file size for typical files)
-* **SLOTH overhead**: ~0KB (lazy wrappers add no measurable memory cost)
-* **Access Memory**: Python string conversion cost (only when data is accessed)
-* **Multiplier trend**: Small files show higher relative overhead due to fixed costs, stabilizing at ~4x for large files (>50MB)
+## Documentation
 
-SLOTH's lazy object creation ensures minimal overhead - `LazyGemmiColumn` defers Python string conversions until needed, adding virtually no memory cost beyond Gemmi's parsing.
+Full documentation, API reference, and interactive cookbook:
 
-**Note**: Medium-sized files (5-20MB) may show measurement anomalies due to C++ allocation timing. Trust measurements for small (<1MB) and large (>50MB) files.
-
----
-
-## Best Practices
-
-```python
-# Dot access for known fields
-x = mmcif.data_1ABC._atom_site.Cartn_x
-
-# Dict access for dynamic fields
-val = mmcif.data[0]["_atom_site"]["Cartn_x"]
-
-# Partial category loading
-mmcif = handler.read("file.cif", categories=["_atom_site"])
-```
-
----
+- **[Read the Docs](https://sloth-mmcif.readthedocs.io/)** — User guide & API reference
+- **[Cookbook](https://sloth-mmcif.readthedocs.io/en/latest/cookbook.html)** — Interactive Jupyter notebook tutorial
 
 ## Contributing
 
-1. Fork
-2. Create a branch
+1. Fork the repo
+2. Create a feature branch
 3. Add tests
 4. Submit a PR
-
----
 
 ## License
 
 MIT License — use freely, modify responsibly.
-
----
-
-## Closing Notes
-
-> SLOTH is not just a parser — it’s a mindset.  
-> Pythonic. Lazy. Elegant. Fast.
