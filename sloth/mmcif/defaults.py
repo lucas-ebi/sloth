@@ -6,7 +6,7 @@ depend on schema or dictionary content. All schema-driven logic should use
 the MappingGenerator instead of hardcoded enums.
 """
 
-from enum import Enum
+from enum import Enum, auto
 from typing import Set
 
 
@@ -126,6 +126,19 @@ def get_numeric_fields(mapping_generator=None) -> Set[str]:
 def is_null_value(value: str) -> bool:
     """Check if value represents null"""
     return DataValue.is_null(value)
+
+class PluginScope(Enum):
+    """Scope that determines which hierarchy level exposes a plugin."""
+
+    CATEGORY = "category"
+    """Available on :class:`Category` objects."""
+
+    BLOCK = "block"
+    """Available on :class:`DataBlock` objects."""
+
+    CONTAINER = "container"
+    """Available on :class:`MMCIFDataContainer` objects."""
+
 
 # ====================== Enums for Constants and Magic Strings ======================
 
@@ -334,3 +347,20 @@ class RelationshipType(Enum):
     COMPOSITIONAL = 'compositional'  # Child is part of parent (ownership)
     REFERENTIAL = 'referential'      # Child references parent (lookup)
     UNKNOWN = 'unknown'              # Cannot be determined
+
+
+class DataSourceFormat(Enum):
+    """Enum to track the format source of mmCIF data."""
+
+    MMCIF = auto()  # Native mmCIF file
+    JSON = auto()  # JSON file or string
+    DICT = auto()  # Python dictionary
+    UNKNOWN = auto()  # Unknown source
+
+
+class ValidationSeverity(Enum):
+    """Severity levels for validation errors."""
+
+    ERROR = auto()  # Validation failures that should prevent processing
+    WARNING = auto()  # Issues that should be flagged but don't prevent processing
+    INFO = auto()  # Informational notices

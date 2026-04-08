@@ -105,7 +105,6 @@ class JSONExporter(BaseExporter):
         
         for block in mmcif_data:
             # Create a temporary container with just this block
-            from .models import MMCIFDataContainer
             single_block_container = MMCIFDataContainer()
             single_block_container.data[block.name] = block
             

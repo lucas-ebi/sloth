@@ -29,5 +29,4 @@ Validation as a Plugin Example
 
 See the validation implementation in:
 
-- :mod:`sloth.mmcif.validator` for ``ValidatorPlugin`` and ``CategoryValidator``
-- :mod:`sloth.mmcif.rules` for concrete validator implementations
+- :mod:`sloth.mmcif.validator` for ``ValidatorPlugin``, ``CategoryValidator``, and concrete rule factories

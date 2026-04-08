@@ -4,20 +4,99 @@ from typing import (
     Union,
     Optional,
 )
+from difflib import get_close_matches
 from functools import cached_property
-from enum import Enum, auto
 from abc import ABC, abstractmethod
 from .plugins import PluginFactory
+from .defaults import PluginScope, DataSourceFormat
 import sys
+import warnings
 
 
-class DataSourceFormat(Enum):
-    """Enum to track the format source of mmCIF data."""
+class SchemaWarning(UserWarning):
+    """Issued when a category or item name is not in the mmCIF dictionary."""
+    pass
 
-    MMCIF = auto()  # Native mmCIF file
-    JSON = auto()  # JSON file or string
-    DICT = auto()  # Python dictionary
-    UNKNOWN = auto()  # Unknown source
+
+class _DictionarySchema:
+    """Lazy singleton providing O(1) lookups against the bundled mmCIF dictionary.
+
+    The dictionary is parsed once on first access (and disk-cached by
+    :class:`~sloth.mmcif.serializer.CacheManager`), so subsequent look-ups
+    are essentially free.
+    """
+
+    _instance: Optional["_DictionarySchema"] = None
+
+    def __init__(self, categories: frozenset, items_by_category: dict):
+        self._categories = categories
+        self._items = items_by_category
+
+    # -- public API ---------------------------------------------------------
+
+    @classmethod
+    def get(cls) -> Optional["_DictionarySchema"]:
+        """Return the singleton, loading on first call.  Returns *None* if
+        the dictionary cannot be parsed (graceful degradation)."""
+        if cls._instance is None:
+            try:
+                cls._instance = cls._load()
+            except Exception:
+                return None
+        return cls._instance
+
+    def known_category(self, name: str) -> bool:
+        return name in self._categories
+
+    def known_item(self, category_name: str, item_name: str) -> bool:
+        cat_items = self._items.get(category_name)
+        if cat_items is None:
+            return False
+        return item_name in cat_items
+
+    def category_items(self, category_name: str) -> frozenset:
+        return self._items.get(category_name, frozenset())
+
+    def all_categories(self) -> frozenset:
+        return self._categories
+
+    # -- loading ------------------------------------------------------------
+
+    @classmethod
+    def _load(cls) -> "_DictionarySchema":
+        from pathlib import Path as _Path
+        from .serializer import DictionaryParser, get_cache_manager
+        from .defaults import DictDataType
+
+        dict_path = str(
+            _Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
+        )
+        dp = DictionaryParser(get_cache_manager(), quiet=True)
+        meta = dp.parse(dict_path)
+
+        items_raw = meta.get(DictDataType.ITEMS.value, {})
+
+        categories: set = set()
+        items_by_cat: dict = {}
+
+        for full_name in items_raw:
+            parts = full_name.lstrip("_").split(".", 1)
+            if len(parts) == 2:
+                cat = f"_{parts[0]}"
+                categories.add(cat)
+                items_by_cat.setdefault(cat, set()).add(parts[1])
+
+        # Also include categories from the categories dict (may contain
+        # categories whose items are all defined via loops in parent frames)
+        cats_raw = meta.get(DictDataType.CATEGORIES.value, {})
+        for cat_name in cats_raw:
+            c = f"_{cat_name}" if not cat_name.startswith("_") else cat_name
+            categories.add(c)
+
+        return cls(
+            frozenset(categories),
+            {k: frozenset(v) for k, v in items_by_cat.items()},
+        )
 
 
 class DataNode(ABC):
@@ -432,11 +511,13 @@ class Category(DataContainer):
             return item
         # Check for registered plugins (covers "validate" and any user plugins)
         if self._plugin_factory is not None:
-            wrapper = self._plugin_factory.get_wrapper(item_name, self, "category")
+            wrapper = self._plugin_factory.get_wrapper(item_name, self, PluginScope.CATEGORY)
             if wrapper is not None:
                 return wrapper
+        hint = _suggest(item_name, list(self.items))
         raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{item_name}'"
+            f"'{self.__class__.__name__}' object has no attribute "
+            f"'{item_name}'.{hint}"
         )
 
     def __setattr__(self, name: str, value) -> None:
@@ -467,6 +548,16 @@ class Category(DataContainer):
             )
 
         # Set as mmCIF item (equivalent to self[name] = value)
+        # Schema hint: warn on unknown item for known categories
+        schema = _DictionarySchema.get()
+        if schema and schema.known_category(self.name) and not schema.known_item(self.name, name):
+            hint = _suggest(name, list(schema.category_items(self.name)))
+            warnings.warn(
+                f"Item '{name}' is not in the mmCIF dictionary "
+                f"for category '{self.name}'.{hint}",
+                SchemaWarning,
+                stacklevel=2,
+            )
         self._items[name] = value
         # Invalidate cached properties when items change
         if hasattr(self, "items"):
@@ -561,6 +652,13 @@ class Category(DataContainer):
 
     def __len__(self):
         return len(self._items)
+
+    def __dir__(self):
+        names = set(super().__dir__())
+        names.update(self.items)
+        if self._plugin_factory is not None:
+            names.update(self._plugin_factory.list_plugins(PluginScope.CATEGORY))
+        return sorted(names)
 
     def __repr__(self):
         return f"Category(name={self.name}, items={list(self._items.keys())})"
@@ -722,7 +820,7 @@ class DataBlock(DataContainer):
 
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        "_name", "_categories", "_plugin_factory", "_auto_create",
+        "_name", "_categories", "_plugin_factory",
         "name", "categories", "data", "plugin_factory",
     }
 
@@ -731,11 +829,9 @@ class DataBlock(DataContainer):
         name: str,
         categories: Dict[str, Category] = None,
         plugin_factory: Optional[PluginFactory] = None,
-        auto_create: bool = True,
     ):
         self._name = name
         self._plugin_factory = plugin_factory
-        self._auto_create = auto_create
         # Convert categories to use CategoryCollection with stripped names
         if categories is not None:
             # Strip _ prefix from category names for internal storage
@@ -780,39 +876,24 @@ class DataBlock(DataContainer):
 
     def __getattr__(self, category_name: str) -> Category:
         try:
-            # Handle both prefixed (_category) and unprefixed (category) names
-            # CategoryCollection automatically handles _ prefix stripping/adding
             return self._categories[category_name]
         except KeyError:
             pass
 
         # Check for registered plugins
         if self._plugin_factory is not None:
-            wrapper = self._plugin_factory.get_wrapper(category_name, self, "block")
+            wrapper = self._plugin_factory.get_wrapper(category_name, self, PluginScope.BLOCK)
             if wrapper is not None:
                 return wrapper
 
-        # Auto-create the category if it starts with _ (typical mmCIF category)
+        # Return a pending proxy for category-like names (starts with _)
         if category_name.startswith("_"):
-            if self._auto_create:
-                new_category = Category(
-                    category_name, plugin_factory=self._plugin_factory
-                )
-                self._categories[
-                    category_name
-                ] = new_category  # CategoryCollection handles _ stripping
-                # Invalidate cached properties when categories change
-                if hasattr(self, "categories"):
-                    delattr(self, "categories")
-                return new_category
-            else:
-                raise AttributeError(
-                    f"Category '{category_name}' does not exist in data block "
-                    f"'{self.name}'. Available: {list(self.categories)}"
-                )
+            return _PendingCategory(category_name, self)
 
+        hint = _suggest(category_name, list(self.categories))
         raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{category_name}'"
+            f"'{self.__class__.__name__}' object has no attribute "
+            f"'{category_name}'.{hint}"
         )
 
     def __setattr__(self, name: str, value) -> None:
@@ -888,8 +969,249 @@ class DataBlock(DataContainer):
     def __len__(self):
         return len(self._categories)
 
+    def __dir__(self):
+        names = set(super().__dir__())
+        names.update(self.categories)
+        if self._plugin_factory is not None:
+            names.update(self._plugin_factory.list_plugins(PluginScope.BLOCK))
+        return sorted(names)
+
     def __repr__(self):
         return f"DataBlock(name={self.name}, categories={list(self.categories)})"
+
+
+# ---------------------------------------------------------------------------
+# Helper: fuzzy name suggestion
+# ---------------------------------------------------------------------------
+
+def _suggest(name: str, candidates, n: int = 3, cutoff: float = 0.5) -> str:
+    """Return a 'Did you mean ...?' suffix, or empty string."""
+    matches = get_close_matches(name, candidates, n=n, cutoff=cutoff)
+    if matches:
+        opts = ", ".join(f"'{m}'" for m in matches)
+        return f" Did you mean {opts}?"
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Pending-object proxies (deferred auto-creation)
+# ---------------------------------------------------------------------------
+
+class _PendingCategory:
+    """Proxy returned by :pymethod:`DataBlock.__getattr__` for category names
+    that don't exist yet.
+
+    *Write* operations (``__setitem__``, ``__setattr__``) commit a real
+    :class:`Category` to the parent block.  *Read* operations
+    (``__getitem__``, ``__getattr__``, iteration, …) raise
+    :class:`AttributeError` with a "did you mean?" hint.
+    """
+
+    __slots__ = ("_pc_name", "_pc_parent", "_pc_real")
+
+    def __init__(self, name: str, parent: "DataBlock"):
+        object.__setattr__(self, "_pc_name", name)
+        object.__setattr__(self, "_pc_parent", parent)
+        object.__setattr__(self, "_pc_real", None)
+
+    # -- internal -----------------------------------------------------------
+
+    def _commit(self) -> "Category":
+        real = object.__getattribute__(self, "_pc_real")
+        if real is None:
+            name = object.__getattribute__(self, "_pc_name")
+            parent = object.__getattribute__(self, "_pc_parent")
+            # Schema hint: warn on unknown category
+            schema = _DictionarySchema.get()
+            if schema and not schema.known_category(name):
+                hint = _suggest(name, list(schema.all_categories()))
+                warnings.warn(
+                    f"Category '{name}' is not in the mmCIF dictionary.{hint}",
+                    SchemaWarning,
+                    stacklevel=4,
+                )
+            real = Category(name, plugin_factory=parent._plugin_factory)
+            parent._categories[name] = real
+            if hasattr(parent, "categories"):
+                delattr(parent, "categories")
+            object.__setattr__(self, "_pc_real", real)
+        return real
+
+    def _raise_does_not_exist(self, extra: str = "") -> None:
+        name = object.__getattribute__(self, "_pc_name")
+        parent = object.__getattribute__(self, "_pc_parent")
+        hint = _suggest(f"_{name}" if not name.startswith("_") else name,
+                        list(parent.categories))
+        raise AttributeError(
+            f"Category '_{name}' does not exist in data block "
+            f"'{parent.name}'.{hint}{extra}"
+        )
+
+    # -- write operations (commit) ------------------------------------------
+
+    def __setitem__(self, key, value):
+        real = self._commit()
+        # Schema hint: warn on unknown item for known categories
+        schema = _DictionarySchema.get()
+        if schema and schema.known_category(real.name) and not schema.known_item(real.name, key):
+            hint = _suggest(key, list(schema.category_items(real.name)))
+            warnings.warn(
+                f"Item '{key}' is not in the mmCIF dictionary "
+                f"for category '{real.name}'.{hint}",
+                SchemaWarning,
+                stacklevel=2,
+            )
+        real[key] = value
+
+    def __setattr__(self, name, value):
+        if name.startswith("_pc_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._commit(), name, value)
+
+    # -- read operations (raise or delegate) --------------------------------
+
+    def __getitem__(self, key):
+        real = object.__getattribute__(self, "_pc_real")
+        if real is not None:
+            return real[key]
+        self._raise_does_not_exist()
+
+    def __getattr__(self, attr):
+        real = object.__getattribute__(self, "_pc_real")
+        if real is not None:
+            return getattr(real, attr)
+        self._raise_does_not_exist()
+
+    def __iter__(self):
+        real = object.__getattribute__(self, "_pc_real")
+        if real is not None:
+            return iter(real)
+        self._raise_does_not_exist()
+
+    def __len__(self):
+        real = object.__getattribute__(self, "_pc_real")
+        if real is not None:
+            return len(real)
+        self._raise_does_not_exist()
+
+    def __bool__(self):
+        real = object.__getattribute__(self, "_pc_real")
+        if real is not None:
+            return bool(real)
+        return False
+
+    def __repr__(self):
+        real = object.__getattribute__(self, "_pc_real")
+        if real is not None:
+            return repr(real)
+        name = object.__getattribute__(self, "_pc_name")
+        parent = object.__getattribute__(self, "_pc_parent")
+        hint = _suggest(f"_{name}" if not name.startswith("_") else name,
+                        list(parent.categories))
+        return (
+            f"<PendingCategory '_{name}' — category does not exist in "
+            f"'{parent.name}'.{hint} Assign data to create it.>"
+        )
+
+
+class _PendingDataBlock:
+    """Proxy returned by :pymethod:`MMCIFDataContainer.__getattr__` for
+    block names that don't exist yet.
+
+    Same write-commits / read-raises semantics as :class:`_PendingCategory`.
+    Category access on a pending block commits the block first, then
+    returns a :class:`_PendingCategory` for the category.
+    """
+
+    __slots__ = ("_pb_name", "_pb_parent", "_pb_real")
+
+    def __init__(self, name: str, parent: "MMCIFDataContainer"):
+        object.__setattr__(self, "_pb_name", name)
+        object.__setattr__(self, "_pb_parent", parent)
+        object.__setattr__(self, "_pb_real", None)
+
+    # -- internal -----------------------------------------------------------
+
+    def _commit(self) -> "DataBlock":
+        real = object.__getattribute__(self, "_pb_real")
+        if real is None:
+            name = object.__getattribute__(self, "_pb_name")
+            parent = object.__getattribute__(self, "_pb_parent")
+            real = DataBlock(name, plugin_factory=parent._plugin_factory)
+            parent._data_blocks[name] = real
+            if hasattr(parent, "blocks"):
+                delattr(parent, "blocks")
+            object.__setattr__(self, "_pb_real", real)
+        return real
+
+    def _raise_does_not_exist(self) -> None:
+        name = object.__getattribute__(self, "_pb_name")
+        parent = object.__getattribute__(self, "_pb_parent")
+        hint = _suggest(f"data_{name}", list(parent.blocks))
+        raise AttributeError(
+            f"Data block 'data_{name}' does not exist.{hint}"
+        )
+
+    # -- write operations (commit) ------------------------------------------
+
+    def __setitem__(self, key, value):
+        self._commit()[key] = value
+
+    def __setattr__(self, name, value):
+        if name.startswith("_pb_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._commit(), name, value)
+
+    # -- read operations (raise or delegate) --------------------------------
+
+    def __getitem__(self, key):
+        real = object.__getattribute__(self, "_pb_real")
+        if real is not None:
+            return real[key]
+        self._raise_does_not_exist()
+
+    def __getattr__(self, attr):
+        real = object.__getattribute__(self, "_pb_real")
+        if real is not None:
+            return getattr(real, attr)
+        # Category access (starts with _) commits the block,
+        # then delegates to block's __getattr__ which returns
+        # a _PendingCategory if the category doesn't exist.
+        if attr.startswith("_"):
+            return getattr(self._commit(), attr)
+        self._raise_does_not_exist()
+
+    def __iter__(self):
+        real = object.__getattribute__(self, "_pb_real")
+        if real is not None:
+            return iter(real)
+        self._raise_does_not_exist()
+
+    def __len__(self):
+        real = object.__getattribute__(self, "_pb_real")
+        if real is not None:
+            return len(real)
+        self._raise_does_not_exist()
+
+    def __bool__(self):
+        real = object.__getattribute__(self, "_pb_real")
+        if real is not None:
+            return bool(real)
+        return False
+
+    def __repr__(self):
+        real = object.__getattribute__(self, "_pb_real")
+        if real is not None:
+            return repr(real)
+        name = object.__getattribute__(self, "_pb_name")
+        parent = object.__getattribute__(self, "_pb_parent")
+        hint = _suggest(f"data_{name}", list(parent.blocks))
+        return (
+            f"<PendingDataBlock 'data_{name}' — block does not exist.{hint} "
+            f"Assign data to create it.>"
+        )
 
 
 class DataBlockCollection(dict):
@@ -948,7 +1270,7 @@ class MMCIFDataContainer(DataContainer):
 
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        "_data_blocks", "_plugin_factory", "_auto_create",
+        "_data_blocks", "_plugin_factory",
         "source_format", "name", "blocks", "data", "plugin_factory",
     }
 
@@ -957,13 +1279,11 @@ class MMCIFDataContainer(DataContainer):
         data_blocks: Dict[str, DataBlock] = None,
         source_format: DataSourceFormat = DataSourceFormat.MMCIF,
         plugin_factory: Optional[PluginFactory] = None,
-        auto_create: bool = True,
     ):
         self._data_blocks = DataBlockCollection(
             data_blocks if data_blocks is not None else {}
         )
         self._plugin_factory = plugin_factory
-        self._auto_create = auto_create
         self.source_format = source_format
 
     @property
@@ -987,35 +1307,22 @@ class MMCIFDataContainer(DataContainer):
 
     def __getattr__(self, block_name: str) -> DataBlock:
         if block_name.startswith("data_"):
-            actual_block_name = block_name[5:]  # Remove the 'data_' prefix
+            actual_block_name = block_name[5:]
             if actual_block_name in self._data_blocks:
                 return self._data_blocks[actual_block_name]
-            elif self._auto_create:
-                # Auto-create the data block
-                new_block = DataBlock(
-                    actual_block_name,
-                    plugin_factory=self._plugin_factory,
-                    auto_create=self._auto_create,
-                )
-                self._data_blocks[actual_block_name] = new_block
-                # Invalidate cached properties when blocks change
-                if hasattr(self, "blocks"):
-                    delattr(self, "blocks")
-                return new_block
-            else:
-                raise AttributeError(
-                    f"Data block 'data_{actual_block_name}' does not exist. "
-                    f"Available: {list(self.blocks)}"
-                )
+            # Return a pending proxy — commits on first write
+            return _PendingDataBlock(actual_block_name, self)
 
         # Check for registered plugins
         if self._plugin_factory is not None:
-            wrapper = self._plugin_factory.get_wrapper(block_name, self, "container")
+            wrapper = self._plugin_factory.get_wrapper(block_name, self, PluginScope.CONTAINER)
             if wrapper is not None:
                 return wrapper
 
+        hint = _suggest(block_name, list(self.blocks))
         raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{block_name}'"
+            f"'{self.__class__.__name__}' object has no attribute "
+            f"'{block_name}'.{hint}"
         )
 
     def __setattr__(self, name: str, value) -> None:
@@ -1084,6 +1391,13 @@ class MMCIFDataContainer(DataContainer):
 
     def __len__(self):
         return len(self._data_blocks)
+
+    def __dir__(self):
+        names = set(super().__dir__())
+        names.update(self.blocks)
+        if self._plugin_factory is not None:
+            names.update(self._plugin_factory.list_plugins(PluginScope.CONTAINER))
+        return sorted(names)
 
     def __repr__(self):
         return f"MMCIFDataContainer({len(self)} blocks)"

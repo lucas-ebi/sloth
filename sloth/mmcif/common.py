@@ -25,18 +25,15 @@ class BaseParser(ABC):
     
     def __init__(
         self,
-        strict: bool = False,
         plugin_factory: Optional[PluginFactory] = None,
         categories: Optional[list] = None,
     ):
         """
         Initialize the parser.
         
-        :param strict: If ``True``, disable auto-creation on parsed data objects.
         :param plugin_factory: Optional plugin factory for dot-notation extensions
         :param categories: Optional list of categories to parse (for performance)
         """
-        self.strict = strict
         self.plugin_factory = plugin_factory
         self.categories = categories
 

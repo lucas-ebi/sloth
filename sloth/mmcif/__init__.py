@@ -6,10 +6,10 @@ Lazy by design. Fast by default.
 A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
 Gemmi is now the default backend for optimal performance.
 
-Version: 0.6.0
+Version: 0.7.0
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __author__ = "Lucas Carrijo de Oliveira"
 __email__ = "lucas@ebi.ac.uk"
 __license__ = "MIT"
@@ -24,6 +24,7 @@ from .models import (
     Row,
     Item,
     DataSourceFormat,
+    SchemaWarning,
 )
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
@@ -37,13 +38,17 @@ from .plugins import (
     PluginWrapper,
     FunctionPlugin,
 )
+from .defaults import PluginScope
 from .validator import (
     ValidationError,
     ValidationSeverity,
     ValidatorPlugin,
     CategoryValidator,
-)
-from .rules import (
+    ValidationReport,
+    BlockValidator,
+    BlockValidationWrapper,
+    ContainerValidator,
+    ContainerValidationWrapper,
     # Validator classes
     DictionaryValidator,
     MmcifValidator,
@@ -87,6 +92,7 @@ __all__ = [
     "Row",
     "Item",
     "DataSourceFormat",
+    "SchemaWarning",
     # Import/Export components
     "JSONExporter",
     "JSONImporter",
@@ -95,6 +101,7 @@ __all__ = [
     "BaseExporter",
     # Plugin system
     "PluginFactory",
+    "PluginScope",
     "Plugin",
     "PluginWrapper",
     "FunctionPlugin",
@@ -103,6 +110,11 @@ __all__ = [
     "CategoryValidator",
     "ValidationError",
     "ValidationSeverity",
+    "ValidationReport",
+    "BlockValidator",
+    "BlockValidationWrapper",
+    "ContainerValidator",
+    "ContainerValidationWrapper",
     # Rules
     "DictionaryValidator",
     "MmcifValidator",

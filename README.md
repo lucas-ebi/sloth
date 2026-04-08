@@ -7,7 +7,7 @@
 <!-- Uncomment when published to PyPI:
 [![PyPI](https://badge.fury.io/py/sloth-mmcif.svg)](https://badge.fury.io/py/sloth-mmcif)
 -->
-[![Version](https://img.shields.io/badge/version-0.5.4-blue)](https://github.com/lucas-ebi/sloth/releases)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue)](https://github.com/lucas-ebi/sloth/releases)
 <!-- 
 [![Python](https://img.shields.io/pypi/pyversions/sloth-mmcif.svg)](https://pypi.org/project/sloth-mmcif/)
 -->
@@ -25,7 +25,10 @@ pipelines and interactive exploration.
 - **High-speed parsing** via gemmi
 - **Lazy construction** of row and item objects for memory efficiency
 - **Pythonic dot-notation** access to mmCIF data
-- **Pluggable validation** with cross-category support
+- **Multi-level validation** — `handler.validate()` runs the full mmCIF dictionary + wwPDB rule suite and returns a `ValidationReport`
+- **Schema-aware warnings** — unknown categories/items trigger `SchemaWarning` with "Did you mean …?" suggestions
+- **Tab completion & fuzzy matching** — `__dir__()` exposes item/category/block names; typos produce helpful `AttributeError` messages
+- **Pluggable validation** with cross-category support and scoped plugin registration
 - **JSON export/import** with automatic relationship resolution
 
 ## Installation
@@ -59,6 +62,19 @@ x = mmcif.data[0]["_atom_site"]["Cartn_x"]
 
 # Export to nested JSON
 handler.export(mmcif, file_path="output.json", indent=2)
+```
+
+## Validation
+
+```python
+# Full validation (dictionary schema + wwPDB rules)
+report = handler.validate(mmcif)
+print(report.is_valid)      # True / False
+print(report.errors)        # ERROR-level issues
+print(report.warnings)      # WARNING-level issues
+
+# Relaxed mode — only user-registered rules
+report = handler.validate(mmcif, relaxed=True)
 ```
 
 ## Performance

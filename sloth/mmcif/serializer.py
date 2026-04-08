@@ -4,6 +4,7 @@ mmCIF Serializer - Data structure parsers and relationship resolvers
 Provides dictionary parsing, mapping generation, caching, and relationship resolution.
 """
 import os
+import re
 import hashlib
 import threading
 import pickle
@@ -16,7 +17,7 @@ from .defaults import (
     CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
     MappingDataKey, CategoryPrefix, BooleanValue, SemanticToken,
-    RelationshipType,
+    RelationshipType, RelationshipTerm,
     # Consolidated classes
     DataValue, FileOperation
 )
@@ -211,7 +212,6 @@ class DictionaryParser:
 
     def _parse_content(self, content: str, dict_path: str, cache_key: str) -> Dict[str, Any]:
         """Parse dictionary content and process frames"""
-        import re
         frames = re.split(r'\nsave_', content)
         
         parser = SaveFrameParser(self.quiet)
@@ -274,7 +274,7 @@ class SaveFrameParser:
             if line == FrameMarker.SAVE_END.value:
                 break
                 
-            if line.startswith(FrameMarker.UNDERSCORE.value) and i + 1 < len(lines) and lines[i + 1].strip() == FrameMarker.MULTILINE_DELIMITER.value:
+            if line.startswith(FrameMarker.UNDERSCORE.value) and i + 1 < len(lines) and lines[i + 1].strip().startswith(FrameMarker.MULTILINE_DELIMITER.value):
                 frame_data.update(self._parse_multiline(lines, i))
                 i = frame_data.pop(LoopDataKey.NEXT_INDEX.value)
                 continue
@@ -286,7 +286,7 @@ class SaveFrameParser:
                 
             if line == FrameMarker.LOOP_START.value:
                 loop_data, new_index = self._parse_loop(lines, i + 1)
-                frame_data[LoopDataKey.LOOP_DATA.value] = loop_data
+                frame_data.setdefault(LoopDataKey.LOOP_DATA.value, []).append(loop_data)
                 i = new_index
                 continue
                 
@@ -297,8 +297,11 @@ class SaveFrameParser:
     def _parse_multiline(self, lines: List[str], index: int) -> Dict[str, Any]:
         """Parse multiline text blocks"""
         key = lines[index].strip().strip(FrameMarker.UNDERSCORE.value)
-        i = index + 2  # Skip key line and opening ';'
-        multiline_content = []
+        # The opening ';' may carry trailing text (e.g. ";  description...")
+        opening_line = lines[index + 1].strip()
+        first_line_text = opening_line[1:]  # everything after the leading ';'
+        i = index + 2  # skip key line and opening ';' line
+        multiline_content = [first_line_text] if first_line_text.strip() else []
         
         while i < len(lines):
             if lines[i].strip() == FrameMarker.MULTILINE_DELIMITER.value:
@@ -376,12 +379,13 @@ class FrameDataProcessor:
             self._process_non_loop_frame(frame_data)
     
     def _process_loop_frame(self, frame_data: Dict[str, Any]):
-        """Process frames with loop data"""
-        loop_info = frame_data[LoopDataKey.LOOP_DATA.value]
-        
-        for loop_item in loop_info[LoopDataKey.ITEMS.value]:
-            combined_data = {**frame_data, **loop_item}
-            self._classify_data(combined_data)
+        """Process frames with loop data (may contain multiple loops)"""
+        loops = frame_data[LoopDataKey.LOOP_DATA.value]
+        # Flatten all loop items across all loops in this frame
+        for loop_info in loops:
+            for loop_item in loop_info[LoopDataKey.ITEMS.value]:
+                combined_data = {**frame_data, **loop_item}
+                self._classify_data(combined_data)
     
     def _process_non_loop_frame(self, frame_data: Dict[str, Any]):
         """Process frames without loop data"""
@@ -495,12 +499,13 @@ class PrimaryKeyExtractor:
             
             # Check for composite keys in loop data
             if LoopDataKey.LOOP_DATA.value in cat_data:
-                loop_data = cat_data[LoopDataKey.LOOP_DATA.value]
-                for item in loop_data[LoopDataKey.ITEMS.value]:
-                    if DictItemKey.CATEGORY_KEY_NAME.value in item:
-                        key_item = item[DictItemKey.CATEGORY_KEY_NAME.value].strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}')
-                        if key_item and key_item not in key_items:
-                            key_items.append(key_item)
+                loops = cat_data[LoopDataKey.LOOP_DATA.value]
+                for loop_data in loops:
+                    for item in loop_data[LoopDataKey.ITEMS.value]:
+                        if DictItemKey.CATEGORY_KEY_NAME.value in item:
+                            key_item = item[DictItemKey.CATEGORY_KEY_NAME.value].strip(f'{FileOperation.DOUBLE_QUOTE.value}{FileOperation.SINGLE_QUOTE.value}')
+                            if key_item and key_item not in key_items:
+                                key_items.append(key_item)
             
             # Process found key items
             if key_items:
@@ -837,7 +842,6 @@ class ConstraintExtractor:
     def _determine_relationship_type(self, rel: Dict, child_cat: str, 
                                     child_field: str, parent_cat: str) -> RelationshipType:
         """Determine relationship type using dictionary metadata and naming patterns"""
-        from .defaults import RelationshipTerm
         description = rel.get(MappingDataKey.DESCRIPTION.value, DataValue.EMPTY_STRING.value).lower()
         
         # Check explicit indicators in dictionary description
@@ -1187,7 +1191,7 @@ class NestingBuilder:
         indexed = self._create_indexed_structure(flat, primary_keys, child_only_cats)
         
         # Standard ownership nesting: child IN parent
-        self._assign_children(indexed, fk_map)
+        self._assign_children(indexed, fk_map, primary_keys)
         
         # Denormalization: reverse-nest reference relationships (parent IN child)
         if reference_fk_map:
@@ -1232,8 +1236,13 @@ class NestingBuilder:
                 pk_field = primary_keys.get(entity_name, 'id')
                 entity_dict = {}
                 for row in entity_list:
-                    pk_value = row.get(pk_field)
-                    key = str(pk_value) if pk_value is not None else str(len(entity_dict))
+                    if isinstance(pk_field, list):
+                        # Composite key — join field values
+                        parts = [str(row.get(f, '')) for f in pk_field]
+                        key = '_'.join(parts) if any(parts) else str(len(entity_dict))
+                    else:
+                        pk_value = row.get(pk_field)
+                        key = str(pk_value) if pk_value is not None else str(len(entity_dict))
                     entity_dict[key] = row
                 indexed[entity_name] = entity_dict
         return indexed
@@ -1241,14 +1250,15 @@ class NestingBuilder:
     def _assign_children(
         self, 
         indexed: Dict[str, Any], 
-        fk_map: Dict
+        fk_map: Dict,
+        primary_keys: Dict[str, Any] = None
     ):
         """Assign children to parents using foreign key relationships"""
         # Filter FK map to only include relationships where data exists
         usable_fk_map = self._filter_usable_relationships(indexed, fk_map)
         
         # Select primary nesting parent for each child from usable relationships
-        nesting_fk_map = self._select_primary_nesting_parents(usable_fk_map)
+        nesting_fk_map = self._select_primary_nesting_parents(usable_fk_map, primary_keys or {})
         
         for (child_cat, child_col), (parent_cat, _parent_col) in nesting_fk_map.items():
             for _child_pk, row in indexed.get(child_cat, {}).items():
@@ -1313,70 +1323,98 @@ class NestingBuilder:
         
         return usable_fk_map
     
-    def _select_primary_nesting_parents(self, fk_map: Dict) -> Dict:
+    def _select_primary_nesting_parents(self, fk_map: Dict, primary_keys: Dict[str, Any] = None) -> Dict:
         """
         When a child has multiple parent relationships, select the primary parent for nesting.
         
         This prevents duplication when a child can nest under multiple parents (e.g., atom_site
         has relationships to both entity and struct_asym, but should only nest under struct_asym).
         
-        Priority rules:
-        1. Prefer more specific/detailed parents (e.g., struct_asym over entity)
-        2. Prefer non-type/non-enumeration parents (e.g., struct_asym over atom_type)
-        3. Among equals, prefer shorter parent category names (less prefixes = more core)
+        Selection is deterministic from the schema graph — no heuristic scoring:
+        1. Filter out unjoinable parents (composite PK that a single FK can't match)
+        2. Among joinable parents, pick the deepest one in the FK ancestry graph
         """
+        primary_keys = primary_keys or {}
+        
         # Group FK relationships by child category
-        child_to_parents = {}
+        child_to_parents: Dict[str, list] = {}
         for (child_cat, child_col), (parent_cat, parent_col) in fk_map.items():
             if child_cat not in child_to_parents:
                 child_to_parents[child_cat] = []
             child_to_parents[child_cat].append(((child_cat, child_col), (parent_cat, parent_col)))
         
+        # Build parent→parent ancestry from the full FK map for depth resolution
+        parent_of: Dict[str, set] = {}  # cat → set of its parents
+        for (child_cat, _), (parent_cat, _) in fk_map.items():
+            parent_of.setdefault(child_cat, set()).add(parent_cat)
+        
         # Select primary parent for each child
         nesting_fk_map = {}
         for child_cat, parents in child_to_parents.items():
             if len(parents) == 1:
-                # Only one parent, use it
                 nesting_fk_map[parents[0][0]] = parents[0][1]
             else:
-                # Multiple parents - select most specific one
-                primary = self._choose_primary_parent(parents)
+                primary = self._choose_primary_parent(parents, primary_keys, parent_of)
                 nesting_fk_map[primary[0]] = primary[1]
         
         return nesting_fk_map
     
-    def _choose_primary_parent(self, parents: List[Tuple[Tuple[str, str], Tuple[str, str]]]) -> Tuple[Tuple[str, str], Tuple[str, str]]:
+    def _choose_primary_parent(
+        self,
+        parents: List[Tuple[Tuple[str, str], Tuple[str, str]]],
+        primary_keys: Dict[str, Any],
+        parent_of: Dict[str, set],
+    ) -> Tuple[Tuple[str, str], Tuple[str, str]]:
         """
-        Choose the primary parent for nesting from multiple candidates.
+        Choose the primary parent for nesting — deterministically, not heuristically.
         
-        For NESTING, we want the most SPECIFIC parent (opposite of FK collision resolution):
-        1. More underscores = more specific (e.g., struct_asym over entity)
-        2. Penalize pdbx_ prefix (still avoid extension tables)
-        3. Longer name = more specific (e.g., struct_asym over entity)
+        Two structural rules applied in order:
         
-        This ensures atom_site nests under struct_asym (specific structural context)
-        rather than entity (too general).
+        1. **Joinability filter**: _assign_children matches child FK values against
+           the parent's indexed keys (built from the full PK). A single FK field
+           can only match a single-field PK. Parents with composite PKs are
+           therefore unjoinable and eliminated.
         
-        Returns the FK relationship that should be used for nesting.
+        2. **Graph depth**: among the remaining candidates, pick the deepest parent
+           in the FK ancestry graph. If parent A is itself a child of parent B
+           (both candidates), A is more specific and wins. This is deterministic
+           from the schema topology.
+        
+        Fallback: if all candidates are filtered out (shouldn't happen in practice),
+        return the first candidate to avoid crashing.
         """
-        def nesting_priority_score(fk_rel):
-            (_, (parent_cat, _)) = fk_rel
-            
-            # Count underscores (MORE = more specific for nesting)
-            # Invert: -underscore_count so more underscores = lower score = wins
-            underscore_count = -parent_cat.count('_')
-            
-            # Penalize extension prefixes (still want core categories)
-            has_prefix = 1 if parent_cat.startswith((CategoryPrefix.PDBX.value, CategoryPrefix.CIF.value, CategoryPrefix.RCSB.value)) else 0
-            
-            # Longer names = more specific (invert to prefer longer)
-            # Negate so longer names have lower score
-            name_length = -len(parent_cat)
-            
-            return (underscore_count, has_prefix, name_length)
+        # Step 1: filter to joinable parents only
+        joinable = []
+        for rel in parents:
+            (_, (parent_cat, _)) = rel
+            parent_pk = primary_keys.get(parent_cat)
+            if isinstance(parent_pk, list) and len(parent_pk) > 1:
+                continue  # composite PK — single FK can't match indexed key
+            joinable.append(rel)
         
-        # Select parent with lowest priority score (most specific for nesting)
-        return min(parents, key=nesting_priority_score)
+        if not joinable:
+            joinable = parents  # fallback: keep all if none are joinable
+        
+        if len(joinable) == 1:
+            return joinable[0]
+        
+        # Step 2: pick the deepest parent in the FK graph
+        # A parent that is itself a child of another candidate is deeper/more specific
+        candidate_cats = {rel[1][0] for rel in joinable}
+        
+        def depth(cat: str, visited: set = None) -> int:
+            """Count how many candidate ancestors this category has."""
+            if visited is None:
+                visited = set()
+            if cat in visited:
+                return 0
+            visited.add(cat)
+            ancestors = parent_of.get(cat, set()) & candidate_cats
+            if not ancestors:
+                return 0
+            return 1 + max(depth(a, visited) for a in ancestors)
+        
+        return max(joinable, key=lambda rel: depth(rel[1][0]))
 
 
     def _build_top_level(self, indexed: Dict[str, Any]) -> Dict[str, Any]:

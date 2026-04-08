@@ -144,29 +144,78 @@ The most concise approach — objects are created on the fly:
 Strict Mode
 -----------
 
-By default, accessing a non-existent category or data block silently creates it.
-This is convenient when *building* structures, but can mask typos when *reading*
-data.  Pass ``strict=True`` to prevent this:
+.. deprecated:: 0.7.0
+   ``strict=True`` and ``auto_create=False`` have been removed.  The same
+   safety is now provided automatically via **pending proxies**, **schema
+   warnings**, and **fuzzy matching** — see below.
+
+Pending Proxies
+~~~~~~~~~~~~~~~
+
+Accessing a category or data block that does not yet exist returns a
+lightweight *pending proxy* instead of silently creating an empty object:
 
 .. code-block:: python
 
-   handler = MMCIFHandler(strict=True)
+   handler = MMCIFHandler()
    mmcif = handler.read("1abc.cif")
-
    block = mmcif.data_1ABC
-   block._atom_site          # OK — parsed from the file
-   block._atm_site           # AttributeError with a helpful message
 
-The error message lists the available categories so you can spot the typo quickly.
+   pending = block._brand_new       # returns a _PendingCategory (not committed yet)
+   bool(pending)                     # False — nothing has been written
 
-Strict mode can also be set at the model level:
+   # Writing commits the proxy automatically
+   pending.id = ["NEW1"]            # category is now part of the block
+   bool(block._brand_new)           # True
+
+Reading from a pending proxy raises ``AttributeError`` with fuzzy
+suggestions:
 
 .. code-block:: python
 
-   from sloth.mmcif import DataBlock
+   block._atm_site.Cartn_x          # AttributeError: ... Did you mean '_atom_site'?
 
-   block = DataBlock("test", auto_create=False)
-   block._nonexistent  # AttributeError
+Schema Warnings
+~~~~~~~~~~~~~~~
+
+When you assign data to a category or item that is **not** in the bundled
+mmCIF dictionary, SLOTH emits a :class:`SchemaWarning`:
+
+.. code-block:: python
+
+   import warnings
+   from sloth.mmcif import SchemaWarning
+
+   with warnings.catch_warnings(record=True) as w:
+       warnings.simplefilter("always")
+       block._atom_site.my_custom_field = ["x"]
+       # w[0].category == SchemaWarning
+       # "Item 'my_custom_field' is not in the mmCIF dictionary. Did you mean ...?"
+
+To suppress these warnings:
+
+.. code-block:: python
+
+   warnings.filterwarnings("ignore", category=SchemaWarning)
+
+Tab Completion
+~~~~~~~~~~~~~~
+
+All three model classes implement ``__dir__()`` to expose item names,
+category names, block names, and registered plugin names.  This enables
+tab completion in IPython, Jupyter, and any IDE that introspects
+``__dir__``.
+
+Fuzzy Matching
+~~~~~~~~~~~~~~
+
+``AttributeError`` messages on ``Category``, ``DataBlock``, and
+``MMCIFDataContainer`` include "Did you mean …?" suggestions powered by
+``difflib.get_close_matches``:
+
+.. code-block:: python
+
+   block._atom_site.Cartn_X  # AttributeError: ... Did you mean 'Cartn_x'?
 
 
 Deleting Data

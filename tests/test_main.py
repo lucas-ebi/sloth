@@ -10,6 +10,7 @@ import unittest
 import tempfile
 import os
 import json
+import time
 import shutil
 from io import StringIO
 from unittest.mock import mock_open, patch
@@ -24,11 +25,38 @@ from sloth.mmcif import (
     Row,
     Item,
     PluginFactory,
+    PluginScope,
     ValidatorPlugin,
+    ValidationError,
     ValidationSeverity,
+    ValidationReport,
+    CategoryValidator,
+    BlockValidator,
+    ContainerValidator,
     DataSourceFormat,
+    DictionaryValidator,
     MmcifValidator,
+    SchemaWarning,
+    # Rule factories
+    mandatory_items,
+    one_of_following,
+    value_length,
+    value_range,
+    conditional_mandatory,
+    regex_check,
+    ordering_check,
+    allowed_pairs,
+    min_rows,
+    enumeration_check,
+    type_check,
+    foreign_key,
+    parent_child,
+    composite_key,
+    oper_expression,
+    cross_mandatory,
+    cross_ordering,
 )
+import warnings as _warnings
 
 
 class TestMMCIFParser(unittest.TestCase):
@@ -45,8 +73,6 @@ _database_2.database_code    7XJP
 
     def test_read_empty_file(self):
         # Create a temporary file since mmap requires a real file
-        import tempfile
-        import os
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as f:
             f.write("data_empty\n#\n")
@@ -62,8 +88,6 @@ _database_2.database_code    7XJP
 
     def test_read_file_with_data(self):
         # Create a temporary file for testing since mmap requires a real file
-        import tempfile
-        import os
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as f:
             f.write(self.mmcif_content)
@@ -119,8 +143,6 @@ _database_2.database_code    7XJP
 
     def test_parse_file(self):
         # Create a temporary file since mmap requires a real file
-        import tempfile
-        import os
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as f:
             f.write(self.mmcif_content)
@@ -188,7 +210,7 @@ class TestCategoryValidation(unittest.TestCase):
     def setUp(self):
         self.plugin = ValidatorPlugin()
         self.factory = PluginFactory()
-        self.factory.register("validate", self.plugin, scope="category")
+        self.factory.register("validate", self.plugin, scope=PluginScope.CATEGORY)
         self.category = Category(name="_database_2", plugin_factory=self.factory)
 
     def test_validate(self):
@@ -465,7 +487,6 @@ ATOM   4    O  O   4  21.346 8.963  21.523  1.00  28.00
 
     def test_parsing_performance(self):
         """Test that the parser works efficiently."""
-        import time
 
         # Create larger test content for performance testing
         large_content = self.test_mmcif_content
@@ -532,7 +553,6 @@ _atom_site.Cartn_z
             large_file = f.name
 
         try:
-            import time
 
             # Time the parsing
             start_time = time.time()
@@ -693,7 +713,6 @@ ATOM   3    C  12.345 22.678 32.901 35.0
         self.assertIsNotNone(result)
         self.assertIsInstance(result, str)
         # Verify it's valid JSON
-        import json
         data = json.loads(result)
         self.assertIn('data_TEST', data)
 
@@ -865,16 +884,16 @@ _custom_category.custom_item custom_value
         handler = MMCIFHandler()
         vp = ValidatorPlugin()
         vp.register_validator("_entry", lambda cat: None)
-        handler.register("validate", vp)
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
         mmcif = handler.read(self.test_cif_path)
         
         # Should still parse but might validate
         self.assertIn("data_test", mmcif.blocks)
         self.assertIn("_custom_category", mmcif["data_test"].categories)
 
-    def test_strict_mode_prevents_auto_creation(self):
-        """Test that strict=True prevents silent auto-creation of categories."""
-        handler = MMCIFHandler(strict=True)
+    def test_proxy_prevents_auto_creation_on_read(self):
+        """Reading a non-existent category via proxy raises AttributeError."""
+        handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif_path)
 
         # Parsed categories should still be accessible
@@ -882,32 +901,31 @@ _custom_category.custom_item custom_value
         block = mmcif["data_test"]
         self.assertEqual(block["_entry"]["id"], ["test_structure"])
 
-        # Accessing a non-existent category should raise AttributeError
+        # Accessing a non-existent category returns a proxy.
+        # Attempting to *read* from that proxy should raise.
+        from sloth.mmcif.models import _PendingCategory
+        pending = block._nonexistent_category
+        self.assertIsInstance(pending, _PendingCategory)
         with self.assertRaises(AttributeError):
-            _ = block._nonexistent_category
+            _ = pending.some_item
 
-        # Accessing a non-existent data block should raise too
+        # Accessing a non-existent data block returns a proxy.
+        from sloth.mmcif.models import _PendingDataBlock
+        pending_block = mmcif.data_nonexistent
+        self.assertIsInstance(pending_block, _PendingDataBlock)
         with self.assertRaises(AttributeError):
-            _ = mmcif.data_nonexistent
+            _ = pending_block.some_attr
 
-    def test_strict_mode_registers_default_validators(self):
-        """Test that strict=True auto-registers wwPDB validators."""
-        handler = MMCIFHandler(strict=True)
-        # The validate plugin should be registered
-        self.assertTrue(
-            handler.plugin_factory.has_plugin("validate", scope="category")
-        )
-
-    def test_default_mode_allows_auto_creation(self):
-        """Test that default (non-strict) mode still auto-creates."""
-        handler = MMCIFHandler()  # strict=False by default
+    def test_proxy_allows_creation_on_write(self):
+        """Writing through a proxy auto-creates the category."""
+        handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif_path)
         block = mmcif["data_test"]
 
-        # Auto-create should work
-        new_cat = block._brand_new_category
-        self.assertIsNotNone(new_cat)
+        # One-liner creation via proxy
+        block._brand_new_category["widget_id"] = ["w1"]
         self.assertIn("_brand_new_category", block.categories)
+        self.assertEqual(block._brand_new_category.widget_id, ["w1"])
 
     def test_export_with_different_handlers(self):
         """Test export works with handlers with and without validators."""
@@ -923,7 +941,7 @@ _custom_category.custom_item custom_value
         handler_with_plugins = MMCIFHandler()
         vp = ValidatorPlugin()
         vp.register_validator("_entry", lambda cat: None)
-        handler_with_plugins.register("validate", vp)
+        handler_with_plugins.register("validate", vp, scope=PluginScope.CATEGORY)
         mmcif = handler_with_plugins.read(self.test_cif_path)
         
         json_str = handler_with_plugins.export(mmcif)
@@ -951,6 +969,100 @@ _custom_category.custom_item custom_value
         # Export should work
         json_str = handler.export(mmcif)
         self.assertIsInstance(json_str, str)
+
+
+class TestSchemaWarnings(unittest.TestCase):
+    """Test on-the-fly schema warnings during data creation."""
+
+    def test_unknown_category_warns(self):
+        """Creating a non-dictionary category via proxy emits SchemaWarning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._totally_fake_category["x"] = ["1"]
+            schema_warns = [x for x in w if issubclass(x.category, SchemaWarning)]
+            # Should have at least one warning about the category
+            cat_warns = [x for x in schema_warns if "totally_fake_category" in str(x.message)]
+            self.assertTrue(len(cat_warns) > 0, f"Expected SchemaWarning, got: {[str(x.message) for x in w]}")
+
+    def test_known_category_no_category_warning(self):
+        """Creating a valid dictionary category via proxy emits no category warning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._entry["id"] = ["test"]
+            cat_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                         and "_entry" in str(x.message) and "not in the mmCIF dictionary" in str(x.message)
+                         and "Item" not in str(x.message)]
+            self.assertEqual(len(cat_warns), 0, f"Unexpected category warning: {[str(x.message) for x in cat_warns]}")
+
+    def test_unknown_item_warns(self):
+        """Setting a non-dictionary item on a known category emits SchemaWarning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._entry["totally_fake_item"] = ["x"]
+            item_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                          and "totally_fake_item" in str(x.message)]
+            self.assertTrue(len(item_warns) > 0, f"Expected item SchemaWarning, got: {[str(x.message) for x in w]}")
+
+    def test_known_item_no_warning(self):
+        """Setting a valid dictionary item emits no item warning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._entry["id"] = ["test_structure"]
+            item_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                          and "Item" in str(x.message)]
+            self.assertEqual(len(item_warns), 0, f"Unexpected item warning: {[str(x.message) for x in item_warns]}")
+
+    def test_dot_notation_item_warns(self):
+        """Dot-notation assignment of unknown item on existing category warns."""
+        cat = Category("_entry")
+        cat["id"] = ["test"]  # bracket — no warning from __setattr__
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            cat.fake_item_xyz = ["val"]
+            item_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                          and "fake_item_xyz" in str(x.message)]
+            self.assertTrue(len(item_warns) > 0, f"Expected SchemaWarning for dot-notation, got: {[str(x.message) for x in w]}")
+
+    def test_parsing_no_warnings(self):
+        """Parsing a valid mmCIF file should not emit SchemaWarning."""
+        handler = MMCIFHandler()
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            mmcif = handler.read(os.path.join(
+                os.path.dirname(__file__), "..", "tests", "test_main.py"
+            ).replace("tests/test_main.py", "") + "tests/../tests/../tests/../tests/../tests/test_main.py") if False else None
+        # Use the real test fixture instead
+        test_cif = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".cif", delete=False
+        )
+        test_cif.write("data_test\n_entry.id test_structure\n")
+        test_cif.flush()
+        test_cif.close()
+        try:
+            with _warnings.catch_warnings(record=True) as w:
+                _warnings.simplefilter("always")
+                mmcif = handler.read(test_cif.name)
+                schema_warns = [x for x in w if issubclass(x.category, SchemaWarning)]
+                self.assertEqual(len(schema_warns), 0,
+                                 f"Parsing should not warn: {[str(x.message) for x in schema_warns]}")
+        finally:
+            os.unlink(test_cif.name)
+
+    def test_schema_suggest_category(self):
+        """Unknown category warning includes 'Did you mean?' suggestion."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            # _entr is close to _entry
+            block._entr["id"] = ["x"]
+            cat_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                         and "_entr" in str(x.message)]
+            self.assertTrue(len(cat_warns) > 0)
+            self.assertIn("Did you mean", str(cat_warns[0].message))
 
 
 class TestDataStructureIntegrity(unittest.TestCase):
@@ -1131,7 +1243,7 @@ _entry.id TEST
 
 
 class TestRuleFactories(unittest.TestCase):
-    """Test the rule factory functions from sloth.mmcif.rules."""
+    """Test the rule factory functions from sloth.mmcif.validator."""
 
     def _make_category(self, cat_name, **items):
         """Helper: build a Category with items."""
@@ -1142,94 +1254,73 @@ class TestRuleFactories(unittest.TestCase):
         return cat
 
     def test_mandatory_items_pass(self):
-        from sloth.mmcif.rules import mandatory_items
         check = mandatory_items(["id", "name"])
         cat = self._make_category("_test", id=["1"], name=["foo"])
         check(cat)  # should not raise
 
     def test_mandatory_items_fail(self):
-        from sloth.mmcif.rules import mandatory_items
-        from sloth.mmcif.validator import ValidationError
         check = mandatory_items(["id", "name"])
         cat = self._make_category("_test", id=["1"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_mandatory_items_null_values(self):
-        from sloth.mmcif.rules import mandatory_items
-        from sloth.mmcif.validator import ValidationError
         check = mandatory_items(["id"])
         cat = self._make_category("_test", id=["?"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_mandatory_items_exclude(self):
-        from sloth.mmcif.rules import mandatory_items
         check = mandatory_items(["id", "name"], exclude=["name"])
         cat = self._make_category("_test", id=["1"])
         check(cat)  # name excluded, should pass
 
     def test_one_of_following_pass(self):
-        from sloth.mmcif.rules import one_of_following
         check = one_of_following(["a", "b", "c"])
         cat = self._make_category("_test", b=["val"])
         check(cat)
 
     def test_one_of_following_fail(self):
-        from sloth.mmcif.rules import one_of_following
-        from sloth.mmcif.validator import ValidationError
         check = one_of_following(["a", "b"])
         cat = self._make_category("_test", x=["val"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_value_length_pass(self):
-        from sloth.mmcif.rules import value_length
         check = value_length("title", min_len=3, max_len=20)
         cat = self._make_category("_test", title=["Good title"])
         check(cat)
 
     def test_value_length_too_short(self):
-        from sloth.mmcif.rules import value_length
-        from sloth.mmcif.validator import ValidationError
         check = value_length("title", min_len=10)
         cat = self._make_category("_test", title=["Hi"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_value_length_too_long(self):
-        from sloth.mmcif.rules import value_length
-        from sloth.mmcif.validator import ValidationError
         check = value_length("title", max_len=5)
         cat = self._make_category("_test", title=["Way too long title"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_value_range_pass(self):
-        from sloth.mmcif.rules import value_range
         check = value_range("resolution", min_val=0.0, max_val=10.0)
         cat = self._make_category("_test", resolution=["2.5"])
         check(cat)
 
     def test_value_range_below(self):
-        from sloth.mmcif.rules import value_range
-        from sloth.mmcif.validator import ValidationError
         check = value_range("defocus", min_val=0)
         cat = self._make_category("_test", defocus=["-1.5"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_value_range_above(self):
-        from sloth.mmcif.rules import value_range
-        from sloth.mmcif.validator import ValidationError
         check = value_range("res", max_val=5.0)
         cat = self._make_category("_test", res=["10.0"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_conditional_mandatory_triggered(self):
-        from sloth.mmcif.rules import conditional_mandatory
-        from sloth.mmcif.validator import ValidationError
         check = conditional_mandatory(
             required_items=["details"],
             when_item="source_name",
@@ -1240,7 +1331,6 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_conditional_mandatory_not_triggered(self):
-        from sloth.mmcif.rules import conditional_mandatory
         check = conditional_mandatory(
             required_items=["details"],
             when_item="source_name",
@@ -1250,35 +1340,28 @@ class TestRuleFactories(unittest.TestCase):
         check(cat)  # condition not met, should pass
 
     def test_regex_check_pass(self):
-        from sloth.mmcif.rules import regex_check
         check = regex_check("accession_code", r"^[\w\d]{4}$")
         cat = self._make_category("_test", accession_code=["1csb"])
         check(cat)
 
     def test_regex_check_fail(self):
-        from sloth.mmcif.rules import regex_check
-        from sloth.mmcif.validator import ValidationError
         check = regex_check("accession_code", r"^[\w\d]{4}$")
         cat = self._make_category("_test", accession_code=["invalid!!"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_ordering_check_pass(self):
-        from sloth.mmcif.rules import ordering_check
         check = ordering_check("d_res_low", "d_res_high", "<")
         cat = self._make_category("_test", d_res_low=["1.0"], d_res_high=["3.0"])
         check(cat)
 
     def test_ordering_check_fail(self):
-        from sloth.mmcif.rules import ordering_check
-        from sloth.mmcif.validator import ValidationError
         check = ordering_check("d_res_low", "d_res_high", "<")
         cat = self._make_category("_test", d_res_low=["5.0"], d_res_high=["3.0"])
         with self.assertRaises(ValidationError):
             check(cat)
 
     def test_cross_mandatory_pass(self):
-        from sloth.mmcif.rules import cross_mandatory
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
         cat_b = Category(name="_b", plugin_factory=pf)
@@ -1287,8 +1370,6 @@ class TestRuleFactories(unittest.TestCase):
         check(cat_a, cat_b)
 
     def test_cross_mandatory_fail(self):
-        from sloth.mmcif.rules import cross_mandatory
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
         cat_b = Category(name="_b", plugin_factory=pf)
@@ -1297,7 +1378,6 @@ class TestRuleFactories(unittest.TestCase):
             check(cat_a, cat_b)
 
     def test_cross_ordering_pass(self):
-        from sloth.mmcif.rules import cross_ordering
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
         cat_b = Category(name="_b", plugin_factory=pf)
@@ -1307,8 +1387,6 @@ class TestRuleFactories(unittest.TestCase):
         check(cat_a, cat_b)
 
     def test_cross_ordering_fail(self):
-        from sloth.mmcif.rules import cross_ordering
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
         cat_b = Category(name="_b", plugin_factory=pf)
@@ -1337,19 +1415,17 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_register_with_handler(self):
         handler = MMCIFHandler()
         vp = MmcifValidator()
-        handler.register("validate", vp)
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
         self.assertIsNotNone(handler.plugin_factory)
 
     def test_struct_title_too_short(self):
         """wwPDB rule: _struct.title must be >= 10 chars."""
-        from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import value_length
         vp = ValidatorPlugin()
         vp.register_validator("_struct", value_length(
             "title", min_len=10, severity=ValidationSeverity.ERROR,
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_struct", plugin_factory=pf)
         cat["title"] = ["Hi"]
         with self.assertRaises(ValidationError):
@@ -1357,27 +1433,24 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
 
     def test_struct_title_valid(self):
         """wwPDB rule: _struct.title with enough characters should pass."""
-        from sloth.mmcif.rules import value_length
         vp = ValidatorPlugin()
         vp.register_validator("_struct", value_length(
             "title", min_len=10, severity=ValidationSeverity.ERROR,
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_struct", plugin_factory=pf)
         cat["title"] = ["Crystal structure of an important protein"]
         cat.validate()  # should not raise
 
     def test_allowed_pairs_in_validators(self):
         """wwPDB rule #6: type/source_name pairs in _pdbx_initial_refinement_model."""
-        from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import allowed_pairs
         vp = ValidatorPlugin()
         vp.register_validator("_pdbx_initial_refinement_model", allowed_pairs(
             "type", "source_name", {"other": ["Other"]},
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_pdbx_initial_refinement_model", plugin_factory=pf)
         cat["type"] = ["other"]
         cat["source_name"] = ["PDB"]  # invalid: other → only Other allowed
@@ -1388,14 +1461,12 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
 
     def test_em_imaging_defocus_ordering(self):
         """wwPDB rule #8: nominal_defocus_min <= nominal_defocus_max."""
-        from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import ordering_check
         vp = ValidatorPlugin()
         vp.register_validator("_em_imaging", ordering_check(
             "nominal_defocus_min", "nominal_defocus_max", "<=",
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_em_imaging", plugin_factory=pf)
         cat["nominal_defocus_min"] = ["100"]
         cat["nominal_defocus_max"] = ["50"]  # min > max → violation
@@ -1404,12 +1475,10 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
 
     def test_min_rows_audit_author(self):
         """wwPDB rule #12: _audit_author must have at least 2 rows."""
-        from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import min_rows
         vp = ValidatorPlugin()
         vp.register_validator("_audit_author", min_rows(2))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_audit_author", plugin_factory=pf)
         cat["name"] = ["Author One"]
         with self.assertRaises(ValidationError):
@@ -1417,14 +1486,12 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
 
     def test_em_3d_reconstruction_mandatory(self):
         """wwPDB rule #2: resolution & resolution_method mandatory."""
-        from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import mandatory_items
         vp = ValidatorPlugin()
         vp.register_validator("_em_3d_reconstruction", mandatory_items(
             ["resolution", "resolution_method"],
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_em_3d_reconstruction", plugin_factory=pf)
         cat["id"] = ["1"]
         with self.assertRaises(ValidationError):
@@ -1435,36 +1502,30 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
     """Test that DictionaryValidator reuses DictionaryParser correctly."""
 
     def test_returns_validator_plugin(self):
-        from sloth.mmcif.rules import DictionaryValidator
         vp = DictionaryValidator()
         self.assertIsInstance(vp, ValidatorPlugin)
 
     def test_has_validators(self):
         """Dictionary should produce at least some mandatory / enum checks."""
-        from sloth.mmcif.rules import DictionaryValidator
         vp = DictionaryValidator()
         self.assertTrue(len(vp._validators) > 0)
 
     def test_has_cross_checkers(self):
         """Dictionary relationships should produce FK / parent-child checks."""
-        from sloth.mmcif.rules import DictionaryValidator
         vp = DictionaryValidator()
         self.assertTrue(len(vp._cross_checkers) > 0)
 
     def test_register_with_handler(self):
-        from sloth.mmcif.rules import DictionaryValidator
         handler = MMCIFHandler()
         vp = DictionaryValidator()
-        handler.register("dict_validate", vp)
+        handler.register("dict_validate", vp, scope=PluginScope.CATEGORY)
         self.assertIsNotNone(handler.plugin_factory)
 
     def test_mandatory_from_dictionary(self):
         """Mandatory items parsed from dictionary should fail when missing."""
-        from sloth.mmcif.rules import DictionaryValidator
-        from sloth.mmcif.validator import ValidationError
         vp = DictionaryValidator()
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         # _audit_author.name and .pdbx_ordinal are mandatory in the dictionary
         cat = Category(name="_audit_author", plugin_factory=pf)
         cat["irrelevant"] = ["x"]
@@ -1473,10 +1534,9 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_mandatory_from_dictionary_pass(self):
         """Mandatory items satisfied should not raise."""
-        from sloth.mmcif.rules import DictionaryValidator
         vp = DictionaryValidator()
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_audit_author", plugin_factory=pf)
         cat["name"] = ["Smith, J."]
         cat["pdbx_ordinal"] = ["1"]
@@ -1484,7 +1544,6 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_enumeration_from_dictionary(self):
         """Enumeration values from dictionary should reject invalid values."""
-        from sloth.mmcif.rules import DictionaryValidator
         vp = DictionaryValidator()
         # Check if there are any enumeration validators registered
         has_enum = False
@@ -1502,8 +1561,6 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_explicit_dict_path(self):
         """Passing an explicit path to the bundled dict should work the same."""
-        import os
-        from sloth.mmcif.rules import DictionaryValidator
         dict_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "sloth", "mmcif", "schemas", "mmcif_pdbx_v50.dic",
@@ -1514,7 +1571,6 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_mmcif_validator_includes_dictionary_rules(self):
         """MmcifValidator should include dictionary rules + wwPDB rules."""
-        from sloth.mmcif.rules import DictionaryValidator
         dict_vp = DictionaryValidator()
         full_vp = MmcifValidator()
         # Full should have at least as many validators as dict-only
@@ -1540,7 +1596,6 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- allowed_pairs --
 
     def test_allowed_pairs_pass(self):
-        from sloth.mmcif.rules import allowed_pairs
         check = allowed_pairs("type", "source_name", {
             "experimental model": ["PDB", "Other"],
         })
@@ -1548,8 +1603,6 @@ class TestNewRuleFactories(unittest.TestCase):
         check(cat)
 
     def test_allowed_pairs_fail(self):
-        from sloth.mmcif.rules import allowed_pairs
-        from sloth.mmcif.validator import ValidationError
         check = allowed_pairs("type", "source_name", {
             "other": ["Other"],
         })
@@ -1560,14 +1613,11 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- min_rows --
 
     def test_min_rows_pass(self):
-        from sloth.mmcif.rules import min_rows
         check = min_rows(2)
         cat = self._make_category("_test", name=["A", "B"])
         check(cat)
 
     def test_min_rows_fail(self):
-        from sloth.mmcif.rules import min_rows
-        from sloth.mmcif.validator import ValidationError
         check = min_rows(2)
         cat = self._make_category("_test", name=["A"])
         with self.assertRaises(ValidationError):
@@ -1576,14 +1626,11 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- enumeration_check --
 
     def test_enumeration_check_pass(self):
-        from sloth.mmcif.rules import enumeration_check
         check = enumeration_check("status", ["active", "inactive"])
         cat = self._make_category("_test", status=["active"])
         check(cat)
 
     def test_enumeration_check_fail(self):
-        from sloth.mmcif.rules import enumeration_check
-        from sloth.mmcif.validator import ValidationError
         check = enumeration_check("status", ["active", "inactive"])
         cat = self._make_category("_test", status=["deleted"])
         with self.assertRaises(ValidationError):
@@ -1592,14 +1639,11 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- type_check --
 
     def test_type_check_pass(self):
-        from sloth.mmcif.rules import type_check
         check = type_check("date", r"\d{4}-\d{2}-\d{2}", "yyyy-mm-dd")
         cat = self._make_category("_test", date=["2026-04-07"])
         check(cat)
 
     def test_type_check_fail(self):
-        from sloth.mmcif.rules import type_check
-        from sloth.mmcif.validator import ValidationError
         check = type_check("date", r"\d{4}-\d{2}-\d{2}", "yyyy-mm-dd")
         cat = self._make_category("_test", date=["20260407"])
         with self.assertRaises(ValidationError):
@@ -1608,7 +1652,6 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- foreign_key --
 
     def test_foreign_key_pass(self):
-        from sloth.mmcif.rules import foreign_key
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
         child["entity_id"] = ["1", "2"]
@@ -1618,8 +1661,6 @@ class TestNewRuleFactories(unittest.TestCase):
         check(child, parent)
 
     def test_foreign_key_fail(self):
-        from sloth.mmcif.rules import foreign_key
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
         child["entity_id"] = ["1", "99"]
@@ -1632,7 +1673,6 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- parent_child --
 
     def test_parent_child_pass(self):
-        from sloth.mmcif.rules import parent_child
         pf = PluginFactory()
         child = Category(name="_entity_src_nat", plugin_factory=pf)
         child["entity_id"] = ["1"]
@@ -1642,8 +1682,6 @@ class TestNewRuleFactories(unittest.TestCase):
         check(child, parent)
 
     def test_parent_child_fail(self):
-        from sloth.mmcif.rules import parent_child
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         child = Category(name="_entity_src_nat", plugin_factory=pf)
         child["entity_id"] = ["1"]
@@ -1656,7 +1694,6 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- composite_key --
 
     def test_composite_key_pass(self):
-        from sloth.mmcif.rules import composite_key
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
         child["mon_id"] = ["ALA", "GLY"]
@@ -1668,8 +1705,6 @@ class TestNewRuleFactories(unittest.TestCase):
         check(child, parent)
 
     def test_composite_key_fail(self):
-        from sloth.mmcif.rules import composite_key
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
         child["mon_id"] = ["ALA", "XXX"]
@@ -1684,7 +1719,6 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- oper_expression --
 
     def test_oper_expression_pass(self):
-        from sloth.mmcif.rules import oper_expression
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
         assembly_gen["oper_expression"] = ["(1-3)"]
@@ -1694,8 +1728,6 @@ class TestNewRuleFactories(unittest.TestCase):
         check(assembly_gen, oper_list)
 
     def test_oper_expression_fail(self):
-        from sloth.mmcif.rules import oper_expression
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
         assembly_gen["oper_expression"] = ["(1-5)"]
@@ -1706,7 +1738,6 @@ class TestNewRuleFactories(unittest.TestCase):
             check(assembly_gen, oper_list)
 
     def test_oper_expression_comma_list(self):
-        from sloth.mmcif.rules import oper_expression
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
         assembly_gen["oper_expression"] = ["(1,2,5)"]
@@ -1716,8 +1747,6 @@ class TestNewRuleFactories(unittest.TestCase):
         check(assembly_gen, oper_list)
 
     def test_oper_expression_combined_groups(self):
-        from sloth.mmcif.rules import oper_expression
-        from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
         assembly_gen["oper_expression"] = ["(1,2)(3,4)"]
@@ -1726,6 +1755,164 @@ class TestNewRuleFactories(unittest.TestCase):
         check = oper_expression()
         with self.assertRaises(ValidationError):
             check(assembly_gen, oper_list)
+
+
+class TestHandlerValidate(unittest.TestCase):
+    """Tests for handler.validate() — the all-in-one recursive validation API."""
+
+    def setUp(self):
+        self.test_cif = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".cif", delete=False,
+        )
+        self.test_cif.write(
+            "data_test\n"
+            "_entry.id test\n"
+            "_audit_author.name 'Smith, J.'\n"
+            "_audit_author.pdbx_ordinal 1\n"
+        )
+        self.test_cif.close()
+
+    def tearDown(self):
+        os.unlink(self.test_cif.name)
+
+    def test_validate_returns_report(self):
+        """handler.validate() should return a ValidationReport."""
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_validate_relaxed_no_plugins(self):
+        """validate(relaxed=True) with no registered validators returns empty report."""
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif, relaxed=True)
+        self.assertIsInstance(report, ValidationReport)
+        self.assertEqual(len(report), 0)
+
+    def test_validate_full_suite(self):
+        """validate() runs the full MmcifValidator suite by default."""
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif)
+        self.assertIsNotNone(report)
+
+    def test_validate_datablock(self):
+        """validate() accepts a DataBlock directly."""
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        block = mmcif["data_test"]
+        report = handler.validate(block)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_validate_category(self):
+        """validate() accepts a single Category."""
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        cat = mmcif["data_test"]["_entry"]
+        report = handler.validate(cat)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_validate_bad_type_raises(self):
+        """validate() rejects non-data objects."""
+        handler = MMCIFHandler()
+        with self.assertRaises(TypeError):
+            handler.validate("not a data object")
+
+    def test_validate_merges_custom_rules(self):
+        """User-registered validators run alongside defaults."""
+        handler = MMCIFHandler()
+
+        # Register a custom validator that always fails
+        from sloth.mmcif.validator import ValidationError as VE
+        custom_vp = ValidatorPlugin()
+        def _always_fail(cat):
+            raise VE("custom fail", path=cat.name)
+        custom_vp.register_validator("_entry", _always_fail)
+        handler.register("validate", custom_vp, scope=PluginScope.CATEGORY)
+
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif)
+
+        # The custom rule's error should be in the report
+        custom_msgs = [e for e in report.all_issues if "custom fail" in str(e)]
+        self.assertTrue(len(custom_msgs) > 0, "Custom validator should have run")
+
+    def test_validate_custom_categories_relaxed(self):
+        """relaxed=True with custom validators on non-dictionary categories."""
+        from sloth.mmcif.validator import ValidationError as VE
+        handler = MMCIFHandler()
+
+        custom_vp = ValidatorPlugin()
+        def _check_widget(cat):
+            if "widget_id" not in cat.items:
+                raise VE("widget_id is required", path=cat.name)
+        custom_vp.register_validator("_my_custom_category", _check_widget)
+        handler.register("validate", custom_vp, scope=PluginScope.CATEGORY)
+
+        container = MMCIFDataContainer()
+        block = DataBlock("test")
+        cat = Category("_my_custom_category")
+        cat["name"] = ["foo"]  # missing widget_id
+        block["_my_custom_category"] = cat
+        container["data_test"] = block
+
+        report = handler.validate(container, relaxed=True)
+        self.assertFalse(report.is_valid)
+        self.assertTrue(any("widget_id" in str(e) for e in report.errors))
+
+    def test_validate_programmatic_data(self):
+        """validate() works on data built entirely in-memory (no file)."""
+        handler = MMCIFHandler()
+        container = MMCIFDataContainer()
+        block = DataBlock("test")
+        cat = Category("_entry")
+        cat["id"] = ["test_structure"]
+        block["_entry"] = cat
+        container["data_test"] = block
+        report = handler.validate(container)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_report_is_valid_property(self):
+        """Report.is_valid should be True when only warnings present."""
+        report = ValidationReport()
+        self.assertTrue(report.is_valid)
+        report.add(ValidationError("warn", severity=ValidationSeverity.WARNING))
+        self.assertTrue(report.is_valid)
+        report.add(ValidationError("err", severity=ValidationSeverity.ERROR))
+        self.assertFalse(report.is_valid)
+
+    def test_report_raise_on_error(self):
+        """raise_on_error() should raise when errors exist."""
+        report = ValidationReport()
+        report.raise_on_error()  # no-op, no errors
+        report.add(ValidationError("boom", severity=ValidationSeverity.ERROR))
+        with self.assertRaises(ValidationError):
+            report.raise_on_error()
+
+    def test_block_validate_dot_notation(self):
+        """block.validate() should be available when validators are registered."""
+        handler = MMCIFHandler()
+        vp = MmcifValidator()
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
+        handler.register("validate", BlockValidator(vp), scope=PluginScope.BLOCK)
+        mmcif = handler.read(self.test_cif.name)
+        block = mmcif["data_test"]
+        wrapper = block.validate()
+        self.assertIsNotNone(wrapper.report)
+
+    def test_container_validate_dot_notation(self):
+        """container.validate() should be available when validators are registered."""
+        handler = MMCIFHandler()
+        vp = MmcifValidator()
+        bv = BlockValidator(vp)
+        cv = ContainerValidator(bv)
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
+        handler.register("validate", bv, scope=PluginScope.BLOCK)
+        handler.register("validate", cv, scope=PluginScope.CONTAINER)
+        mmcif = handler.read(self.test_cif.name)
+        wrapper = mmcif.validate()
+        self.assertIsNotNone(wrapper.report)
 
 
 if __name__ == "__main__":
