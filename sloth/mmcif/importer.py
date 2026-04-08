@@ -272,8 +272,6 @@ class JSONImporter(BaseImporter):
         
         This mirrors the flat JSON structure used in JSONExporter._to_flat_json().
         """
-        from .models import DataBlock, Category
-        
         blocks = {}
         
         for block_name, block_data in json_data.items():

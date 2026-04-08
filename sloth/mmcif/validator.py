@@ -11,25 +11,16 @@ ready-to-use validator classes (:class:`DictionaryValidator`,
 """
 
 import re
-from enum import Enum, auto
 from typing import (
     Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple,
     TYPE_CHECKING,
 )
 
 from .plugins import Plugin, PluginWrapper
-from .defaults import DataValue
+from .defaults import DataValue, DictItemKey, RelationshipKey, ValidationSeverity
 
 if TYPE_CHECKING:
     from .models import Category, DataBlock, MMCIFDataContainer
-
-
-class ValidationSeverity(Enum):
-    """Severity levels for validation errors."""
-
-    ERROR = auto()  # Validation failures that should prevent processing
-    WARNING = auto()  # Issues that should be flagged but don't prevent processing
-    INFO = auto()  # Informational notices
 
 
 class ValidationError(Exception):
@@ -947,8 +938,6 @@ class DictionaryValidator(ValidatorPlugin):
     # ------------------------------------------------------------------
 
     def _register_schema_rules(self) -> None:
-        from .defaults import DictItemKey, RelationshipKey
-
         items = self._schema["items"]
         enumerations = self._schema["enumerations"]
         item_types_map = self._schema["item_types"]

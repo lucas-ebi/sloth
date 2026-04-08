@@ -6,6 +6,7 @@ Tests JSON export/import with both flat and nested structures,
 ensuring data integrity is preserved across conversions.
 """
 
+import json
 import unittest
 import tempfile
 import shutil
@@ -169,7 +170,6 @@ B 2 4 C 13.456
         )
         
         # Read the JSON to check structure
-        import json
         with open(json_path) as f:
             data = json.load(f)
             block = list(data.values())[0]

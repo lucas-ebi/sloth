@@ -6,10 +6,9 @@ from typing import (
 )
 from difflib import get_close_matches
 from functools import cached_property
-from enum import Enum, auto
 from abc import ABC, abstractmethod
 from .plugins import PluginFactory
-from .defaults import PluginScope
+from .defaults import PluginScope, DataSourceFormat
 import sys
 import warnings
 
@@ -98,15 +97,6 @@ class _DictionarySchema:
             frozenset(categories),
             {k: frozenset(v) for k, v in items_by_cat.items()},
         )
-
-
-class DataSourceFormat(Enum):
-    """Enum to track the format source of mmCIF data."""
-
-    MMCIF = auto()  # Native mmCIF file
-    JSON = auto()  # JSON file or string
-    DICT = auto()  # Python dictionary
-    UNKNOWN = auto()  # Unknown source
 
 
 class DataNode(ABC):

@@ -4,6 +4,7 @@ mmCIF Serializer - Data structure parsers and relationship resolvers
 Provides dictionary parsing, mapping generation, caching, and relationship resolution.
 """
 import os
+import re
 import hashlib
 import threading
 import pickle
@@ -16,7 +17,7 @@ from .defaults import (
     CacheType, DictDataType, FrameMarker, LoopDataKey, 
     TabularDataCategory, TabularDataField, RelationshipKey, DictItemKey,
     MappingDataKey, CategoryPrefix, BooleanValue, SemanticToken,
-    RelationshipType,
+    RelationshipType, RelationshipTerm,
     # Consolidated classes
     DataValue, FileOperation
 )
@@ -211,7 +212,6 @@ class DictionaryParser:
 
     def _parse_content(self, content: str, dict_path: str, cache_key: str) -> Dict[str, Any]:
         """Parse dictionary content and process frames"""
-        import re
         frames = re.split(r'\nsave_', content)
         
         parser = SaveFrameParser(self.quiet)
@@ -842,7 +842,6 @@ class ConstraintExtractor:
     def _determine_relationship_type(self, rel: Dict, child_cat: str, 
                                     child_field: str, parent_cat: str) -> RelationshipType:
         """Determine relationship type using dictionary metadata and naming patterns"""
-        from .defaults import RelationshipTerm
         description = rel.get(MappingDataKey.DESCRIPTION.value, DataValue.EMPTY_STRING.value).lower()
         
         # Check explicit indicators in dictionary description
