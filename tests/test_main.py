@@ -1825,5 +1825,174 @@ class TestNewRuleFactories(unittest.TestCase):
             check(assembly_gen, oper_list)
 
 
+class TestHandlerValidate(unittest.TestCase):
+    """Tests for handler.validate() — the all-in-one recursive validation API."""
+
+    def setUp(self):
+        self.test_cif = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".cif", delete=False,
+        )
+        self.test_cif.write(
+            "data_test\n"
+            "_entry.id test\n"
+            "_audit_author.name 'Smith, J.'\n"
+            "_audit_author.pdbx_ordinal 1\n"
+        )
+        self.test_cif.close()
+
+    def tearDown(self):
+        os.unlink(self.test_cif.name)
+
+    def test_validate_returns_report(self):
+        """handler.validate() should return a ValidationReport."""
+        from sloth.mmcif.validator import ValidationReport
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_validate_relaxed_no_plugins(self):
+        """validate(relaxed=True) with no registered validators returns empty report."""
+        from sloth.mmcif.validator import ValidationReport
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif, relaxed=True)
+        self.assertIsInstance(report, ValidationReport)
+        self.assertEqual(len(report), 0)
+
+    def test_validate_full_suite(self):
+        """validate() runs the full MmcifValidator suite by default."""
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif)
+        self.assertIsNotNone(report)
+
+    def test_validate_datablock(self):
+        """validate() accepts a DataBlock directly."""
+        from sloth.mmcif.validator import ValidationReport
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        block = mmcif["data_test"]
+        report = handler.validate(block)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_validate_category(self):
+        """validate() accepts a single Category."""
+        from sloth.mmcif.validator import ValidationReport
+        handler = MMCIFHandler()
+        mmcif = handler.read(self.test_cif.name)
+        cat = mmcif["data_test"]["_entry"]
+        report = handler.validate(cat)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_validate_bad_type_raises(self):
+        """validate() rejects non-data objects."""
+        handler = MMCIFHandler()
+        with self.assertRaises(TypeError):
+            handler.validate("not a data object")
+
+    def test_validate_merges_custom_rules(self):
+        """User-registered validators run alongside defaults."""
+        handler = MMCIFHandler()
+
+        # Register a custom validator that always fails
+        from sloth.mmcif.validator import ValidationError as VE
+        custom_vp = ValidatorPlugin()
+        def _always_fail(cat):
+            raise VE("custom fail", path=cat.name)
+        custom_vp.register_validator("_entry", _always_fail)
+        handler.register("validate", custom_vp, scope=PluginScope.CATEGORY)
+
+        mmcif = handler.read(self.test_cif.name)
+        report = handler.validate(mmcif)
+
+        # The custom rule's error should be in the report
+        custom_msgs = [e for e in report.all_issues if "custom fail" in str(e)]
+        self.assertTrue(len(custom_msgs) > 0, "Custom validator should have run")
+
+    def test_validate_custom_categories_relaxed(self):
+        """relaxed=True with custom validators on non-dictionary categories."""
+        from sloth.mmcif.validator import ValidationError as VE
+        handler = MMCIFHandler()
+
+        custom_vp = ValidatorPlugin()
+        def _check_widget(cat):
+            if "widget_id" not in cat.items:
+                raise VE("widget_id is required", path=cat.name)
+        custom_vp.register_validator("_my_custom_category", _check_widget)
+        handler.register("validate", custom_vp, scope=PluginScope.CATEGORY)
+
+        container = MMCIFDataContainer()
+        block = DataBlock("test")
+        cat = Category("_my_custom_category")
+        cat["name"] = ["foo"]  # missing widget_id
+        block["_my_custom_category"] = cat
+        container["data_test"] = block
+
+        report = handler.validate(container, relaxed=True)
+        self.assertFalse(report.is_valid)
+        self.assertTrue(any("widget_id" in str(e) for e in report.errors))
+
+    def test_validate_programmatic_data(self):
+        """validate() works on data built entirely in-memory (no file)."""
+        from sloth.mmcif.validator import ValidationReport
+        handler = MMCIFHandler()
+        container = MMCIFDataContainer()
+        block = DataBlock("test")
+        cat = Category("_entry")
+        cat["id"] = ["test_structure"]
+        block["_entry"] = cat
+        container["data_test"] = block
+        report = handler.validate(container)
+        self.assertIsInstance(report, ValidationReport)
+
+    def test_report_is_valid_property(self):
+        """Report.is_valid should be True when only warnings present."""
+        from sloth.mmcif.validator import ValidationReport
+        report = ValidationReport()
+        self.assertTrue(report.is_valid)
+        report.add(ValidationError("warn", severity=ValidationSeverity.WARNING))
+        self.assertTrue(report.is_valid)
+        report.add(ValidationError("err", severity=ValidationSeverity.ERROR))
+        self.assertFalse(report.is_valid)
+
+    def test_report_raise_on_error(self):
+        """raise_on_error() should raise when errors exist."""
+        from sloth.mmcif.validator import ValidationReport
+        report = ValidationReport()
+        report.raise_on_error()  # no-op, no errors
+        report.add(ValidationError("boom", severity=ValidationSeverity.ERROR))
+        with self.assertRaises(ValidationError):
+            report.raise_on_error()
+
+    def test_block_validate_dot_notation(self):
+        """block.validate() should be available when validators are registered."""
+        from sloth.mmcif.validator import BlockValidator
+        from sloth.mmcif.rules import MmcifValidator
+        handler = MMCIFHandler()
+        vp = MmcifValidator()
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
+        handler.register("validate", BlockValidator(vp), scope=PluginScope.BLOCK)
+        mmcif = handler.read(self.test_cif.name)
+        block = mmcif["data_test"]
+        wrapper = block.validate()
+        self.assertIsNotNone(wrapper.report)
+
+    def test_container_validate_dot_notation(self):
+        """container.validate() should be available when validators are registered."""
+        from sloth.mmcif.validator import BlockValidator, ContainerValidator
+        from sloth.mmcif.rules import MmcifValidator
+        handler = MMCIFHandler()
+        vp = MmcifValidator()
+        bv = BlockValidator(vp)
+        cv = ContainerValidator(bv)
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
+        handler.register("validate", bv, scope=PluginScope.BLOCK)
+        handler.register("validate", cv, scope=PluginScope.CONTAINER)
+        mmcif = handler.read(self.test_cif.name)
+        wrapper = mmcif.validate()
+        self.assertIsNotNone(wrapper.report)
+
+
 if __name__ == "__main__":
     unittest.main()

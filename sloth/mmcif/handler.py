@@ -6,6 +6,11 @@ from .importer import JSONImporter
 from .models import MMCIFDataContainer, DataBlock, Category, DataSourceFormat
 from .plugins import PluginFactory, Plugin
 from .defaults import PluginScope
+from .rules import MmcifValidator
+from .validator import (
+    ValidationError, ValidationReport, ValidatorPlugin,
+    BlockValidator,
+)
 
 
 class MMCIFHandler:
@@ -154,3 +159,86 @@ class MMCIFHandler:
         container = importer.import_data(file_path)
         container.source_format = DataSourceFormat.JSON
         return container
+
+    # -- validation ---------------------------------------------------------
+
+    def validate(
+        self,
+        data: Union[MMCIFDataContainer, DataBlock, Category],
+        *,
+        relaxed: bool = False,
+    ) -> "ValidationReport":
+        """Validate mmCIF data recursively and return a :class:`ValidationReport`.
+
+        Works on any level of the hierarchy — a single
+        :class:`~sloth.mmcif.models.Category`, a
+        :class:`~sloth.mmcif.models.DataBlock`, or an entire
+        :class:`~sloth.mmcif.models.MMCIFDataContainer`.
+
+        The rules that run depend on the *relaxed* flag:
+
+        * **default** (``relaxed=False``): the full
+          :class:`~sloth.mmcif.rules.MmcifValidator` dictionary + wwPDB suite
+          runs first, followed by any user-registered custom validators.
+        * **relaxed** (``relaxed=True``): *only* user-registered validators
+          run.  If none have been registered the report will be empty.
+
+        :param data: The data object to validate.
+        :param relaxed: When ``True``, skip the official MmcifValidator and
+            only run user-registered rules.
+        :return: A :class:`ValidationReport` with all collected issues.
+
+        Example::
+
+            handler = MMCIFHandler()
+            report = handler.validate(container)              # full suite
+            report = handler.validate(container, relaxed=True) # user rules only
+        """
+        # Reject bad types early
+        if not isinstance(data, (MMCIFDataContainer, DataBlock, Category)):
+            raise TypeError(
+                f"Expected Category, DataBlock, or MMCIFDataContainer, "
+                f"got {type(data).__name__}"
+            )
+
+        # Build the effective validator based on relaxed flag
+        user_plugin = self._plugin_factory.get_plugin(
+            "validate", PluginScope.CATEGORY
+        )
+
+        if not relaxed:
+            # Full validation: official MmcifValidator + user rules
+            effective: ValidatorPlugin = MmcifValidator()
+            # Merge any user-registered custom rules on top
+            if (
+                user_plugin is not None
+                and isinstance(user_plugin, ValidatorPlugin)
+                and not isinstance(user_plugin, MmcifValidator)
+            ):
+                effective = effective.merge(user_plugin)
+        else:
+            # Relaxed: only user-registered validators
+            if user_plugin is not None and isinstance(user_plugin, ValidatorPlugin):
+                effective = user_plugin
+            else:
+                # Nothing registered — return an empty report
+                return ValidationReport()
+
+        if isinstance(data, MMCIFDataContainer):
+            bv = BlockValidator(effective)
+            report = ValidationReport()
+            for block_name in data.blocks:
+                report.extend(bv.execute(data[block_name]))
+            return report
+
+        if isinstance(data, DataBlock):
+            return BlockValidator(effective).execute(data)
+
+        if isinstance(data, Category):
+            report = ValidationReport()
+            for validator_fn in effective.get_validators(data.name):
+                try:
+                    validator_fn(data)
+                except ValidationError as exc:
+                    report.add(exc)
+            return report

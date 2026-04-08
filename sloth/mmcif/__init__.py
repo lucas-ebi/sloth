@@ -44,6 +44,11 @@ from .validator import (
     ValidationSeverity,
     ValidatorPlugin,
     CategoryValidator,
+    ValidationReport,
+    BlockValidator,
+    BlockValidationWrapper,
+    ContainerValidator,
+    ContainerValidationWrapper,
 )
 from .rules import (
     # Validator classes
@@ -107,6 +112,11 @@ __all__ = [
     "CategoryValidator",
     "ValidationError",
     "ValidationSeverity",
+    "ValidationReport",
+    "BlockValidator",
+    "BlockValidationWrapper",
+    "ContainerValidator",
+    "ContainerValidationWrapper",
     # Rules
     "DictionaryValidator",
     "MmcifValidator",
