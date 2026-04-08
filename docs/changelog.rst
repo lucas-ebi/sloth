@@ -5,6 +5,7 @@ v0.6.0 (2026-04-07)
 --------------------
 
 - **Validation rules module** (``sloth.mmcif.rules``):
+
   - ``DictionaryValidator``: auto-generates checks from the bundled mmCIF
     dictionary via ``DictionaryParser`` (mandatory items, enumerations,
     type-regex patterns, FK/composite-key integrity, parent/child presence)

@@ -2,7 +2,7 @@ Validation
 ==========
 
 SLOTH provides a layered validation system built on the
-:doc:`plugin system <api/validator>`.  Two ready-to-use validator classes and a
+:doc:`plugin system <api/plugins>`.  Two ready-to-use validator classes and a
 library of composable rule factories cover everything from mmCIF dictionary
 conformance to wwPDB deposition business rules.
 

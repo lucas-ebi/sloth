@@ -1,8 +1,8 @@
-Validation
-==========
+Validator
+=========
 
 .. module:: sloth.mmcif.validator
-   :synopsis: Validation plugin, wrapper, and exception classes
+   :synopsis: Validation-specific classes and exceptions
 
 Exceptions
 ----------
@@ -24,28 +24,5 @@ Validator Plugin
    :show-inheritance:
 
 .. autoclass:: CategoryValidator
-   :members:
-   :show-inheritance:
-
-Plugin System
--------------
-
-.. module:: sloth.mmcif.plugins
-   :synopsis: Generic plugin factory and base classes
-
-.. autoclass:: PluginFactory
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: Plugin
-   :members:
-   :show-inheritance:
-
-.. autoclass:: PluginWrapper
-   :members:
-   :show-inheritance:
-
-.. autoclass:: FunctionPlugin
    :members:
    :show-inheritance:

@@ -61,6 +61,7 @@ Getting Started
    api/exporter
    api/importer
    api/serializer
+   api/plugins
    api/validator
    api/rules
    api/common
