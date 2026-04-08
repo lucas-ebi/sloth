@@ -1,0 +1,78 @@
+name: Update mmCIF dictionary
+
+on:
+  schedule:
+    # Check weekly on Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch: # allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dictionary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest dictionary
+        run: |
+          curl -fsSL -o /tmp/mmcif_pdbx_v50.dic \
+            "https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic"
+
+      - name: Check for changes
+        id: diff
+        run: |
+          CURRENT="sloth/mmcif/schemas/mmcif_pdbx_v50.dic"
+          NEW="/tmp/mmcif_pdbx_v50.dic"
+          if cmp -s "$CURRENT" "$NEW"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            cp "$NEW" "$CURRENT"
+            # Extract dictionary version from the file header
+            VERSION=$(grep -m1 '_dictionary.version' "$CURRENT" | awk '{print $2}' || echo "unknown")
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump patch version
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          python -c "
+          import re, pathlib
+          init = pathlib.Path('sloth/__init__.py')
+          text = init.read_text()
+          m = re.search(r'__version__\s*=\s*[\"''](\d+\.\d+\.)(\d+)[\"'']', text)
+          if m:
+              new_patch = int(m.group(2)) + 1
+              new_ver = m.group(1) + str(new_patch)
+              text = text[:m.start()] + f'__version__ = \"{new_ver}\"' + text[m.end():]
+              init.write_text(text)
+              print(f'Bumped to {new_ver}')
+          "
+
+      - name: Delete stale dictionary cache
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          # Remove any pickled dictionary caches so they get rebuilt
+          find . -name '*.pickle' -path '*/schemas/*' -delete 2>/dev/null || true
+
+      - name: Create Pull Request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update mmCIF dictionary to ${{ steps.diff.outputs.version }}"
+          branch: auto/update-mmcif-dictionary
+          delete-branch: true
+          title: "chore: update mmCIF dictionary to ${{ steps.diff.outputs.version }}"
+          body: |
+            Automated update of the bundled PDBx/mmCIF dictionary.
+
+            **Dictionary version:** `${{ steps.diff.outputs.version }}`
+            **Source:** https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
+
+            This PR was created automatically by the `update-dictionary` workflow.
+            Please review, run the test suite, and merge when ready.
+          labels: dependencies, automated
