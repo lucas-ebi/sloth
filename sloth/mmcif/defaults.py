@@ -127,6 +127,19 @@ def is_null_value(value: str) -> bool:
     """Check if value represents null"""
     return DataValue.is_null(value)
 
+class PluginScope(Enum):
+    """Scope that determines which hierarchy level exposes a plugin."""
+
+    CATEGORY = "category"
+    """Available on :class:`Category` objects."""
+
+    BLOCK = "block"
+    """Available on :class:`DataBlock` objects."""
+
+    CONTAINER = "container"
+    """Available on :class:`MMCIFDataContainer` objects."""
+
+
 # ====================== Enums for Constants and Magic Strings ======================
 
 class CacheType(Enum):

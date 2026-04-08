@@ -12,7 +12,9 @@ Plugins are accessed as attributes::
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
+
+from .defaults import PluginScope
 
 if TYPE_CHECKING:
     from .models import Category, DataBlock, MMCIFDataContainer
@@ -86,29 +88,27 @@ class PluginFactory:
     the data object) and a *scope* that determines which hierarchy level
     exposes the plugin:
 
-    * ``"category"``  – available on :class:`Category` objects
-    * ``"block"``     – available on :class:`DataBlock` objects
-    * ``"container"`` – available on :class:`MMCIFDataContainer` objects
+    * :attr:`PluginScope.CATEGORY`  – available on :class:`Category` objects
+    * :attr:`PluginScope.BLOCK`     – available on :class:`DataBlock` objects
+    * :attr:`PluginScope.CONTAINER` – available on :class:`MMCIFDataContainer` objects
     """
 
-    VALID_SCOPES = {"category", "block", "container"}
-
     def __init__(self):
-        self._plugins: Dict[Tuple[str, str], Plugin] = {}
+        self._plugins: Dict[Tuple[str, PluginScope], Plugin] = {}
 
     # -- registration -------------------------------------------------------
 
-    def register(self, name: str, plugin, scope: str = "category") -> None:
+    def register(self, name: str, plugin, *, scope: PluginScope) -> None:
         """Register a plugin.
 
         :param name: The dot-notation attribute name (e.g. ``"validate"``).
         :param plugin: A :class:`Plugin` instance **or** a plain callable
             (auto-wrapped as :class:`FunctionPlugin`).
-        :param scope: ``"category"``, ``"block"``, or ``"container"``.
+        :param scope: A :class:`PluginScope` member.
         """
-        if scope not in self.VALID_SCOPES:
-            raise ValueError(
-                f"Invalid scope '{scope}'. Must be one of {self.VALID_SCOPES}"
+        if not isinstance(scope, PluginScope):
+            raise TypeError(
+                f"scope must be a PluginScope member, got {type(scope).__name__}: {scope!r}"
             )
         if not isinstance(plugin, Plugin):
             if callable(plugin):
@@ -121,18 +121,22 @@ class PluginFactory:
 
     # -- lookup -------------------------------------------------------------
 
-    def get_wrapper(self, name: str, target, scope: str) -> Optional[PluginWrapper]:
+    def get_wrapper(self, name: str, target, scope: PluginScope) -> Optional[PluginWrapper]:
         """Return a bound :class:`PluginWrapper` for *name*, or ``None``."""
         plugin = self._plugins.get((name, scope))
         if plugin is None:
             return None
         return plugin.create_wrapper(target)
 
-    def has_plugin(self, name: str, scope: str) -> bool:
+    def has_plugin(self, name: str, scope: PluginScope) -> bool:
         """Return ``True`` if a plugin is registered for *(name, scope)*."""
         return (name, scope) in self._plugins
 
-    def list_plugins(self, scope: Optional[str] = None) -> List[str]:
+    def get_plugin(self, name: str, scope: PluginScope) -> Optional[Plugin]:
+        """Return the raw :class:`Plugin` for *(name, scope)*, or ``None``."""
+        return self._plugins.get((name, scope))
+
+    def list_plugins(self, scope: Optional[PluginScope] = None) -> List[str]:
         """Return registered plugin names, optionally filtered by *scope*."""
         if scope is not None:
             return [n for (n, s) in self._plugins if s == scope]

@@ -3,33 +3,20 @@ from .parser import MMCIFParser
 from .writer import MMCIFWriter
 from .exporter import JSONExporter
 from .importer import JSONImporter
-from .models import MMCIFDataContainer, DataSourceFormat
+from .models import MMCIFDataContainer, DataBlock, Category, DataSourceFormat
 from .plugins import PluginFactory, Plugin
+from .defaults import PluginScope
 
 
 class MMCIFHandler:
     """A class to handle reading and writing mmCIF files with high-performance gemmi backend."""
 
-    def __init__(self, strict: bool = False):
-        """
-        Initialize the handler with gemmi backend for optimal performance.
-
-        :param strict: If ``True``, prevent silent auto-creation of categories
-            and data blocks on attribute access (sets ``auto_create=False``)
-            **and** register the default wwPDB validation rules via
-            :class:`~sloth.mmcif.rules.MmcifValidator`.
-        """
-        self.strict = strict
+    def __init__(self):
+        """Initialize the handler with gemmi backend for optimal performance."""
         self._plugin_factory = PluginFactory()
         self._parser = None
         self._writer = None
         self._file_obj = None
-
-        if strict:
-            from .rules import MmcifValidator
-            self._plugin_factory.register(
-                "validate", MmcifValidator(), scope="category"
-            )
 
     @property
     def plugin_factory(self) -> PluginFactory:
@@ -41,21 +28,22 @@ class MMCIFHandler:
         name: str,
         plugin,
         *,
-        scope: str = "category",
+        scope: PluginScope,
     ) -> None:
         """Register a plugin for dot-notation access.
 
         :param name: The attribute name (e.g. ``"validate"``, ``"statistics"``).
         :param plugin: A :class:`Plugin` instance or a plain callable.
-        :param scope: ``"category"``, ``"block"``, or ``"container"``.
+        :param scope: A :class:`PluginScope` member.
 
         Example::
 
+            from sloth.mmcif import PluginScope
             from sloth.mmcif.validator import ValidatorPlugin
-            handler.register("validate", ValidatorPlugin())
+            handler.register("validate", ValidatorPlugin(), scope=PluginScope.CATEGORY)
 
             # Or a simple function plugin
-            handler.register("stats", lambda cat: cat.row_count)
+            handler.register("stats", lambda cat: cat.row_count, scope=PluginScope.CATEGORY)
         """
         self._plugin_factory.register(name, plugin, scope=scope)
 
@@ -75,7 +63,6 @@ class MMCIFHandler:
         :rtype: MMCIFDataContainer
         """
         self._parser = MMCIFParser(
-            strict=self.strict,
             plugin_factory=self._plugin_factory,
             categories=categories,
         )

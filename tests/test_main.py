@@ -24,7 +24,9 @@ from sloth.mmcif import (
     Row,
     Item,
     PluginFactory,
+    PluginScope,
     ValidatorPlugin,
+    ValidationError,
     ValidationSeverity,
     DataSourceFormat,
     MmcifValidator,
@@ -188,7 +190,7 @@ class TestCategoryValidation(unittest.TestCase):
     def setUp(self):
         self.plugin = ValidatorPlugin()
         self.factory = PluginFactory()
-        self.factory.register("validate", self.plugin, scope="category")
+        self.factory.register("validate", self.plugin, scope=PluginScope.CATEGORY)
         self.category = Category(name="_database_2", plugin_factory=self.factory)
 
     def test_validate(self):
@@ -865,16 +867,16 @@ _custom_category.custom_item custom_value
         handler = MMCIFHandler()
         vp = ValidatorPlugin()
         vp.register_validator("_entry", lambda cat: None)
-        handler.register("validate", vp)
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
         mmcif = handler.read(self.test_cif_path)
         
         # Should still parse but might validate
         self.assertIn("data_test", mmcif.blocks)
         self.assertIn("_custom_category", mmcif["data_test"].categories)
 
-    def test_strict_mode_prevents_auto_creation(self):
-        """Test that strict=True prevents silent auto-creation of categories."""
-        handler = MMCIFHandler(strict=True)
+    def test_proxy_prevents_auto_creation_on_read(self):
+        """Reading a non-existent category via proxy raises AttributeError."""
+        handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif_path)
 
         # Parsed categories should still be accessible
@@ -882,32 +884,31 @@ _custom_category.custom_item custom_value
         block = mmcif["data_test"]
         self.assertEqual(block["_entry"]["id"], ["test_structure"])
 
-        # Accessing a non-existent category should raise AttributeError
+        # Accessing a non-existent category returns a proxy.
+        # Attempting to *read* from that proxy should raise.
+        from sloth.mmcif.models import _PendingCategory
+        pending = block._nonexistent_category
+        self.assertIsInstance(pending, _PendingCategory)
         with self.assertRaises(AttributeError):
-            _ = block._nonexistent_category
+            _ = pending.some_item
 
-        # Accessing a non-existent data block should raise too
+        # Accessing a non-existent data block returns a proxy.
+        from sloth.mmcif.models import _PendingDataBlock
+        pending_block = mmcif.data_nonexistent
+        self.assertIsInstance(pending_block, _PendingDataBlock)
         with self.assertRaises(AttributeError):
-            _ = mmcif.data_nonexistent
+            _ = pending_block.some_attr
 
-    def test_strict_mode_registers_default_validators(self):
-        """Test that strict=True auto-registers wwPDB validators."""
-        handler = MMCIFHandler(strict=True)
-        # The validate plugin should be registered
-        self.assertTrue(
-            handler.plugin_factory.has_plugin("validate", scope="category")
-        )
-
-    def test_default_mode_allows_auto_creation(self):
-        """Test that default (non-strict) mode still auto-creates."""
-        handler = MMCIFHandler()  # strict=False by default
+    def test_proxy_allows_creation_on_write(self):
+        """Writing through a proxy auto-creates the category."""
+        handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif_path)
         block = mmcif["data_test"]
 
-        # Auto-create should work
-        new_cat = block._brand_new_category
-        self.assertIsNotNone(new_cat)
+        # One-liner creation via proxy
+        block._brand_new_category["widget_id"] = ["w1"]
         self.assertIn("_brand_new_category", block.categories)
+        self.assertEqual(block._brand_new_category.widget_id, ["w1"])
 
     def test_export_with_different_handlers(self):
         """Test export works with handlers with and without validators."""
@@ -923,7 +924,7 @@ _custom_category.custom_item custom_value
         handler_with_plugins = MMCIFHandler()
         vp = ValidatorPlugin()
         vp.register_validator("_entry", lambda cat: None)
-        handler_with_plugins.register("validate", vp)
+        handler_with_plugins.register("validate", vp, scope=PluginScope.CATEGORY)
         mmcif = handler_with_plugins.read(self.test_cif_path)
         
         json_str = handler_with_plugins.export(mmcif)
@@ -1337,7 +1338,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_register_with_handler(self):
         handler = MMCIFHandler()
         vp = MmcifValidator()
-        handler.register("validate", vp)
+        handler.register("validate", vp, scope=PluginScope.CATEGORY)
         self.assertIsNotNone(handler.plugin_factory)
 
     def test_struct_title_too_short(self):
@@ -1349,7 +1350,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
             "title", min_len=10, severity=ValidationSeverity.ERROR,
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_struct", plugin_factory=pf)
         cat["title"] = ["Hi"]
         with self.assertRaises(ValidationError):
@@ -1363,7 +1364,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
             "title", min_len=10, severity=ValidationSeverity.ERROR,
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_struct", plugin_factory=pf)
         cat["title"] = ["Crystal structure of an important protein"]
         cat.validate()  # should not raise
@@ -1377,7 +1378,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
             "type", "source_name", {"other": ["Other"]},
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_pdbx_initial_refinement_model", plugin_factory=pf)
         cat["type"] = ["other"]
         cat["source_name"] = ["PDB"]  # invalid: other → only Other allowed
@@ -1395,7 +1396,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
             "nominal_defocus_min", "nominal_defocus_max", "<=",
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_em_imaging", plugin_factory=pf)
         cat["nominal_defocus_min"] = ["100"]
         cat["nominal_defocus_max"] = ["50"]  # min > max → violation
@@ -1409,7 +1410,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         vp = ValidatorPlugin()
         vp.register_validator("_audit_author", min_rows(2))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_audit_author", plugin_factory=pf)
         cat["name"] = ["Author One"]
         with self.assertRaises(ValidationError):
@@ -1424,7 +1425,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
             ["resolution", "resolution_method"],
         ))
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_em_3d_reconstruction", plugin_factory=pf)
         cat["id"] = ["1"]
         with self.assertRaises(ValidationError):
@@ -1455,7 +1456,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
         from sloth.mmcif.rules import DictionaryValidator
         handler = MMCIFHandler()
         vp = DictionaryValidator()
-        handler.register("dict_validate", vp)
+        handler.register("dict_validate", vp, scope=PluginScope.CATEGORY)
         self.assertIsNotNone(handler.plugin_factory)
 
     def test_mandatory_from_dictionary(self):
@@ -1464,7 +1465,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
         from sloth.mmcif.validator import ValidationError
         vp = DictionaryValidator()
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         # _audit_author.name and .pdbx_ordinal are mandatory in the dictionary
         cat = Category(name="_audit_author", plugin_factory=pf)
         cat["irrelevant"] = ["x"]
@@ -1476,7 +1477,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
         from sloth.mmcif.rules import DictionaryValidator
         vp = DictionaryValidator()
         pf = PluginFactory()
-        pf.register("validate", vp, scope="category")
+        pf.register("validate", vp, scope=PluginScope.CATEGORY)
         cat = Category(name="_audit_author", plugin_factory=pf)
         cat["name"] = ["Smith, J."]
         cat["pdbx_ordinal"] = ["1"]

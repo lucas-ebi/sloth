@@ -37,6 +37,7 @@ from .plugins import (
     PluginWrapper,
     FunctionPlugin,
 )
+from .defaults import PluginScope
 from .validator import (
     ValidationError,
     ValidationSeverity,
@@ -95,6 +96,7 @@ __all__ = [
     "BaseExporter",
     # Plugin system
     "PluginFactory",
+    "PluginScope",
     "Plugin",
     "PluginWrapper",
     "FunctionPlugin",
