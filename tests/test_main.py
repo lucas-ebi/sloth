@@ -1228,7 +1228,7 @@ _entry.id TEST
 
 
 class TestRuleFactories(unittest.TestCase):
-    """Test the rule factory functions from sloth.mmcif.rules."""
+    """Test the rule factory functions from sloth.mmcif.validator."""
 
     def _make_category(self, cat_name, **items):
         """Helper: build a Category with items."""
@@ -1239,13 +1239,13 @@ class TestRuleFactories(unittest.TestCase):
         return cat
 
     def test_mandatory_items_pass(self):
-        from sloth.mmcif.rules import mandatory_items
+        from sloth.mmcif.validator import mandatory_items
         check = mandatory_items(["id", "name"])
         cat = self._make_category("_test", id=["1"], name=["foo"])
         check(cat)  # should not raise
 
     def test_mandatory_items_fail(self):
-        from sloth.mmcif.rules import mandatory_items
+        from sloth.mmcif.validator import mandatory_items
         from sloth.mmcif.validator import ValidationError
         check = mandatory_items(["id", "name"])
         cat = self._make_category("_test", id=["1"])
@@ -1253,7 +1253,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_mandatory_items_null_values(self):
-        from sloth.mmcif.rules import mandatory_items
+        from sloth.mmcif.validator import mandatory_items
         from sloth.mmcif.validator import ValidationError
         check = mandatory_items(["id"])
         cat = self._make_category("_test", id=["?"])
@@ -1261,19 +1261,19 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_mandatory_items_exclude(self):
-        from sloth.mmcif.rules import mandatory_items
+        from sloth.mmcif.validator import mandatory_items
         check = mandatory_items(["id", "name"], exclude=["name"])
         cat = self._make_category("_test", id=["1"])
         check(cat)  # name excluded, should pass
 
     def test_one_of_following_pass(self):
-        from sloth.mmcif.rules import one_of_following
+        from sloth.mmcif.validator import one_of_following
         check = one_of_following(["a", "b", "c"])
         cat = self._make_category("_test", b=["val"])
         check(cat)
 
     def test_one_of_following_fail(self):
-        from sloth.mmcif.rules import one_of_following
+        from sloth.mmcif.validator import one_of_following
         from sloth.mmcif.validator import ValidationError
         check = one_of_following(["a", "b"])
         cat = self._make_category("_test", x=["val"])
@@ -1281,13 +1281,13 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_value_length_pass(self):
-        from sloth.mmcif.rules import value_length
+        from sloth.mmcif.validator import value_length
         check = value_length("title", min_len=3, max_len=20)
         cat = self._make_category("_test", title=["Good title"])
         check(cat)
 
     def test_value_length_too_short(self):
-        from sloth.mmcif.rules import value_length
+        from sloth.mmcif.validator import value_length
         from sloth.mmcif.validator import ValidationError
         check = value_length("title", min_len=10)
         cat = self._make_category("_test", title=["Hi"])
@@ -1295,7 +1295,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_value_length_too_long(self):
-        from sloth.mmcif.rules import value_length
+        from sloth.mmcif.validator import value_length
         from sloth.mmcif.validator import ValidationError
         check = value_length("title", max_len=5)
         cat = self._make_category("_test", title=["Way too long title"])
@@ -1303,13 +1303,13 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_value_range_pass(self):
-        from sloth.mmcif.rules import value_range
+        from sloth.mmcif.validator import value_range
         check = value_range("resolution", min_val=0.0, max_val=10.0)
         cat = self._make_category("_test", resolution=["2.5"])
         check(cat)
 
     def test_value_range_below(self):
-        from sloth.mmcif.rules import value_range
+        from sloth.mmcif.validator import value_range
         from sloth.mmcif.validator import ValidationError
         check = value_range("defocus", min_val=0)
         cat = self._make_category("_test", defocus=["-1.5"])
@@ -1317,7 +1317,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_value_range_above(self):
-        from sloth.mmcif.rules import value_range
+        from sloth.mmcif.validator import value_range
         from sloth.mmcif.validator import ValidationError
         check = value_range("res", max_val=5.0)
         cat = self._make_category("_test", res=["10.0"])
@@ -1325,7 +1325,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_conditional_mandatory_triggered(self):
-        from sloth.mmcif.rules import conditional_mandatory
+        from sloth.mmcif.validator import conditional_mandatory
         from sloth.mmcif.validator import ValidationError
         check = conditional_mandatory(
             required_items=["details"],
@@ -1337,7 +1337,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_conditional_mandatory_not_triggered(self):
-        from sloth.mmcif.rules import conditional_mandatory
+        from sloth.mmcif.validator import conditional_mandatory
         check = conditional_mandatory(
             required_items=["details"],
             when_item="source_name",
@@ -1347,13 +1347,13 @@ class TestRuleFactories(unittest.TestCase):
         check(cat)  # condition not met, should pass
 
     def test_regex_check_pass(self):
-        from sloth.mmcif.rules import regex_check
+        from sloth.mmcif.validator import regex_check
         check = regex_check("accession_code", r"^[\w\d]{4}$")
         cat = self._make_category("_test", accession_code=["1csb"])
         check(cat)
 
     def test_regex_check_fail(self):
-        from sloth.mmcif.rules import regex_check
+        from sloth.mmcif.validator import regex_check
         from sloth.mmcif.validator import ValidationError
         check = regex_check("accession_code", r"^[\w\d]{4}$")
         cat = self._make_category("_test", accession_code=["invalid!!"])
@@ -1361,13 +1361,13 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_ordering_check_pass(self):
-        from sloth.mmcif.rules import ordering_check
+        from sloth.mmcif.validator import ordering_check
         check = ordering_check("d_res_low", "d_res_high", "<")
         cat = self._make_category("_test", d_res_low=["1.0"], d_res_high=["3.0"])
         check(cat)
 
     def test_ordering_check_fail(self):
-        from sloth.mmcif.rules import ordering_check
+        from sloth.mmcif.validator import ordering_check
         from sloth.mmcif.validator import ValidationError
         check = ordering_check("d_res_low", "d_res_high", "<")
         cat = self._make_category("_test", d_res_low=["5.0"], d_res_high=["3.0"])
@@ -1375,7 +1375,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_cross_mandatory_pass(self):
-        from sloth.mmcif.rules import cross_mandatory
+        from sloth.mmcif.validator import cross_mandatory
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
         cat_b = Category(name="_b", plugin_factory=pf)
@@ -1384,7 +1384,7 @@ class TestRuleFactories(unittest.TestCase):
         check(cat_a, cat_b)
 
     def test_cross_mandatory_fail(self):
-        from sloth.mmcif.rules import cross_mandatory
+        from sloth.mmcif.validator import cross_mandatory
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
@@ -1394,7 +1394,7 @@ class TestRuleFactories(unittest.TestCase):
             check(cat_a, cat_b)
 
     def test_cross_ordering_pass(self):
-        from sloth.mmcif.rules import cross_ordering
+        from sloth.mmcif.validator import cross_ordering
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
         cat_b = Category(name="_b", plugin_factory=pf)
@@ -1404,7 +1404,7 @@ class TestRuleFactories(unittest.TestCase):
         check(cat_a, cat_b)
 
     def test_cross_ordering_fail(self):
-        from sloth.mmcif.rules import cross_ordering
+        from sloth.mmcif.validator import cross_ordering
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         cat_a = Category(name="_a", plugin_factory=pf)
@@ -1440,7 +1440,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_struct_title_too_short(self):
         """wwPDB rule: _struct.title must be >= 10 chars."""
         from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import value_length
+        from sloth.mmcif.validator import value_length
         vp = ValidatorPlugin()
         vp.register_validator("_struct", value_length(
             "title", min_len=10, severity=ValidationSeverity.ERROR,
@@ -1454,7 +1454,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
 
     def test_struct_title_valid(self):
         """wwPDB rule: _struct.title with enough characters should pass."""
-        from sloth.mmcif.rules import value_length
+        from sloth.mmcif.validator import value_length
         vp = ValidatorPlugin()
         vp.register_validator("_struct", value_length(
             "title", min_len=10, severity=ValidationSeverity.ERROR,
@@ -1468,7 +1468,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_allowed_pairs_in_validators(self):
         """wwPDB rule #6: type/source_name pairs in _pdbx_initial_refinement_model."""
         from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import allowed_pairs
+        from sloth.mmcif.validator import allowed_pairs
         vp = ValidatorPlugin()
         vp.register_validator("_pdbx_initial_refinement_model", allowed_pairs(
             "type", "source_name", {"other": ["Other"]},
@@ -1486,7 +1486,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_em_imaging_defocus_ordering(self):
         """wwPDB rule #8: nominal_defocus_min <= nominal_defocus_max."""
         from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import ordering_check
+        from sloth.mmcif.validator import ordering_check
         vp = ValidatorPlugin()
         vp.register_validator("_em_imaging", ordering_check(
             "nominal_defocus_min", "nominal_defocus_max", "<=",
@@ -1502,7 +1502,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_min_rows_audit_author(self):
         """wwPDB rule #12: _audit_author must have at least 2 rows."""
         from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import min_rows
+        from sloth.mmcif.validator import min_rows
         vp = ValidatorPlugin()
         vp.register_validator("_audit_author", min_rows(2))
         pf = PluginFactory()
@@ -1515,7 +1515,7 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
     def test_em_3d_reconstruction_mandatory(self):
         """wwPDB rule #2: resolution & resolution_method mandatory."""
         from sloth.mmcif.validator import ValidationError
-        from sloth.mmcif.rules import mandatory_items
+        from sloth.mmcif.validator import mandatory_items
         vp = ValidatorPlugin()
         vp.register_validator("_em_3d_reconstruction", mandatory_items(
             ["resolution", "resolution_method"],
@@ -1532,24 +1532,24 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
     """Test that DictionaryValidator reuses DictionaryParser correctly."""
 
     def test_returns_validator_plugin(self):
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         vp = DictionaryValidator()
         self.assertIsInstance(vp, ValidatorPlugin)
 
     def test_has_validators(self):
         """Dictionary should produce at least some mandatory / enum checks."""
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         vp = DictionaryValidator()
         self.assertTrue(len(vp._validators) > 0)
 
     def test_has_cross_checkers(self):
         """Dictionary relationships should produce FK / parent-child checks."""
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         vp = DictionaryValidator()
         self.assertTrue(len(vp._cross_checkers) > 0)
 
     def test_register_with_handler(self):
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         handler = MMCIFHandler()
         vp = DictionaryValidator()
         handler.register("dict_validate", vp, scope=PluginScope.CATEGORY)
@@ -1557,7 +1557,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_mandatory_from_dictionary(self):
         """Mandatory items parsed from dictionary should fail when missing."""
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         from sloth.mmcif.validator import ValidationError
         vp = DictionaryValidator()
         pf = PluginFactory()
@@ -1570,7 +1570,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_mandatory_from_dictionary_pass(self):
         """Mandatory items satisfied should not raise."""
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         vp = DictionaryValidator()
         pf = PluginFactory()
         pf.register("validate", vp, scope=PluginScope.CATEGORY)
@@ -1581,7 +1581,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_enumeration_from_dictionary(self):
         """Enumeration values from dictionary should reject invalid values."""
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         vp = DictionaryValidator()
         # Check if there are any enumeration validators registered
         has_enum = False
@@ -1600,7 +1600,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
     def test_explicit_dict_path(self):
         """Passing an explicit path to the bundled dict should work the same."""
         import os
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         dict_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "sloth", "mmcif", "schemas", "mmcif_pdbx_v50.dic",
@@ -1611,7 +1611,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
 
     def test_mmcif_validator_includes_dictionary_rules(self):
         """MmcifValidator should include dictionary rules + wwPDB rules."""
-        from sloth.mmcif.rules import DictionaryValidator
+        from sloth.mmcif.validator import DictionaryValidator
         dict_vp = DictionaryValidator()
         full_vp = MmcifValidator()
         # Full should have at least as many validators as dict-only
@@ -1637,7 +1637,7 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- allowed_pairs --
 
     def test_allowed_pairs_pass(self):
-        from sloth.mmcif.rules import allowed_pairs
+        from sloth.mmcif.validator import allowed_pairs
         check = allowed_pairs("type", "source_name", {
             "experimental model": ["PDB", "Other"],
         })
@@ -1645,7 +1645,7 @@ class TestNewRuleFactories(unittest.TestCase):
         check(cat)
 
     def test_allowed_pairs_fail(self):
-        from sloth.mmcif.rules import allowed_pairs
+        from sloth.mmcif.validator import allowed_pairs
         from sloth.mmcif.validator import ValidationError
         check = allowed_pairs("type", "source_name", {
             "other": ["Other"],
@@ -1657,13 +1657,13 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- min_rows --
 
     def test_min_rows_pass(self):
-        from sloth.mmcif.rules import min_rows
+        from sloth.mmcif.validator import min_rows
         check = min_rows(2)
         cat = self._make_category("_test", name=["A", "B"])
         check(cat)
 
     def test_min_rows_fail(self):
-        from sloth.mmcif.rules import min_rows
+        from sloth.mmcif.validator import min_rows
         from sloth.mmcif.validator import ValidationError
         check = min_rows(2)
         cat = self._make_category("_test", name=["A"])
@@ -1673,13 +1673,13 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- enumeration_check --
 
     def test_enumeration_check_pass(self):
-        from sloth.mmcif.rules import enumeration_check
+        from sloth.mmcif.validator import enumeration_check
         check = enumeration_check("status", ["active", "inactive"])
         cat = self._make_category("_test", status=["active"])
         check(cat)
 
     def test_enumeration_check_fail(self):
-        from sloth.mmcif.rules import enumeration_check
+        from sloth.mmcif.validator import enumeration_check
         from sloth.mmcif.validator import ValidationError
         check = enumeration_check("status", ["active", "inactive"])
         cat = self._make_category("_test", status=["deleted"])
@@ -1689,13 +1689,13 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- type_check --
 
     def test_type_check_pass(self):
-        from sloth.mmcif.rules import type_check
+        from sloth.mmcif.validator import type_check
         check = type_check("date", r"\d{4}-\d{2}-\d{2}", "yyyy-mm-dd")
         cat = self._make_category("_test", date=["2026-04-07"])
         check(cat)
 
     def test_type_check_fail(self):
-        from sloth.mmcif.rules import type_check
+        from sloth.mmcif.validator import type_check
         from sloth.mmcif.validator import ValidationError
         check = type_check("date", r"\d{4}-\d{2}-\d{2}", "yyyy-mm-dd")
         cat = self._make_category("_test", date=["20260407"])
@@ -1705,7 +1705,7 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- foreign_key --
 
     def test_foreign_key_pass(self):
-        from sloth.mmcif.rules import foreign_key
+        from sloth.mmcif.validator import foreign_key
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
         child["entity_id"] = ["1", "2"]
@@ -1715,7 +1715,7 @@ class TestNewRuleFactories(unittest.TestCase):
         check(child, parent)
 
     def test_foreign_key_fail(self):
-        from sloth.mmcif.rules import foreign_key
+        from sloth.mmcif.validator import foreign_key
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
@@ -1729,7 +1729,7 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- parent_child --
 
     def test_parent_child_pass(self):
-        from sloth.mmcif.rules import parent_child
+        from sloth.mmcif.validator import parent_child
         pf = PluginFactory()
         child = Category(name="_entity_src_nat", plugin_factory=pf)
         child["entity_id"] = ["1"]
@@ -1739,7 +1739,7 @@ class TestNewRuleFactories(unittest.TestCase):
         check(child, parent)
 
     def test_parent_child_fail(self):
-        from sloth.mmcif.rules import parent_child
+        from sloth.mmcif.validator import parent_child
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         child = Category(name="_entity_src_nat", plugin_factory=pf)
@@ -1753,7 +1753,7 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- composite_key --
 
     def test_composite_key_pass(self):
-        from sloth.mmcif.rules import composite_key
+        from sloth.mmcif.validator import composite_key
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
         child["mon_id"] = ["ALA", "GLY"]
@@ -1765,7 +1765,7 @@ class TestNewRuleFactories(unittest.TestCase):
         check(child, parent)
 
     def test_composite_key_fail(self):
-        from sloth.mmcif.rules import composite_key
+        from sloth.mmcif.validator import composite_key
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         child = Category(name="_child", plugin_factory=pf)
@@ -1781,7 +1781,7 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- oper_expression --
 
     def test_oper_expression_pass(self):
-        from sloth.mmcif.rules import oper_expression
+        from sloth.mmcif.validator import oper_expression
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
         assembly_gen["oper_expression"] = ["(1-3)"]
@@ -1791,7 +1791,7 @@ class TestNewRuleFactories(unittest.TestCase):
         check(assembly_gen, oper_list)
 
     def test_oper_expression_fail(self):
-        from sloth.mmcif.rules import oper_expression
+        from sloth.mmcif.validator import oper_expression
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
@@ -1803,7 +1803,7 @@ class TestNewRuleFactories(unittest.TestCase):
             check(assembly_gen, oper_list)
 
     def test_oper_expression_comma_list(self):
-        from sloth.mmcif.rules import oper_expression
+        from sloth.mmcif.validator import oper_expression
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
         assembly_gen["oper_expression"] = ["(1,2,5)"]
@@ -1813,7 +1813,7 @@ class TestNewRuleFactories(unittest.TestCase):
         check(assembly_gen, oper_list)
 
     def test_oper_expression_combined_groups(self):
-        from sloth.mmcif.rules import oper_expression
+        from sloth.mmcif.validator import oper_expression
         from sloth.mmcif.validator import ValidationError
         pf = PluginFactory()
         assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
@@ -1968,7 +1968,7 @@ class TestHandlerValidate(unittest.TestCase):
     def test_block_validate_dot_notation(self):
         """block.validate() should be available when validators are registered."""
         from sloth.mmcif.validator import BlockValidator
-        from sloth.mmcif.rules import MmcifValidator
+        from sloth.mmcif.validator import MmcifValidator
         handler = MMCIFHandler()
         vp = MmcifValidator()
         handler.register("validate", vp, scope=PluginScope.CATEGORY)
@@ -1981,7 +1981,7 @@ class TestHandlerValidate(unittest.TestCase):
     def test_container_validate_dot_notation(self):
         """container.validate() should be available when validators are registered."""
         from sloth.mmcif.validator import BlockValidator, ContainerValidator
-        from sloth.mmcif.rules import MmcifValidator
+        from sloth.mmcif.validator import MmcifValidator
         handler = MMCIFHandler()
         vp = MmcifValidator()
         bv = BlockValidator(vp)

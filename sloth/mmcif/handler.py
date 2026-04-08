@@ -6,8 +6,8 @@ from .importer import JSONImporter
 from .models import MMCIFDataContainer, DataBlock, Category, DataSourceFormat
 from .plugins import PluginFactory, Plugin
 from .defaults import PluginScope
-from .rules import MmcifValidator
 from .validator import (
+    MmcifValidator,
     ValidationError, ValidationReport, ValidatorPlugin,
     BlockValidator,
 )
@@ -178,7 +178,7 @@ class MMCIFHandler:
         The rules that run depend on the *relaxed* flag:
 
         * **default** (``relaxed=False``): the full
-          :class:`~sloth.mmcif.rules.MmcifValidator` dictionary + wwPDB suite
+          :class:`~sloth.mmcif.validator.MmcifValidator` dictionary + wwPDB suite
           runs first, followed by any user-registered custom validators.
         * **relaxed** (``relaxed=True``): *only* user-registered validators
           run.  If none have been registered the report will be empty.

@@ -49,8 +49,6 @@ from .validator import (
     BlockValidationWrapper,
     ContainerValidator,
     ContainerValidationWrapper,
-)
-from .rules import (
     # Validator classes
     DictionaryValidator,
     MmcifValidator,
