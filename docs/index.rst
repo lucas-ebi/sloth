@@ -63,7 +63,6 @@ Getting Started
    api/serializer
    api/plugins
    api/validator
-   api/rules
    api/common
 
 .. toctree::

@@ -6,26 +6,57 @@ SLOTH provides a layered validation system built on the
 library of composable rule factories cover everything from mmCIF dictionary
 conformance to wwPDB deposition business rules.
 
+All validation code lives in :mod:`sloth.mmcif.validator`.
+
 Quick Start
 -----------
 
-The fastest way to get full validation is **strict mode**:
+The simplest way to validate is ``handler.validate()``:
 
 .. code-block:: python
 
    from sloth import MMCIFHandler
 
-   handler = MMCIFHandler(strict=True)   # registers MmcifValidator automatically
+   handler = MMCIFHandler()
    mmcif = handler.read("model.cif")
+
+   # Full validation (dictionary schema + wwPDB rules)
+   report = handler.validate(mmcif)
+
+   print(report.is_valid)      # True / False
+   print(len(report.errors))   # number of ERROR-level issues
+   print(len(report.warnings)) # number of WARNING-level issues
+
+   # Raise on first error
+   report.raise_on_error()
+
+``validate()`` is **polymorphic** — it works on a single
+:class:`~sloth.mmcif.models.Category`, a
+:class:`~sloth.mmcif.models.DataBlock`, or an entire
+:class:`~sloth.mmcif.models.MMCIFDataContainer`.
+
+Relaxed Mode
+~~~~~~~~~~~~
+
+Pass ``relaxed=True`` to skip the built-in ``MmcifValidator`` and run only
+user-registered custom rules:
+
+.. code-block:: python
+
+   report = handler.validate(mmcif, relaxed=True)
+
+Per-Category Validation
+~~~~~~~~~~~~~~~~~~~~~~~
+
+You can also validate individual categories via the plugin interface:
+
+.. code-block:: python
 
    # Per-category validation (raises ValidationError on failure)
    mmcif.data_1ABC._refine.validate()
 
    # Cross-category validation
-   mmcif.data_1ABC._entity.validate().against(mmcif.data_1ABC._atom_site)
-
-``strict=True`` registers :class:`~sloth.mmcif.validator.MmcifValidator`, which
-includes **all** dictionary-derived checks *and* wwPDB deposition rules.
+   mmcif.data_1ABC._entity.validate.against(mmcif.data_1ABC._atom_site)
 
 Validator Classes
 -----------------
@@ -48,16 +79,57 @@ Use them directly when you want explicit control:
 
 .. code-block:: python
 
-   from sloth import MMCIFHandler
+   from sloth import MMCIFHandler, PluginScope
    from sloth.mmcif.validator import DictionaryValidator, MmcifValidator
 
    handler = MMCIFHandler()
 
    # Schema-only (no wwPDB rules)
-   handler.register("validate", DictionaryValidator())
+   handler.register("validate", DictionaryValidator(), scope=PluginScope.CATEGORY)
 
    # Full wwPDB + schema
-   handler.register("validate", MmcifValidator())
+   handler.register("validate", MmcifValidator(), scope=PluginScope.CATEGORY)
+
+Multi-Level Validators
+~~~~~~~~~~~~~~~~~~~~~~
+
+For validating entire blocks or containers in one call:
+
+:class:`~sloth.mmcif.validator.BlockValidator`
+   Wraps a ``ValidatorPlugin`` and runs all per-category validators + cross-
+   category checkers across every category in a :class:`DataBlock`.
+   Returns a :class:`~sloth.mmcif.validator.ValidationReport`.
+
+:class:`~sloth.mmcif.validator.ContainerValidator`
+   Delegates to ``BlockValidator`` for each block in an
+   :class:`MMCIFDataContainer`.
+
+These are used internally by ``handler.validate()`` but can also be used
+directly:
+
+.. code-block:: python
+
+   from sloth.mmcif.validator import BlockValidator, MmcifValidator
+
+   bv = BlockValidator(MmcifValidator())
+   report = bv.execute(block)
+   report.raise_on_error()
+
+Validation Report
+~~~~~~~~~~~~~~~~~
+
+:class:`~sloth.mmcif.validator.ValidationReport` collects all
+:class:`~sloth.mmcif.validator.ValidationError` instances:
+
+.. code-block:: python
+
+   report = handler.validate(container)
+
+   report.is_valid          # True if no ERROR-level issues
+   report.errors            # list of ERROR-level ValidationError
+   report.warnings          # list of WARNING-level ValidationError
+   report.all_issues        # everything (ERROR + WARNING + INFO)
+   report.raise_on_error()  # raises the first ERROR, or does nothing
 
 Single-Category Validation
 --------------------------
@@ -84,15 +156,13 @@ You can also register custom cross-checkers:
 
 .. code-block:: python
 
+   from sloth import PluginScope
+
    handler.register(
        ("_entity", "_atom_site"),
        lambda e, a: check_entity_coverage(e, a),
+       scope=PluginScope.CATEGORY,
    )
-
-   mmcif.data_1ABC._entity.validate().against(mmcif.data_1ABC._atom_site)
-
-Multiple validators (and cross-checkers) can be registered for the same
-category — they all run in registration order.
 
 Custom Rules with Factories
 ----------------------------
@@ -123,7 +193,7 @@ that return validator callables.  Use them to build a custom
        foreign_key("label_entity_id", "id"),
    )
 
-   handler.register("validate", vp)
+   handler.register("validate", vp, scope=PluginScope.CATEGORY)
 
 **Single-category factories:**
 
