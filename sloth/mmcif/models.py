@@ -11,6 +11,93 @@ from abc import ABC, abstractmethod
 from .plugins import PluginFactory
 from .defaults import PluginScope
 import sys
+import warnings
+
+
+class SchemaWarning(UserWarning):
+    """Issued when a category or item name is not in the mmCIF dictionary."""
+    pass
+
+
+class _DictionarySchema:
+    """Lazy singleton providing O(1) lookups against the bundled mmCIF dictionary.
+
+    The dictionary is parsed once on first access (and disk-cached by
+    :class:`~sloth.mmcif.serializer.CacheManager`), so subsequent look-ups
+    are essentially free.
+    """
+
+    _instance: Optional["_DictionarySchema"] = None
+
+    def __init__(self, categories: frozenset, items_by_category: dict):
+        self._categories = categories
+        self._items = items_by_category
+
+    # -- public API ---------------------------------------------------------
+
+    @classmethod
+    def get(cls) -> Optional["_DictionarySchema"]:
+        """Return the singleton, loading on first call.  Returns *None* if
+        the dictionary cannot be parsed (graceful degradation)."""
+        if cls._instance is None:
+            try:
+                cls._instance = cls._load()
+            except Exception:
+                return None
+        return cls._instance
+
+    def known_category(self, name: str) -> bool:
+        return name in self._categories
+
+    def known_item(self, category_name: str, item_name: str) -> bool:
+        cat_items = self._items.get(category_name)
+        if cat_items is None:
+            return False
+        return item_name in cat_items
+
+    def category_items(self, category_name: str) -> frozenset:
+        return self._items.get(category_name, frozenset())
+
+    def all_categories(self) -> frozenset:
+        return self._categories
+
+    # -- loading ------------------------------------------------------------
+
+    @classmethod
+    def _load(cls) -> "_DictionarySchema":
+        from pathlib import Path as _Path
+        from .serializer import DictionaryParser, get_cache_manager
+        from .defaults import DictDataType
+
+        dict_path = str(
+            _Path(__file__).parent / "schemas" / "mmcif_pdbx_v50.dic"
+        )
+        dp = DictionaryParser(get_cache_manager(), quiet=True)
+        meta = dp.parse(dict_path)
+
+        items_raw = meta.get(DictDataType.ITEMS.value, {})
+
+        categories: set = set()
+        items_by_cat: dict = {}
+
+        for full_name in items_raw:
+            parts = full_name.lstrip("_").split(".", 1)
+            if len(parts) == 2:
+                cat = f"_{parts[0]}"
+                categories.add(cat)
+                items_by_cat.setdefault(cat, set()).add(parts[1])
+
+        # Also include categories from the categories dict (may contain
+        # categories whose items are all defined via loops in parent frames)
+        cats_raw = meta.get(DictDataType.CATEGORIES.value, {})
+        for cat_name in cats_raw:
+            c = f"_{cat_name}" if not cat_name.startswith("_") else cat_name
+            categories.add(c)
+
+        return cls(
+            frozenset(categories),
+            {k: frozenset(v) for k, v in items_by_cat.items()},
+        )
 
 
 class DataSourceFormat(Enum):
@@ -471,6 +558,16 @@ class Category(DataContainer):
             )
 
         # Set as mmCIF item (equivalent to self[name] = value)
+        # Schema hint: warn on unknown item for known categories
+        schema = _DictionarySchema.get()
+        if schema and schema.known_category(self.name) and not schema.known_item(self.name, name):
+            hint = _suggest(name, list(schema.category_items(self.name)))
+            warnings.warn(
+                f"Item '{name}' is not in the mmCIF dictionary "
+                f"for category '{self.name}'.{hint}",
+                SchemaWarning,
+                stacklevel=2,
+            )
         self._items[name] = value
         # Invalidate cached properties when items change
         if hasattr(self, "items"):
@@ -934,6 +1031,15 @@ class _PendingCategory:
         if real is None:
             name = object.__getattribute__(self, "_pc_name")
             parent = object.__getattribute__(self, "_pc_parent")
+            # Schema hint: warn on unknown category
+            schema = _DictionarySchema.get()
+            if schema and not schema.known_category(name):
+                hint = _suggest(name, list(schema.all_categories()))
+                warnings.warn(
+                    f"Category '{name}' is not in the mmCIF dictionary.{hint}",
+                    SchemaWarning,
+                    stacklevel=4,
+                )
             real = Category(name, plugin_factory=parent._plugin_factory)
             parent._categories[name] = real
             if hasattr(parent, "categories"):
@@ -955,6 +1061,16 @@ class _PendingCategory:
 
     def __setitem__(self, key, value):
         real = self._commit()
+        # Schema hint: warn on unknown item for known categories
+        schema = _DictionarySchema.get()
+        if schema and schema.known_category(real.name) and not schema.known_item(real.name, key):
+            hint = _suggest(key, list(schema.category_items(real.name)))
+            warnings.warn(
+                f"Item '{key}' is not in the mmCIF dictionary "
+                f"for category '{real.name}'.{hint}",
+                SchemaWarning,
+                stacklevel=2,
+            )
         real[key] = value
 
     def __setattr__(self, name, value):

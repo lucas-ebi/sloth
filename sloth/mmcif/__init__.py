@@ -24,6 +24,7 @@ from .models import (
     Row,
     Item,
     DataSourceFormat,
+    SchemaWarning,
 )
 from .parser import MMCIFParser
 from .writer import MMCIFWriter
@@ -88,6 +89,7 @@ __all__ = [
     "Row",
     "Item",
     "DataSourceFormat",
+    "SchemaWarning",
     # Import/Export components
     "JSONExporter",
     "JSONImporter",

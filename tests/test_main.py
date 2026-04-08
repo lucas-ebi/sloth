@@ -30,7 +30,9 @@ from sloth.mmcif import (
     ValidationSeverity,
     DataSourceFormat,
     MmcifValidator,
+    SchemaWarning,
 )
+import warnings as _warnings
 
 
 class TestMMCIFParser(unittest.TestCase):
@@ -952,6 +954,100 @@ _custom_category.custom_item custom_value
         # Export should work
         json_str = handler.export(mmcif)
         self.assertIsInstance(json_str, str)
+
+
+class TestSchemaWarnings(unittest.TestCase):
+    """Test on-the-fly schema warnings during data creation."""
+
+    def test_unknown_category_warns(self):
+        """Creating a non-dictionary category via proxy emits SchemaWarning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._totally_fake_category["x"] = ["1"]
+            schema_warns = [x for x in w if issubclass(x.category, SchemaWarning)]
+            # Should have at least one warning about the category
+            cat_warns = [x for x in schema_warns if "totally_fake_category" in str(x.message)]
+            self.assertTrue(len(cat_warns) > 0, f"Expected SchemaWarning, got: {[str(x.message) for x in w]}")
+
+    def test_known_category_no_category_warning(self):
+        """Creating a valid dictionary category via proxy emits no category warning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._entry["id"] = ["test"]
+            cat_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                         and "_entry" in str(x.message) and "not in the mmCIF dictionary" in str(x.message)
+                         and "Item" not in str(x.message)]
+            self.assertEqual(len(cat_warns), 0, f"Unexpected category warning: {[str(x.message) for x in cat_warns]}")
+
+    def test_unknown_item_warns(self):
+        """Setting a non-dictionary item on a known category emits SchemaWarning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._entry["totally_fake_item"] = ["x"]
+            item_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                          and "totally_fake_item" in str(x.message)]
+            self.assertTrue(len(item_warns) > 0, f"Expected item SchemaWarning, got: {[str(x.message) for x in w]}")
+
+    def test_known_item_no_warning(self):
+        """Setting a valid dictionary item emits no item warning."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            block._entry["id"] = ["test_structure"]
+            item_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                          and "Item" in str(x.message)]
+            self.assertEqual(len(item_warns), 0, f"Unexpected item warning: {[str(x.message) for x in item_warns]}")
+
+    def test_dot_notation_item_warns(self):
+        """Dot-notation assignment of unknown item on existing category warns."""
+        cat = Category("_entry")
+        cat["id"] = ["test"]  # bracket — no warning from __setattr__
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            cat.fake_item_xyz = ["val"]
+            item_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                          and "fake_item_xyz" in str(x.message)]
+            self.assertTrue(len(item_warns) > 0, f"Expected SchemaWarning for dot-notation, got: {[str(x.message) for x in w]}")
+
+    def test_parsing_no_warnings(self):
+        """Parsing a valid mmCIF file should not emit SchemaWarning."""
+        handler = MMCIFHandler()
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            mmcif = handler.read(os.path.join(
+                os.path.dirname(__file__), "..", "tests", "test_main.py"
+            ).replace("tests/test_main.py", "") + "tests/../tests/../tests/../tests/../tests/test_main.py") if False else None
+        # Use the real test fixture instead
+        test_cif = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".cif", delete=False
+        )
+        test_cif.write("data_test\n_entry.id test_structure\n")
+        test_cif.flush()
+        test_cif.close()
+        try:
+            with _warnings.catch_warnings(record=True) as w:
+                _warnings.simplefilter("always")
+                mmcif = handler.read(test_cif.name)
+                schema_warns = [x for x in w if issubclass(x.category, SchemaWarning)]
+                self.assertEqual(len(schema_warns), 0,
+                                 f"Parsing should not warn: {[str(x.message) for x in schema_warns]}")
+        finally:
+            os.unlink(test_cif.name)
+
+    def test_schema_suggest_category(self):
+        """Unknown category warning includes 'Did you mean?' suggestion."""
+        block = DataBlock("test")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            # _entr is close to _entry
+            block._entr["id"] = ["x"]
+            cat_warns = [x for x in w if issubclass(x.category, SchemaWarning)
+                         and "_entr" in str(x.message)]
+            self.assertTrue(len(cat_warns) > 0)
+            self.assertIn("Did you mean", str(cat_warns[0].message))
 
 
 class TestDataStructureIntegrity(unittest.TestCase):
