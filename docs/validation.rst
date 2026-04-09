@@ -11,17 +11,18 @@ All validation code lives in :mod:`sloth.mmcif.validator`.
 Quick Start
 -----------
 
-The simplest way to validate is ``handler.validate()``:
+The simplest way to validate is with :class:`~sloth.mmcif.validator.MMCIFValidator`:
 
 .. code-block:: python
 
-   from sloth import MMCIFHandler
+   from sloth import MMCIFHandler, MMCIFValidator
 
    handler = MMCIFHandler()
    mmcif = handler.read("model.cif")
 
    # Full validation (dictionary schema + wwPDB rules)
-   report = handler.validate(mmcif)
+   vp = MMCIFValidator()
+   report = vp.validate(mmcif)
 
    print(report.is_valid)      # True / False
    print(len(report.errors))   # number of ERROR-level issues
@@ -35,28 +36,25 @@ The simplest way to validate is ``handler.validate()``:
 :class:`~sloth.mmcif.models.DataBlock`, or an entire
 :class:`~sloth.mmcif.models.MMCIFDataContainer`.
 
-Relaxed Mode
-~~~~~~~~~~~~
-
-Pass ``relaxed=True`` to skip the built-in ``MmcifValidator`` and run only
-user-registered custom rules:
-
-.. code-block:: python
-
-   report = handler.validate(mmcif, relaxed=True)
-
 Per-Category Validation
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-You can also validate individual categories via the plugin interface:
+Register a validator on a model to get dot-notation access:
 
 .. code-block:: python
 
-   # Per-category validation (raises ValidationError on failure)
-   mmcif.data_1ABC._refine.validate()
+   from sloth import MMCIFValidator
+
+   vp = MMCIFValidator()
+   block = mmcif.data_1ABC
+
+   # Register on a category
+   block._refine.register("validate", vp)
+   block._refine.validate()
 
    # Cross-category validation
-   mmcif.data_1ABC._entity.validate.against(mmcif.data_1ABC._atom_site)
+   block._entity.register("validate", vp)
+   block._entity.validate().against(block._atom_site)
 
 Validator Classes
 -----------------
@@ -64,56 +62,67 @@ Validator Classes
 SLOTH ships two validator classes in :mod:`sloth.mmcif.validator`, both subclasses
 of :class:`~sloth.mmcif.validator.ValidatorPlugin`:
 
-:class:`~sloth.mmcif.validator.DictionaryValidator`
+:class:`~sloth.mmcif.validator.SchemaValidator`
    Auto-generated from the bundled ``mmcif_pdbx_v50.dic`` (or any mmCIF
    dictionary).  Covers mandatory items, enumerations, type-regex patterns,
    foreign keys, composite keys, and parent/child category presence — all
    extracted via :class:`~sloth.mmcif.serializer.DictionaryParser`.
 
-:class:`~sloth.mmcif.validator.MmcifValidator`
-   Extends ``DictionaryValidator`` with wwPDB deposition business rules
+:class:`~sloth.mmcif.validator.MMCIFValidator`
+   Extends ``SchemaValidator`` with wwPDB deposition business rules
    expressed as declarative class-level data tables.  Adding a new rule is as
    simple as appending a tuple.
 
-Use them directly when you want explicit control:
+Use them directly:
 
 .. code-block:: python
 
-   from sloth import MMCIFHandler, PluginScope
-   from sloth.mmcif.validator import DictionaryValidator, MmcifValidator
-
-   handler = MMCIFHandler()
+   from sloth.mmcif.validator import SchemaValidator, MMCIFValidator
 
    # Schema-only (no wwPDB rules)
-   handler.register("validate", DictionaryValidator(), scope=PluginScope.CATEGORY)
+   schema_vp = SchemaValidator()
+   report = schema_vp.validate(mmcif)
 
    # Full wwPDB + schema
-   handler.register("validate", MmcifValidator(), scope=PluginScope.CATEGORY)
+   full_vp = MMCIFValidator()
+   report = full_vp.validate(mmcif)
 
 Multi-Level Validators
 ~~~~~~~~~~~~~~~~~~~~~~
 
-For validating entire blocks or containers in one call:
+For validating entire blocks or containers via the plugin interface
+(dot-notation):
 
-:class:`~sloth.mmcif.validator.BlockValidator`
+:class:`~sloth.mmcif.validator.DataBlockValidator`
    Wraps a ``ValidatorPlugin`` and runs all per-category validators + cross-
    category checkers across every category in a :class:`DataBlock`.
    Returns a :class:`~sloth.mmcif.validator.ValidationReport`.
 
 :class:`~sloth.mmcif.validator.ContainerValidator`
-   Delegates to ``BlockValidator`` for each block in an
+   Delegates to ``DataBlockValidator`` for each block in an
    :class:`MMCIFDataContainer`.
 
-These are used internally by ``handler.validate()`` but can also be used
-directly:
+Register them on models for dot-notation access:
 
 .. code-block:: python
 
-   from sloth.mmcif.validator import BlockValidator, MmcifValidator
+   from sloth.mmcif.validator import (
+       MMCIFValidator, DataBlockValidator, ContainerValidator,
+   )
 
-   bv = BlockValidator(MmcifValidator())
-   report = bv.execute(block)
-   report.raise_on_error()
+   vp = MMCIFValidator()
+   bv = DataBlockValidator(vp)
+   cv = ContainerValidator(bv)
+
+   # Register on a container for one-call validation
+   mmcif.register("validate", cv)
+   wrapper = mmcif.validate()
+   wrapper.report.raise_on_error()
+
+   # Or register on a block
+   block.register("validate", bv)
+   wrapper = block.validate()
+   print(wrapper.report.is_valid)
 
 Validation Report
 ~~~~~~~~~~~~~~~~~
@@ -123,7 +132,7 @@ Validation Report
 
 .. code-block:: python
 
-   report = handler.validate(container)
+   report = vp.validate(container)
 
    report.is_valid          # True if no ERROR-level issues
    report.errors            # list of ERROR-level ValidationError
@@ -136,32 +145,29 @@ Single-Category Validation
 
 .. code-block:: python
 
-   mmcif.data_1ABC._atom_site.validate()
+   # Register validator, then use dot-notation
+   block._atom_site.register("validate", vp)
+   block._atom_site.validate()
 
 Cross-Category Validation
 -------------------------
 
-Register a cross-checker by passing a tuple of category names, or use the
-built-in validators which register cross-checkers automatically:
+The built-in validators register cross-checkers automatically for FK,
+parent/child, and ordering constraints.  Chain ``.against()`` to run them:
 
 .. code-block:: python
 
-   # The built-in validators already register FK / parent-child / ordering
-   # cross-checkers.  Just chain .against():
-   mmcif.data_1ABC._entity_src_nat.validate().against(
-       mmcif.data_1ABC._entity
-   )
+   block._entity_src_nat.register("validate", vp)
+   block._entity_src_nat.validate().against(block._entity)
 
-You can also register custom cross-checkers:
+You can also register custom cross-checkers on a ``ValidatorPlugin``:
 
 .. code-block:: python
 
-   from sloth import PluginScope
-
-   handler.register(
+   vp = ValidatorPlugin()
+   vp.register_cross_checker(
        ("_entity", "_atom_site"),
        lambda e, a: check_entity_coverage(e, a),
-       scope=PluginScope.CATEGORY,
    )
 
 Custom Rules with Factories
@@ -193,7 +199,12 @@ that return validator callables.  Use them to build a custom
        foreign_key("label_entity_id", "id"),
    )
 
-   handler.register("validate", vp, scope=PluginScope.CATEGORY)
+   # Validate directly
+   report = vp.validate(mmcif)
+
+   # Or register on a model for dot-notation
+   block._struct.register("validate", vp)
+   block._struct.validate()
 
 **Single-category factories:**
 
@@ -240,19 +251,19 @@ Every rule factory accepts a ``severity`` parameter:
    check = value_range("defocus", min_val=0, max_val=200,
                         severity=ValidationSeverity.WARNING)
 
-Extending MmcifValidator
+Extending MMCIFValidator
 -------------------------
 
-To add wwPDB rules, subclass :class:`~sloth.mmcif.validator.MmcifValidator` and
+To add wwPDB rules, subclass :class:`~sloth.mmcif.validator.MMCIFValidator` and
 extend the declarative tables:
 
 .. code-block:: python
 
-   from sloth.mmcif.validator import MmcifValidator
+   from sloth.mmcif.validator import MMCIFValidator
 
-   class MyValidator(MmcifValidator):
+   class MyValidator(MMCIFValidator):
        # Add mandatory items for a custom category
-       _MANDATORY = MmcifValidator._MANDATORY + [
+       _MANDATORY = MMCIFValidator._MANDATORY + [
            ("_my_category", ["required_field_a", "required_field_b"]),
        ]
 
@@ -260,7 +271,7 @@ Or add rules at runtime after instantiation:
 
 .. code-block:: python
 
-   from sloth.mmcif.validator import MmcifValidator, regex_check
+   from sloth.mmcif.validator import MMCIFValidator, regex_check
 
-   v = MmcifValidator()
+   v = MMCIFValidator()
    v.register_validator("_my_category", regex_check("code", r"^[A-Z]{3}$"))

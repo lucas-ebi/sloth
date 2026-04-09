@@ -6,10 +6,10 @@ Lazy by design. Fast by default.
 A high-performance mmCIF parser using gemmi backend with SLOTH's elegant API.
 Gemmi is now the default backend for optimal performance.
 
-Version: 0.7.0
+Version: 0.8.0
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __author__ = "Lucas Carrijo de Oliveira"
 __email__ = "lucas@ebi.ac.uk"
 __license__ = "MIT"
@@ -38,20 +38,19 @@ from .plugins import (
     PluginWrapper,
     FunctionPlugin,
 )
-from .defaults import PluginScope
 from .validator import (
     ValidationError,
     ValidationSeverity,
     ValidatorPlugin,
     CategoryValidator,
     ValidationReport,
-    BlockValidator,
+    DataBlockValidator,
     BlockValidationWrapper,
     ContainerValidator,
     ContainerValidationWrapper,
     # Validator classes
-    DictionaryValidator,
-    MmcifValidator,
+    SchemaValidator,
+    MMCIFValidator,
     # Single-category rule factories
     mandatory_items,
     one_of_following,
@@ -101,7 +100,6 @@ __all__ = [
     "BaseExporter",
     # Plugin system
     "PluginFactory",
-    "PluginScope",
     "Plugin",
     "PluginWrapper",
     "FunctionPlugin",
@@ -111,13 +109,13 @@ __all__ = [
     "ValidationError",
     "ValidationSeverity",
     "ValidationReport",
-    "BlockValidator",
+    "DataBlockValidator",
     "BlockValidationWrapper",
     "ContainerValidator",
     "ContainerValidationWrapper",
     # Rules
-    "DictionaryValidator",
-    "MmcifValidator",
+    "SchemaValidator",
+    "MMCIFValidator",
     "mandatory_items",
     "one_of_following",
     "value_length",

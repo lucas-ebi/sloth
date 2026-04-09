@@ -89,10 +89,7 @@ Enumerate all categories and items in a block:
 Data Creation
 -------------
 
-Manual File Creation
-~~~~~~~~~~~~~~~~~~~~
-
-Write CIF text directly:
+Instead of writing raw CIF text by hand:
 
 .. code-block:: python
 
@@ -110,6 +107,8 @@ Write CIF text directly:
    """
    with open("sample.cif", "w") as f:
        f.write(sample)
+
+…use SLOTH's API to build structures programmatically.
 
 Programmatic Creation
 ~~~~~~~~~~~~~~~~~~~~~
@@ -141,13 +140,11 @@ The most concise approach — objects are created on the fly:
    mmcif.data_1ABC._atom_site.Cartn_x = ["10.1", "11.2"]
 
 
-Strict Mode
------------
+Safety Features
+---------------
 
-.. deprecated:: 0.7.0
-   ``strict=True`` and ``auto_create=False`` have been removed.  The same
-   safety is now provided automatically via **pending proxies**, **schema
-   warnings**, and **fuzzy matching** — see below.
+SLOTH provides several mechanisms to catch mistakes early without
+restricting the API.
 
 Pending Proxies
 ~~~~~~~~~~~~~~~

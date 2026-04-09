@@ -12,9 +12,7 @@ Plugins are accessed as attributes::
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
-
-from .defaults import PluginScope
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .models import Category, DataBlock, MMCIFDataContainer
@@ -82,34 +80,24 @@ class FunctionPlugin(Plugin):
 # ---------------------------------------------------------------------------
 
 class PluginFactory:
-    """Instance-level plugin registry for extending dot-notation access.
+    """Lightweight plugin registry keyed by name.
 
-    Plugins are registered with a *name* (the attribute that will appear on
-    the data object) and a *scope* that determines which hierarchy level
-    exposes the plugin:
-
-    * :attr:`PluginScope.CATEGORY`  – available on :class:`Category` objects
-    * :attr:`PluginScope.BLOCK`     – available on :class:`DataBlock` objects
-    * :attr:`PluginScope.CONTAINER` – available on :class:`MMCIFDataContainer` objects
+    Plugins are registered with a *name* (the attribute that will appear
+    via dot-notation access) and can be looked up or listed.
     """
 
     def __init__(self):
-        self._plugins: Dict[Tuple[str, PluginScope], Plugin] = {}
+        self._plugins: Dict[str, Plugin] = {}
 
     # -- registration -------------------------------------------------------
 
-    def register(self, name: str, plugin, *, scope: PluginScope) -> None:
+    def register(self, name: str, plugin) -> None:
         """Register a plugin.
 
         :param name: The dot-notation attribute name (e.g. ``"validate"``).
         :param plugin: A :class:`Plugin` instance **or** a plain callable
             (auto-wrapped as :class:`FunctionPlugin`).
-        :param scope: A :class:`PluginScope` member.
         """
-        if not isinstance(scope, PluginScope):
-            raise TypeError(
-                f"scope must be a PluginScope member, got {type(scope).__name__}: {scope!r}"
-            )
         if not isinstance(plugin, Plugin):
             if callable(plugin):
                 plugin = FunctionPlugin(plugin)
@@ -117,27 +105,25 @@ class PluginFactory:
                 raise TypeError(
                     f"Plugin must be a Plugin instance or callable, got {type(plugin)}"
                 )
-        self._plugins[(name, scope)] = plugin
+        self._plugins[name] = plugin
 
     # -- lookup -------------------------------------------------------------
 
-    def get_wrapper(self, name: str, target, scope: PluginScope) -> Optional[PluginWrapper]:
+    def get_wrapper(self, name: str, target) -> Optional[PluginWrapper]:
         """Return a bound :class:`PluginWrapper` for *name*, or ``None``."""
-        plugin = self._plugins.get((name, scope))
+        plugin = self._plugins.get(name)
         if plugin is None:
             return None
         return plugin.create_wrapper(target)
 
-    def has_plugin(self, name: str, scope: PluginScope) -> bool:
-        """Return ``True`` if a plugin is registered for *(name, scope)*."""
-        return (name, scope) in self._plugins
+    def has_plugin(self, name: str) -> bool:
+        """Return ``True`` if a plugin is registered for *name*."""
+        return name in self._plugins
 
-    def get_plugin(self, name: str, scope: PluginScope) -> Optional[Plugin]:
-        """Return the raw :class:`Plugin` for *(name, scope)*, or ``None``."""
-        return self._plugins.get((name, scope))
+    def get_plugin(self, name: str) -> Optional[Plugin]:
+        """Return the raw :class:`Plugin` for *name*, or ``None``."""
+        return self._plugins.get(name)
 
-    def list_plugins(self, scope: Optional[PluginScope] = None) -> List[str]:
-        """Return registered plugin names, optionally filtered by *scope*."""
-        if scope is not None:
-            return [n for (n, s) in self._plugins if s == scope]
-        return list({n for (n, _) in self._plugins})
+    def list_plugins(self) -> List[str]:
+        """Return registered plugin names."""
+        return list(self._plugins.keys())

@@ -25,17 +25,16 @@ from sloth.mmcif import (
     Row,
     Item,
     PluginFactory,
-    PluginScope,
     ValidatorPlugin,
     ValidationError,
     ValidationSeverity,
     ValidationReport,
     CategoryValidator,
-    BlockValidator,
+    DataBlockValidator,
     ContainerValidator,
     DataSourceFormat,
-    DictionaryValidator,
-    MmcifValidator,
+    SchemaValidator,
+    MMCIFValidator,
     SchemaWarning,
     # Rule factories
     mandatory_items,
@@ -209,9 +208,8 @@ class TestValidatorPlugin(unittest.TestCase):
 class TestCategoryValidation(unittest.TestCase):
     def setUp(self):
         self.plugin = ValidatorPlugin()
-        self.factory = PluginFactory()
-        self.factory.register("validate", self.plugin, scope=PluginScope.CATEGORY)
-        self.category = Category(name="_database_2", plugin_factory=self.factory)
+        self.category = Category(name="_database_2")
+        self.category.register("validate", self.plugin)
 
     def test_validate(self):
         def validator(category: Category):
@@ -221,7 +219,7 @@ class TestCategoryValidation(unittest.TestCase):
         self.category.validate()
 
     def test_validate_against(self):
-        other_category = Category(name="_database_1", plugin_factory=self.factory)
+        other_category = Category(name="_database_1")
 
         def cross_checker(category1: Category, category2: Category):
             self.assertEqual(category1.name, "_database_2")
@@ -262,7 +260,7 @@ class TestItemAndCategory(unittest.TestCase):
 
     def test_category_with_items(self):
         """Test Category class with items."""
-        category = Category("test_category", None)
+        category = Category("test_category")
 
         # Add items
         category._add_item_value("item1", "value1")
@@ -277,7 +275,7 @@ class TestItemAndCategory(unittest.TestCase):
 
     def test_row_access(self):
         """Test row-wise access to Category."""
-        category = Category("test_category", None)
+        category = Category("test_category")
 
         # Add multiple rows of data
         category._add_item_value("name", "John")
@@ -327,7 +325,7 @@ class TestItemAndCategory(unittest.TestCase):
 
     def test_row_slicing(self):
         """Test row slicing of Category."""
-        category = Category("test_category", None)
+        category = Category("test_category")
 
         # Add multiple rows of data
         for i in range(5):
@@ -356,7 +354,7 @@ class TestItemAndCategory(unittest.TestCase):
 
     def test_row_count_and_rows(self):
         """Test row_count and rows properties."""
-        category = Category("test_category", None)
+        category = Category("test_category")
 
         # Empty category
         self.assertEqual(category.row_count, 0)
@@ -378,7 +376,7 @@ class TestItemAndCategory(unittest.TestCase):
 
     def test_combined_column_row_access(self):
         """Test combination of column and row access."""
-        category = Category("test_category", None)
+        category = Category("test_category")
 
         # Add data
         category._add_item_value("x", "1")
@@ -880,14 +878,16 @@ _custom_category.custom_item custom_value
         self.assertEqual(mmcif["data_test"]["_custom_category"]["custom_item"], ["custom_value"])
 
     def test_compliant_mode_with_validators(self):
-        """Test that compliant mode uses validation when available."""
+        """Test that reading + registering validators on parsed data works."""
         handler = MMCIFHandler()
-        vp = ValidatorPlugin()
-        vp.register_validator("_entry", lambda cat: None)
-        handler.register("validate", vp, scope=PluginScope.CATEGORY)
         mmcif = handler.read(self.test_cif_path)
         
-        # Should still parse but might validate
+        # Register validator on a category after parsing
+        vp = ValidatorPlugin()
+        vp.register_validator("_entry", lambda cat: None)
+        mmcif["data_test"]["_entry"].register("validate", vp)
+        
+        # Should still be accessible
         self.assertIn("data_test", mmcif.blocks)
         self.assertIn("_custom_category", mmcif["data_test"].categories)
 
@@ -937,11 +937,8 @@ _custom_category.custom_item custom_value
         self.assertIsInstance(json_str, str)
         self.assertIn('"_entry"', json_str)
         
-        # Test export with handler with validators
+        # Test export with handler (same handler, validators are on models now)
         handler_with_plugins = MMCIFHandler()
-        vp = ValidatorPlugin()
-        vp.register_validator("_entry", lambda cat: None)
-        handler_with_plugins.register("validate", vp, scope=PluginScope.CATEGORY)
         mmcif = handler_with_plugins.read(self.test_cif_path)
         
         json_str = handler_with_plugins.export(mmcif)
@@ -1163,8 +1160,6 @@ class TestDefaultBackend(unittest.TestCase):
         """Test that the default handler can be created without parameters."""
         handler = MMCIFHandler()
         self.assertIsInstance(handler, MMCIFHandler)
-        # Default handler has an empty plugin factory
-        self.assertIsNotNone(handler.plugin_factory)
 
     def test_default_parsing_behavior(self):
         """Test default parsing behavior is optimized without validation."""
@@ -1247,8 +1242,7 @@ class TestRuleFactories(unittest.TestCase):
 
     def _make_category(self, cat_name, **items):
         """Helper: build a Category with items."""
-        pf = PluginFactory()
-        cat = Category(name=cat_name, plugin_factory=pf)
+        cat = Category(name=cat_name)
         for item_name, values in items.items():
             cat[item_name] = values if isinstance(values, list) else [values]
         return cat
@@ -1362,34 +1356,30 @@ class TestRuleFactories(unittest.TestCase):
             check(cat)
 
     def test_cross_mandatory_pass(self):
-        pf = PluginFactory()
-        cat_a = Category(name="_a", plugin_factory=pf)
-        cat_b = Category(name="_b", plugin_factory=pf)
+        cat_a = Category(name="_a")
+        cat_b = Category(name="_b")
         cat_b["required_item"] = ["value"]
         check = cross_mandatory(["required_item"])
         check(cat_a, cat_b)
 
     def test_cross_mandatory_fail(self):
-        pf = PluginFactory()
-        cat_a = Category(name="_a", plugin_factory=pf)
-        cat_b = Category(name="_b", plugin_factory=pf)
+        cat_a = Category(name="_a")
+        cat_b = Category(name="_b")
         check = cross_mandatory(["required_item"])
         with self.assertRaises(ValidationError):
             check(cat_a, cat_b)
 
     def test_cross_ordering_pass(self):
-        pf = PluginFactory()
-        cat_a = Category(name="_a", plugin_factory=pf)
-        cat_b = Category(name="_b", plugin_factory=pf)
+        cat_a = Category(name="_a")
+        cat_b = Category(name="_b")
         cat_a["resolution"] = ["2.0"]
         cat_b["high_resolution"] = ["5.0"]
         check = cross_ordering("resolution", "high_resolution", "<")
         check(cat_a, cat_b)
 
     def test_cross_ordering_fail(self):
-        pf = PluginFactory()
-        cat_a = Category(name="_a", plugin_factory=pf)
-        cat_b = Category(name="_b", plugin_factory=pf)
+        cat_a = Category(name="_a")
+        cat_b = Category(name="_b")
         cat_a["resolution"] = ["10.0"]
         cat_b["high_resolution"] = ["5.0"]
         check = cross_ordering("resolution", "high_resolution", "<")
@@ -1398,25 +1388,27 @@ class TestRuleFactories(unittest.TestCase):
 
 
 class TestMmcifValidatorsFactory(unittest.TestCase):
-    """Test that MmcifValidator returns a usable ValidatorPlugin."""
+    """Test that MMCIFValidator returns a usable ValidatorPlugin."""
 
     def test_returns_validator_plugin(self):
-        vp = MmcifValidator()
+        vp = MMCIFValidator()
         self.assertIsInstance(vp, ValidatorPlugin)
 
     def test_has_validators(self):
-        vp = MmcifValidator()
+        vp = MMCIFValidator()
         self.assertTrue(len(vp._validators) > 0)
 
     def test_has_cross_checkers(self):
-        vp = MmcifValidator()
+        vp = MMCIFValidator()
         self.assertTrue(len(vp._cross_checkers) > 0)
 
     def test_register_with_handler(self):
-        handler = MMCIFHandler()
-        vp = MmcifValidator()
-        handler.register("validate", vp, scope=PluginScope.CATEGORY)
-        self.assertIsNotNone(handler.plugin_factory)
+        """Validators can be registered directly on a category."""
+        vp = MMCIFValidator()
+        cat = Category(name="_entry")
+        cat.register("validate", vp)
+        # Plugin is accessible
+        self.assertIn("validate", dir(cat))
 
     def test_struct_title_too_short(self):
         """wwPDB rule: _struct.title must be >= 10 chars."""
@@ -1424,9 +1416,8 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         vp.register_validator("_struct", value_length(
             "title", min_len=10, severity=ValidationSeverity.ERROR,
         ))
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_struct", plugin_factory=pf)
+        cat = Category(name="_struct")
+        cat.register("validate", vp)
         cat["title"] = ["Hi"]
         with self.assertRaises(ValidationError):
             cat.validate()
@@ -1437,9 +1428,8 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         vp.register_validator("_struct", value_length(
             "title", min_len=10, severity=ValidationSeverity.ERROR,
         ))
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_struct", plugin_factory=pf)
+        cat = Category(name="_struct")
+        cat.register("validate", vp)
         cat["title"] = ["Crystal structure of an important protein"]
         cat.validate()  # should not raise
 
@@ -1449,9 +1439,8 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         vp.register_validator("_pdbx_initial_refinement_model", allowed_pairs(
             "type", "source_name", {"other": ["Other"]},
         ))
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_pdbx_initial_refinement_model", plugin_factory=pf)
+        cat = Category(name="_pdbx_initial_refinement_model")
+        cat.register("validate", vp)
         cat["type"] = ["other"]
         cat["source_name"] = ["PDB"]  # invalid: other → only Other allowed
         cat["accession_code"] = ["1abc"]
@@ -1465,9 +1454,8 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         vp.register_validator("_em_imaging", ordering_check(
             "nominal_defocus_min", "nominal_defocus_max", "<=",
         ))
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_em_imaging", plugin_factory=pf)
+        cat = Category(name="_em_imaging")
+        cat.register("validate", vp)
         cat["nominal_defocus_min"] = ["100"]
         cat["nominal_defocus_max"] = ["50"]  # min > max → violation
         with self.assertRaises(ValidationError):
@@ -1477,9 +1465,8 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         """wwPDB rule #12: _audit_author must have at least 2 rows."""
         vp = ValidatorPlugin()
         vp.register_validator("_audit_author", min_rows(2))
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_audit_author", plugin_factory=pf)
+        cat = Category(name="_audit_author")
+        cat.register("validate", vp)
         cat["name"] = ["Author One"]
         with self.assertRaises(ValidationError):
             cat.validate()
@@ -1490,61 +1477,59 @@ class TestMmcifValidatorsFactory(unittest.TestCase):
         vp.register_validator("_em_3d_reconstruction", mandatory_items(
             ["resolution", "resolution_method"],
         ))
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_em_3d_reconstruction", plugin_factory=pf)
+        cat = Category(name="_em_3d_reconstruction")
+        cat.register("validate", vp)
         cat["id"] = ["1"]
         with self.assertRaises(ValidationError):
             cat.validate()
 
 
 class TestDictionaryValidatorsFactory(unittest.TestCase):
-    """Test that DictionaryValidator reuses DictionaryParser correctly."""
+    """Test that SchemaValidator reuses DictionaryParser correctly."""
 
     def test_returns_validator_plugin(self):
-        vp = DictionaryValidator()
+        vp = SchemaValidator()
         self.assertIsInstance(vp, ValidatorPlugin)
 
     def test_has_validators(self):
         """Dictionary should produce at least some mandatory / enum checks."""
-        vp = DictionaryValidator()
+        vp = SchemaValidator()
         self.assertTrue(len(vp._validators) > 0)
 
     def test_has_cross_checkers(self):
         """Dictionary relationships should produce FK / parent-child checks."""
-        vp = DictionaryValidator()
+        vp = SchemaValidator()
         self.assertTrue(len(vp._cross_checkers) > 0)
 
     def test_register_with_handler(self):
-        handler = MMCIFHandler()
-        vp = DictionaryValidator()
-        handler.register("dict_validate", vp, scope=PluginScope.CATEGORY)
-        self.assertIsNotNone(handler.plugin_factory)
+        """Validators can be registered directly on a category."""
+        vp = SchemaValidator()
+        cat = Category(name="_entry")
+        cat.register("dict_validate", vp)
+        self.assertIn("dict_validate", dir(cat))
 
     def test_mandatory_from_dictionary(self):
         """Mandatory items parsed from dictionary should fail when missing."""
-        vp = DictionaryValidator()
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
+        vp = SchemaValidator()
         # _audit_author.name and .pdbx_ordinal are mandatory in the dictionary
-        cat = Category(name="_audit_author", plugin_factory=pf)
+        cat = Category(name="_audit_author")
+        cat.register("validate", vp)
         cat["irrelevant"] = ["x"]
         with self.assertRaises(ValidationError):
             cat.validate()
 
     def test_mandatory_from_dictionary_pass(self):
         """Mandatory items satisfied should not raise."""
-        vp = DictionaryValidator()
-        pf = PluginFactory()
-        pf.register("validate", vp, scope=PluginScope.CATEGORY)
-        cat = Category(name="_audit_author", plugin_factory=pf)
+        vp = SchemaValidator()
+        cat = Category(name="_audit_author")
+        cat.register("validate", vp)
         cat["name"] = ["Smith, J."]
         cat["pdbx_ordinal"] = ["1"]
         cat.validate()  # should not raise
 
     def test_enumeration_from_dictionary(self):
         """Enumeration values from dictionary should reject invalid values."""
-        vp = DictionaryValidator()
+        vp = SchemaValidator()
         # Check if there are any enumeration validators registered
         has_enum = False
         for cat_name, checks in vp._validators.items():
@@ -1556,7 +1541,7 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
         # Even if we can't inspect closures, the factory should have produced some
         self.assertTrue(
             len(vp._validators) > 5,
-            "DictionaryValidator should produce validators for many categories",
+            "SchemaValidator should produce validators for many categories",
         )
 
     def test_explicit_dict_path(self):
@@ -1565,14 +1550,14 @@ class TestDictionaryValidatorsFactory(unittest.TestCase):
             os.path.dirname(os.path.dirname(__file__)),
             "sloth", "mmcif", "schemas", "mmcif_pdbx_v50.dic",
         )
-        vp = DictionaryValidator(dict_path)
+        vp = SchemaValidator(dict_path)
         self.assertIsInstance(vp, ValidatorPlugin)
         self.assertTrue(len(vp._validators) > 0)
 
     def test_mmcif_validator_includes_dictionary_rules(self):
-        """MmcifValidator should include dictionary rules + wwPDB rules."""
-        dict_vp = DictionaryValidator()
-        full_vp = MmcifValidator()
+        """MMCIFValidator should include dictionary rules + wwPDB rules."""
+        dict_vp = SchemaValidator()
+        full_vp = MMCIFValidator()
         # Full should have at least as many validators as dict-only
         self.assertGreaterEqual(
             len(full_vp._validators), len(dict_vp._validators),
@@ -1587,8 +1572,7 @@ class TestNewRuleFactories(unittest.TestCase):
     """Test the new rule factory functions added for PDF/GH repo coverage."""
 
     def _make_category(self, cat_name, **items):
-        pf = PluginFactory()
-        cat = Category(name=cat_name, plugin_factory=pf)
+        cat = Category(name=cat_name)
         for item_name, values in items.items():
             cat[item_name] = values if isinstance(values, list) else [values]
         return cat
@@ -1652,19 +1636,17 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- foreign_key --
 
     def test_foreign_key_pass(self):
-        pf = PluginFactory()
-        child = Category(name="_child", plugin_factory=pf)
+        child = Category(name="_child")
         child["entity_id"] = ["1", "2"]
-        parent = Category(name="_parent", plugin_factory=pf)
+        parent = Category(name="_parent")
         parent["id"] = ["1", "2", "3"]
         check = foreign_key("entity_id", "id")
         check(child, parent)
 
     def test_foreign_key_fail(self):
-        pf = PluginFactory()
-        child = Category(name="_child", plugin_factory=pf)
+        child = Category(name="_child")
         child["entity_id"] = ["1", "99"]
-        parent = Category(name="_parent", plugin_factory=pf)
+        parent = Category(name="_parent")
         parent["id"] = ["1", "2"]
         check = foreign_key("entity_id", "id")
         with self.assertRaises(ValidationError):
@@ -1673,19 +1655,17 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- parent_child --
 
     def test_parent_child_pass(self):
-        pf = PluginFactory()
-        child = Category(name="_entity_src_nat", plugin_factory=pf)
+        child = Category(name="_entity_src_nat")
         child["entity_id"] = ["1"]
-        parent = Category(name="_entity", plugin_factory=pf)
+        parent = Category(name="_entity")
         parent["id"] = ["1"]
         check = parent_child()
         check(child, parent)
 
     def test_parent_child_fail(self):
-        pf = PluginFactory()
-        child = Category(name="_entity_src_nat", plugin_factory=pf)
+        child = Category(name="_entity_src_nat")
         child["entity_id"] = ["1"]
-        parent = Category(name="_entity", plugin_factory=pf)
+        parent = Category(name="_entity")
         # parent is empty (no items)
         check = parent_child()
         with self.assertRaises(ValidationError):
@@ -1694,22 +1674,20 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- composite_key --
 
     def test_composite_key_pass(self):
-        pf = PluginFactory()
-        child = Category(name="_child", plugin_factory=pf)
+        child = Category(name="_child")
         child["mon_id"] = ["ALA", "GLY"]
         child["seq_num"] = ["1", "2"]
-        parent = Category(name="_parent", plugin_factory=pf)
+        parent = Category(name="_parent")
         parent["mon_id"] = ["ALA", "GLY", "VAL"]
         parent["num"] = ["1", "2", "3"]
         check = composite_key(["mon_id", "seq_num"], ["mon_id", "num"])
         check(child, parent)
 
     def test_composite_key_fail(self):
-        pf = PluginFactory()
-        child = Category(name="_child", plugin_factory=pf)
+        child = Category(name="_child")
         child["mon_id"] = ["ALA", "XXX"]
         child["seq_num"] = ["1", "99"]
-        parent = Category(name="_parent", plugin_factory=pf)
+        parent = Category(name="_parent")
         parent["mon_id"] = ["ALA", "GLY"]
         parent["num"] = ["1", "2"]
         check = composite_key(["mon_id", "seq_num"], ["mon_id", "num"])
@@ -1719,46 +1697,42 @@ class TestNewRuleFactories(unittest.TestCase):
     # -- oper_expression --
 
     def test_oper_expression_pass(self):
-        pf = PluginFactory()
-        assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
+        assembly_gen = Category(name="_pdbx_struct_assembly_gen")
         assembly_gen["oper_expression"] = ["(1-3)"]
-        oper_list = Category(name="_pdbx_struct_oper_list", plugin_factory=pf)
+        oper_list = Category(name="_pdbx_struct_oper_list")
         oper_list["id"] = ["1", "2", "3"]
         check = oper_expression()
         check(assembly_gen, oper_list)
 
     def test_oper_expression_fail(self):
-        pf = PluginFactory()
-        assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
+        assembly_gen = Category(name="_pdbx_struct_assembly_gen")
         assembly_gen["oper_expression"] = ["(1-5)"]
-        oper_list = Category(name="_pdbx_struct_oper_list", plugin_factory=pf)
+        oper_list = Category(name="_pdbx_struct_oper_list")
         oper_list["id"] = ["1", "2", "3"]
         check = oper_expression()
         with self.assertRaises(ValidationError):
             check(assembly_gen, oper_list)
 
     def test_oper_expression_comma_list(self):
-        pf = PluginFactory()
-        assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
+        assembly_gen = Category(name="_pdbx_struct_assembly_gen")
         assembly_gen["oper_expression"] = ["(1,2,5)"]
-        oper_list = Category(name="_pdbx_struct_oper_list", plugin_factory=pf)
+        oper_list = Category(name="_pdbx_struct_oper_list")
         oper_list["id"] = ["1", "2", "5"]
         check = oper_expression()
         check(assembly_gen, oper_list)
 
     def test_oper_expression_combined_groups(self):
-        pf = PluginFactory()
-        assembly_gen = Category(name="_pdbx_struct_assembly_gen", plugin_factory=pf)
+        assembly_gen = Category(name="_pdbx_struct_assembly_gen")
         assembly_gen["oper_expression"] = ["(1,2)(3,4)"]
-        oper_list = Category(name="_pdbx_struct_oper_list", plugin_factory=pf)
+        oper_list = Category(name="_pdbx_struct_oper_list")
         oper_list["id"] = ["1", "2", "3"]  # missing 4
         check = oper_expression()
         with self.assertRaises(ValidationError):
             check(assembly_gen, oper_list)
 
 
-class TestHandlerValidate(unittest.TestCase):
-    """Tests for handler.validate() — the all-in-one recursive validation API."""
+class TestValidation(unittest.TestCase):
+    """Tests for ValidatorPlugin.validate() and plugin-based validation."""
 
     def setUp(self):
         self.test_cif = tempfile.NamedTemporaryFile(
@@ -1776,25 +1750,28 @@ class TestHandlerValidate(unittest.TestCase):
         os.unlink(self.test_cif.name)
 
     def test_validate_returns_report(self):
-        """handler.validate() should return a ValidationReport."""
+        """vp.validate() should return a ValidationReport."""
         handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif.name)
-        report = handler.validate(mmcif)
+        vp = MMCIFValidator()
+        report = vp.validate(mmcif)
         self.assertIsInstance(report, ValidationReport)
 
-    def test_validate_relaxed_no_plugins(self):
-        """validate(relaxed=True) with no registered validators returns empty report."""
+    def test_validate_empty_plugin(self):
+        """Empty ValidatorPlugin returns empty report."""
         handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif.name)
-        report = handler.validate(mmcif, relaxed=True)
+        vp = ValidatorPlugin()
+        report = vp.validate(mmcif)
         self.assertIsInstance(report, ValidationReport)
         self.assertEqual(len(report), 0)
 
     def test_validate_full_suite(self):
-        """validate() runs the full MmcifValidator suite by default."""
+        """MMCIFValidator runs the full validation suite."""
         handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif.name)
-        report = handler.validate(mmcif)
+        vp = MMCIFValidator()
+        report = vp.validate(mmcif)
         self.assertIsNotNone(report)
 
     def test_validate_datablock(self):
@@ -1802,7 +1779,8 @@ class TestHandlerValidate(unittest.TestCase):
         handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif.name)
         block = mmcif["data_test"]
-        report = handler.validate(block)
+        vp = MMCIFValidator()
+        report = vp.validate(block)
         self.assertIsInstance(report, ValidationReport)
 
     def test_validate_category(self):
@@ -1810,45 +1788,40 @@ class TestHandlerValidate(unittest.TestCase):
         handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif.name)
         cat = mmcif["data_test"]["_entry"]
-        report = handler.validate(cat)
+        vp = MMCIFValidator()
+        report = vp.validate(cat)
         self.assertIsInstance(report, ValidationReport)
 
     def test_validate_bad_type_raises(self):
         """validate() rejects non-data objects."""
-        handler = MMCIFHandler()
+        vp = MMCIFValidator()
         with self.assertRaises(TypeError):
-            handler.validate("not a data object")
+            vp.validate("not a data object")
 
-    def test_validate_merges_custom_rules(self):
-        """User-registered validators run alongside defaults."""
-        handler = MMCIFHandler()
-
-        # Register a custom validator that always fails
+    def test_validate_custom_rules(self):
+        """Custom validators run and collect errors."""
         from sloth.mmcif.validator import ValidationError as VE
         custom_vp = ValidatorPlugin()
         def _always_fail(cat):
             raise VE("custom fail", path=cat.name)
         custom_vp.register_validator("_entry", _always_fail)
-        handler.register("validate", custom_vp, scope=PluginScope.CATEGORY)
 
+        handler = MMCIFHandler()
         mmcif = handler.read(self.test_cif.name)
-        report = handler.validate(mmcif)
+        report = custom_vp.validate(mmcif)
 
         # The custom rule's error should be in the report
         custom_msgs = [e for e in report.all_issues if "custom fail" in str(e)]
         self.assertTrue(len(custom_msgs) > 0, "Custom validator should have run")
 
-    def test_validate_custom_categories_relaxed(self):
-        """relaxed=True with custom validators on non-dictionary categories."""
+    def test_validate_merged_rules(self):
+        """Merged validators combine rules from both sources."""
         from sloth.mmcif.validator import ValidationError as VE
-        handler = MMCIFHandler()
-
         custom_vp = ValidatorPlugin()
         def _check_widget(cat):
             if "widget_id" not in cat.items:
                 raise VE("widget_id is required", path=cat.name)
         custom_vp.register_validator("_my_custom_category", _check_widget)
-        handler.register("validate", custom_vp, scope=PluginScope.CATEGORY)
 
         container = MMCIFDataContainer()
         block = DataBlock("test")
@@ -1857,20 +1830,20 @@ class TestHandlerValidate(unittest.TestCase):
         block["_my_custom_category"] = cat
         container["data_test"] = block
 
-        report = handler.validate(container, relaxed=True)
+        report = custom_vp.validate(container)
         self.assertFalse(report.is_valid)
         self.assertTrue(any("widget_id" in str(e) for e in report.errors))
 
     def test_validate_programmatic_data(self):
         """validate() works on data built entirely in-memory (no file)."""
-        handler = MMCIFHandler()
+        vp = MMCIFValidator()
         container = MMCIFDataContainer()
         block = DataBlock("test")
         cat = Category("_entry")
         cat["id"] = ["test_structure"]
         block["_entry"] = cat
         container["data_test"] = block
-        report = handler.validate(container)
+        report = vp.validate(container)
         self.assertIsInstance(report, ValidationReport)
 
     def test_report_is_valid_property(self):
@@ -1893,24 +1866,21 @@ class TestHandlerValidate(unittest.TestCase):
     def test_block_validate_dot_notation(self):
         """block.validate() should be available when validators are registered."""
         handler = MMCIFHandler()
-        vp = MmcifValidator()
-        handler.register("validate", vp, scope=PluginScope.CATEGORY)
-        handler.register("validate", BlockValidator(vp), scope=PluginScope.BLOCK)
         mmcif = handler.read(self.test_cif.name)
         block = mmcif["data_test"]
+        vp = MMCIFValidator()
+        block.register("validate", DataBlockValidator(vp))
         wrapper = block.validate()
         self.assertIsNotNone(wrapper.report)
 
     def test_container_validate_dot_notation(self):
         """container.validate() should be available when validators are registered."""
         handler = MMCIFHandler()
-        vp = MmcifValidator()
-        bv = BlockValidator(vp)
-        cv = ContainerValidator(bv)
-        handler.register("validate", vp, scope=PluginScope.CATEGORY)
-        handler.register("validate", bv, scope=PluginScope.BLOCK)
-        handler.register("validate", cv, scope=PluginScope.CONTAINER)
         mmcif = handler.read(self.test_cif.name)
+        vp = MMCIFValidator()
+        bv = DataBlockValidator(vp)
+        cv = ContainerValidator(bv)
+        mmcif.register("validate", cv)
         wrapper = mmcif.validate()
         self.assertIsNotNone(wrapper.report)
 

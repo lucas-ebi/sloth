@@ -12,7 +12,6 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union, IO, Dict, Any
 from pathlib import Path
 from .models import MMCIFDataContainer
-from .plugins import PluginFactory
 
 
 class BaseParser(ABC):
@@ -25,16 +24,13 @@ class BaseParser(ABC):
     
     def __init__(
         self,
-        plugin_factory: Optional[PluginFactory] = None,
         categories: Optional[list] = None,
     ):
         """
         Initialize the parser.
         
-        :param plugin_factory: Optional plugin factory for dot-notation extensions
         :param categories: Optional list of categories to parse (for performance)
         """
-        self.plugin_factory = plugin_factory
         self.categories = categories
 
     @abstractmethod

@@ -37,7 +37,7 @@ Validator Plugin
 Multi-Level Validators
 ----------------------
 
-.. autoclass:: BlockValidator
+.. autoclass:: DataBlockValidator
    :members:
    :show-inheritance:
 
@@ -56,12 +56,12 @@ Multi-Level Validators
 Validator Classes
 -----------------
 
-.. autoclass:: DictionaryValidator
+.. autoclass:: SchemaValidator
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: MmcifValidator
+.. autoclass:: MMCIFValidator
    :members:
    :undoc-members:
    :show-inheritance:
