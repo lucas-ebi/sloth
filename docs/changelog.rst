@@ -1,27 +1,57 @@
 Changelog
 =========
 
+v0.8.0 (2026-04-09)
+--------------------
+
+**Breaking changes**
+
+- ``handler.register()`` and ``handler.validate()`` have been **removed**.
+  Registration now lives on model instances:
+  ``category.register("validate", vp)``,
+  ``block.register("validate", bv)``,
+  ``container.register("validate", cv)``.
+- ``PluginScope`` enum has been **removed**.  Scope is inferred from which
+  model class ``register()`` is called on.
+- ``PluginFactory`` no longer accepts a ``scope`` parameter — plugins are
+  stored in a flat ``name → Plugin`` mapping.
+- Renames: ``DictionaryValidator`` → :class:`~sloth.mmcif.validator.SchemaValidator`,
+  ``MmcifValidator`` → :class:`~sloth.mmcif.validator.MMCIFValidator`,
+  ``BlockValidator`` → :class:`~sloth.mmcif.validator.DataBlockValidator`.
+
+**New features**
+
+- **Model-level plugin registration** — ``register(name, plugin)`` is now a
+  method on :class:`~sloth.mmcif.models.Category`,
+  :class:`~sloth.mmcif.models.DataBlock`, and
+  :class:`~sloth.mmcif.models.MMCIFDataContainer` (inherited from
+  :class:`~sloth.mmcif.models.DataContainer`).
+- **Standalone ``validate()``** — call
+  ``MMCIFValidator().validate(data)`` directly without any handler
+  involvement.  Accepts a ``Category``, ``DataBlock``, or
+  ``MMCIFDataContainer``.
+- Plugin wiring (``register()``, ``_lookup_plugin()``) is now defined once
+  in the :class:`~sloth.mmcif.models.DataContainer` base class.
+
 v0.7.0 (2026-04-08)
 --------------------
 
 **Breaking changes**
 
-- ``MMCIFHandler(strict=True)`` and ``auto_create=False`` are **removed**.
-  Attribute access on non-existent categories / blocks now returns a
+- Attribute access on non-existent categories / blocks now returns a
   lightweight *pending proxy* (``_PendingCategory`` / ``_PendingDataBlock``)
   that auto-commits on write and raises ``AttributeError`` with fuzzy
   suggestions on read.
-- ``handler.register()`` requires a keyword-only ``scope`` parameter of type
-  :class:`~sloth.mmcif.defaults.PluginScope` (``CATEGORY``, ``BLOCK``, or
-  ``CONTAINER``). Plain strings are no longer accepted.
 - ``sloth.mmcif.rules`` module merged into :mod:`sloth.mmcif.validator`.
   All rule factories and validator classes now live in a single module.
 
 **New features**
 
-- **Multi-level validation** — ``handler.validate(data, *, relaxed=False)``
-  validates a :class:`Category`, :class:`DataBlock`, or
-  :class:`MMCIFDataContainer` and returns a
+- **Multi-level validation** — :class:`~sloth.mmcif.validator.ValidatorPlugin`,
+  :class:`~sloth.mmcif.validator.DataBlockValidator`, and
+  :class:`~sloth.mmcif.validator.ContainerValidator` validate a
+  :class:`Category`, :class:`DataBlock`, or
+  :class:`MMCIFDataContainer` and return a
   :class:`~sloth.mmcif.validator.ValidationReport` with ``.errors``,
   ``.warnings``, ``.is_valid``, and ``.raise_on_error()`` helpers.
 - **Schema-aware warnings** — assigning an unknown item to a known category
@@ -33,13 +63,11 @@ v0.7.0 (2026-04-08)
 - **Tab completion** — ``__dir__()`` on all three model classes exposes item
   names, category names, block names, and registered plugin names for
   IPython / Jupyter tab completion.
-- **``PluginScope`` enum** — ``CATEGORY``, ``BLOCK``, ``CONTAINER`` scopes
-  for plugin registration.
 - **``ValidationSeverity`` enum** — ``ERROR``, ``WARNING``, ``INFO``
   severity levels accepted by every rule factory.
 - **``ValidationReport``** — accumulator for ``ValidationError`` instances
   with filtering by severity.
-- **``BlockValidator`` / ``ContainerValidator``** — plugins that run all
+- **``DataBlockValidator`` / ``ContainerValidator``** — plugins that run all
   per-category validators + cross-category checkers across an entire block
   or container.
 - **``DataSourceFormat`` enum** moved to :mod:`~sloth.mmcif.defaults`.
@@ -68,20 +96,16 @@ v0.6.0 (2026-04-07)
 
 - **Validation rules module** (``sloth.mmcif.rules``):
 
-  - ``DictionaryValidator``: auto-generates checks from the bundled mmCIF
+  - ``SchemaValidator``: auto-generates checks from the bundled mmCIF
     dictionary via ``DictionaryParser`` (mandatory items, enumerations,
     type-regex patterns, FK/composite-key integrity, parent/child presence)
-  - ``MmcifValidator``: extends ``DictionaryValidator`` with wwPDB deposition
+  - ``MMCIFValidator``: extends ``SchemaValidator`` with wwPDB deposition
     business rules expressed as declarative class-level data tables
   - 18 composable rule factory functions for custom validation
 - ``ValidatorPlugin`` supports multiple validators per category (list-based)
-- ``MMCIFHandler(strict=True)`` auto-registers ``MmcifValidator``
 - Generic plugin system: ``PluginFactory``, ``Plugin``, ``PluginWrapper``, ``FunctionPlugin``
 - Streamlined registration: ``handler.register("_cat", func)`` for validators, tuples for cross-checkers
 - Delete support: ``del block._category``, ``block.delete("_category")``, same for items
-- Safe access mode: ``auto_create=False`` on ``DataBlock`` / ``MMCIFDataContainer``
-- Strict mode: ``MMCIFHandler(strict=True)`` wires ``auto_create=False`` through the full parse chain
-- Remove backward-compat shims: ``ValidatorFactory``, ``validator_factory=`` kwargs, property aliases
 - Update docs, cookbook, and API reference for new plugin API
 
 v0.5.4 (2026-04-07)

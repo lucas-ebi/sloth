@@ -38,20 +38,19 @@ from .plugins import (
     PluginWrapper,
     FunctionPlugin,
 )
-from .defaults import PluginScope
 from .validator import (
     ValidationError,
     ValidationSeverity,
     ValidatorPlugin,
     CategoryValidator,
     ValidationReport,
-    BlockValidator,
+    DataBlockValidator,
     BlockValidationWrapper,
     ContainerValidator,
     ContainerValidationWrapper,
     # Validator classes
-    DictionaryValidator,
-    MmcifValidator,
+    SchemaValidator,
+    MMCIFValidator,
     # Single-category rule factories
     mandatory_items,
     one_of_following,
@@ -101,7 +100,6 @@ __all__ = [
     "BaseExporter",
     # Plugin system
     "PluginFactory",
-    "PluginScope",
     "Plugin",
     "PluginWrapper",
     "FunctionPlugin",
@@ -111,13 +109,13 @@ __all__ = [
     "ValidationError",
     "ValidationSeverity",
     "ValidationReport",
-    "BlockValidator",
+    "DataBlockValidator",
     "BlockValidationWrapper",
     "ContainerValidator",
     "ContainerValidationWrapper",
     # Rules
-    "DictionaryValidator",
-    "MmcifValidator",
+    "SchemaValidator",
+    "MMCIFValidator",
     "mandatory_items",
     "one_of_following",
     "value_length",

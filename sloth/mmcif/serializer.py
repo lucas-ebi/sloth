@@ -69,7 +69,7 @@ class RelationshipConstraint:
 
 
 # ====================== Unified High-Performance Caching ======================
-# Global caches for maximum performance (similar to legacy implementation)
+# Global caches for maximum performance
 _GLOBAL_CACHES = {
     CacheType.DICTIONARY.value: {},
     CacheType.MAPPING_RULES.value: {}
@@ -79,7 +79,6 @@ _CACHE_LOCK = threading.Lock()
 class CacheManager:
     """
     Unified cache manager that combines global in-memory caching with optional disk persistence.
-    Optimized for performance based on legacy implementation patterns.
     """
     
     def __init__(self, cache_dir: Optional[str] = None, enable_disk_cache: bool = True):
@@ -814,7 +813,7 @@ class ConstraintExtractor:
             child_field = self._extract_field_name(child_name)
             parent_field = self._extract_field_name(parent_name)
         else:
-            # Legacy format
+            # Dotted notation format (e.g. _category.field)
             child_parts = child_name.strip("_").split(".")
             parent_parts = parent_name.strip("_").split(".")
             

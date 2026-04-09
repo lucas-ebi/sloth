@@ -3,17 +3,17 @@ SLOTH Validation
 
 Validation exception classes, the :class:`ValidatorPlugin` that powers
 per-category and cross-category checks, :class:`CategoryValidator` (the
-chainable wrapper), higher-level :class:`BlockValidator` /
+chainable wrapper), higher-level :class:`DataBlockValidator` /
 :class:`ContainerValidator` plugins that collect errors into a
 :class:`ValidationReport`, and a library of composable rule factories plus
-ready-to-use validator classes (:class:`DictionaryValidator`,
-:class:`MmcifValidator`).
+ready-to-use validator classes (:class:`SchemaValidator`,
+:class:`MMCIFValidator`).
 """
 
 import re
 from typing import (
     Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple,
-    TYPE_CHECKING,
+    Union, TYPE_CHECKING,
 )
 
 from .plugins import Plugin, PluginWrapper
@@ -58,6 +58,10 @@ class ValidatorPlugin(Plugin):
 
     Multiple validators can be registered for the same category — they
     will all run in registration order.
+
+    Use :meth:`validate` for a standalone convenience entry-point that
+    accepts any level of the data hierarchy and returns a
+    :class:`ValidationReport`.
     """
 
     def __init__(self):
@@ -128,6 +132,74 @@ class ValidatorPlugin(Plugin):
                 results.append(result)
         return results or None
 
+    # -- standalone convenience ---------------------------------------------
+
+    def validate(
+        self,
+        data: Union["Category", "DataBlock", "MMCIFDataContainer"],
+    ) -> "ValidationReport":
+        """Validate *data* and return a :class:`ValidationReport`.
+
+        Accepts any level of the hierarchy:
+
+        * :class:`Category` — runs per-category validators only.
+        * :class:`DataBlock` — runs per-category validators **and**
+          cross-checkers for all categories in the block.
+        * :class:`MMCIFDataContainer` — validates each block in turn.
+
+        :param data: The data object to validate.
+        :return: A :class:`ValidationReport` with all collected issues.
+        """
+        from .models import Category, DataBlock, MMCIFDataContainer
+
+        if isinstance(data, Category):
+            return self._validate_category(data)
+        if isinstance(data, DataBlock):
+            return self._validate_block(data)
+        if isinstance(data, MMCIFDataContainer):
+            report = ValidationReport()
+            for block_name in data.blocks:
+                report.extend(self._validate_block(data[block_name]))
+            return report
+        raise TypeError(
+            f"Expected Category, DataBlock, or MMCIFDataContainer, "
+            f"got {type(data).__name__}"
+        )
+
+    def _validate_category(self, category: "Category") -> "ValidationReport":
+        report = ValidationReport()
+        for validator_fn in self._validators.get(category.name, []):
+            try:
+                validator_fn(category)
+            except ValidationError as exc:
+                report.add(exc)
+        return report
+
+    def _validate_block(self, block: "DataBlock") -> "ValidationReport":
+        report = ValidationReport()
+        # Per-category validators
+        for cat_name in block.categories:
+            category = block[cat_name]
+            for validator_fn in self._validators.get(cat_name, []):
+                try:
+                    validator_fn(category)
+                except ValidationError as exc:
+                    report.add(exc)
+        # Cross-checkers
+        for (cat_a, cat_b), checkers in self._cross_checkers.items():
+            if cat_a not in block.categories or cat_b not in block.categories:
+                continue
+            try:
+                a, b = block[cat_a], block[cat_b]
+            except (KeyError, AttributeError):
+                continue
+            for checker in checkers:
+                try:
+                    checker(a, b)
+                except ValidationError as exc:
+                    report.add(exc)
+        return report
+
 
 class CategoryValidator(PluginWrapper):
     """Chainable wrapper for category validation with cross-checking."""
@@ -155,9 +227,9 @@ class CategoryValidator(PluginWrapper):
 class ValidationReport:
     """Collects validation errors from a recursive validation pass.
 
-    Returned by :meth:`BlockValidator.execute`,
+    Returned by :meth:`DataBlockValidator.execute`,
     :meth:`ContainerValidator.execute`, and
-    :meth:`~sloth.mmcif.handler.MMCIFHandler.validate`.
+    :meth:`ValidatorPlugin.validate`.
     """
 
     def __init__(self):
@@ -239,7 +311,7 @@ class ValidationReport:
 # Block-level validator
 # ---------------------------------------------------------------------------
 
-class BlockValidator(Plugin):
+class DataBlockValidator(Plugin):
     """Validates every category in a :class:`DataBlock`.
 
     Runs all per-category validators **and** cross-checkers registered on the
@@ -303,11 +375,11 @@ class BlockValidationWrapper(PluginWrapper):
 class ContainerValidator(Plugin):
     """Validates every block in an :class:`MMCIFDataContainer`.
 
-    Delegates to a :class:`BlockValidator` for each block and merges all
+    Delegates to a :class:`DataBlockValidator` for each block and merges all
     results into a single :class:`ValidationReport`.
     """
 
-    def __init__(self, block_validator: BlockValidator):
+    def __init__(self, block_validator: DataBlockValidator):
         self._block_validator = block_validator
 
     def create_wrapper(self, target: "MMCIFDataContainer") -> "ContainerValidationWrapper":
@@ -869,7 +941,7 @@ _E = ValidationSeverity.ERROR
 _W = ValidationSeverity.WARNING
 
 
-class DictionaryValidator(ValidatorPlugin):
+class SchemaValidator(ValidatorPlugin):
     """Validator auto-generated from an mmCIF dictionary.
 
     Parses a ``.dic`` file via SLOTH's
@@ -893,10 +965,10 @@ class DictionaryValidator(ValidatorPlugin):
 
     Usage::
 
-        from sloth.mmcif.validator import DictionaryValidator
+        from sloth.mmcif.validator import SchemaValidator
 
-        v = DictionaryValidator()          # schema-only rules
-        handler.register("validate", v)
+        v = SchemaValidator()          # schema-only rules
+        report = v.validate(block)     # validate a DataBlock
     """
 
     def __init__(self, dict_path: Optional[str] = None, *, quiet: bool = True):
@@ -1063,10 +1135,10 @@ class DictionaryValidator(ValidatorPlugin):
 # wwPDB deposition validator
 # ===================================================================
 
-class MmcifValidator(DictionaryValidator):
+class MMCIFValidator(SchemaValidator):
     """Full wwPDB validator = dictionary schema + deposition business rules.
 
-    Inherits all schema-level checks from :class:`DictionaryValidator`, then
+    Inherits all schema-level checks from :class:`SchemaValidator`, then
     registers wwPDB-specific rules from the declarative tables below.
 
     Parameters
@@ -1079,10 +1151,10 @@ class MmcifValidator(DictionaryValidator):
 
     Usage::
 
-        from sloth.mmcif.validator import MmcifValidator
+        from sloth.mmcif.validator import MMCIFValidator
 
-        v = MmcifValidator()               # full wwPDB + dictionary rules
-        handler.register("validate", v)
+        v = MMCIFValidator()               # full wwPDB + dictionary rules
+        report = v.validate(container)     # validate an entire container
     """
 
     # ------------------------------------------------------------------

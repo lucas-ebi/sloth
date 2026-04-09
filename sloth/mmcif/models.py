@@ -7,8 +7,8 @@ from typing import (
 from difflib import get_close_matches
 from functools import cached_property
 from abc import ABC, abstractmethod
-from .plugins import PluginFactory
-from .defaults import PluginScope, DataSourceFormat
+from .defaults import DataSourceFormat
+from .plugins import Plugin, FunctionPlugin
 import sys
 import warnings
 
@@ -126,6 +126,31 @@ class DataContainer(DataNode):
     @abstractmethod
     def __len__(self):
         pass
+
+    # -- plugin wiring (shared by Category, DataBlock, MMCIFDataContainer) --
+
+    def register(self, name: str, plugin) -> None:
+        """Register a plugin for dot-notation access on this node.
+
+        :param name: The attribute name (e.g. ``"validate"``).
+        :param plugin: A :class:`Plugin` instance or a plain callable.
+        """
+        if not isinstance(plugin, Plugin):
+            if callable(plugin):
+                plugin = FunctionPlugin(plugin)
+            else:
+                raise TypeError(
+                    f"Plugin must be a Plugin instance or callable, "
+                    f"got {type(plugin)}"
+                )
+        self._plugins[name] = plugin
+
+    def _lookup_plugin(self, name: str):
+        """Return a plugin wrapper if *name* is a registered plugin, else *None*."""
+        plugins = self.__dict__.get('_plugins', {})
+        if plugins and name in plugins:
+            return plugins[name].create_wrapper(self)
+        return None
 
 
 class Item(DataNode):
@@ -462,21 +487,20 @@ class Category(DataContainer):
     _RESERVED_ATTRS = {
         "_name",
         "_items",
-        "_plugin_factory",
+        "_plugins",
         "_batch_buffer",
         "_row_cache",
         "name",
-        "plugin_factory",
         "items",
         "data",
         "row_count",
         "rows",
+        "register",
     }
 
     def __init__(
         self,
         name: str,
-        plugin_factory: Optional[PluginFactory] = None,
     ):
         # Store the stripped name internally (remove _ prefix if present)
         if name.startswith("_"):
@@ -484,7 +508,7 @@ class Category(DataContainer):
         else:
             self._name = name  # Already stripped
         self._items: Dict[str, Union[List[str], Item]] = {}
-        self._plugin_factory = plugin_factory
+        self._plugins: Dict[str, Plugin] = {}
         self._batch_buffer: Dict[str, List] = {}  # For batching value additions
         self._row_cache: Dict[int, "Row"] = {}  # Cache for Row objects
 
@@ -493,27 +517,22 @@ class Category(DataContainer):
         # Return the full name with _ prefix for external API consistency
         return f"_{self._name}"
 
-    @property
-    def plugin_factory(self) -> Optional[PluginFactory]:
-        return self._plugin_factory
-
     @cached_property
     def items(self) -> LazyKeyList:
         """Get names of contained items - O(1) lazy list."""
         return LazyKeyList(self._items, "")
 
-    def __getattr__(self, item_name: str) -> Union[List[str], Item, "PluginWrapper"]:
+    def __getattr__(self, item_name: str) -> Union[List[str], Item]:
         if item_name in self._items:
             item = self._items[item_name]
             # Return values for Item objects, the Item itself for direct access
             if isinstance(item, Item):
                 return item.values
             return item
-        # Check for registered plugins (covers "validate" and any user plugins)
-        if self._plugin_factory is not None:
-            wrapper = self._plugin_factory.get_wrapper(item_name, self, PluginScope.CATEGORY)
-            if wrapper is not None:
-                return wrapper
+        # Check registered plugins
+        wrapper = self._lookup_plugin(item_name)
+        if wrapper is not None:
+            return wrapper
         hint = _suggest(item_name, list(self.items))
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute "
@@ -656,8 +675,8 @@ class Category(DataContainer):
     def __dir__(self):
         names = set(super().__dir__())
         names.update(self.items)
-        if self._plugin_factory is not None:
-            names.update(self._plugin_factory.list_plugins(PluginScope.CATEGORY))
+        if self._plugins:
+            names.update(self._plugins.keys())
         return sorted(names)
 
     def __repr__(self):
@@ -820,18 +839,17 @@ class DataBlock(DataContainer):
 
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        "_name", "_categories", "_plugin_factory",
-        "name", "categories", "data", "plugin_factory",
+        "_name", "_categories", "_plugins",
+        "name", "categories", "data", "register",
     }
 
     def __init__(
         self,
         name: str,
         categories: Dict[str, Category] = None,
-        plugin_factory: Optional[PluginFactory] = None,
     ):
         self._name = name
-        self._plugin_factory = plugin_factory
+        self._plugins: Dict[str, Plugin] = {}
         # Convert categories to use CategoryCollection with stripped names
         if categories is not None:
             # Strip _ prefix from category names for internal storage
@@ -848,10 +866,6 @@ class DataBlock(DataContainer):
     @property
     def name(self) -> str:
         return self._name
-
-    @property
-    def plugin_factory(self) -> Optional[PluginFactory]:
-        return self._plugin_factory
 
     @cached_property
     def categories(self) -> LazyKeyList:
@@ -880,11 +894,10 @@ class DataBlock(DataContainer):
         except KeyError:
             pass
 
-        # Check for registered plugins
-        if self._plugin_factory is not None:
-            wrapper = self._plugin_factory.get_wrapper(category_name, self, PluginScope.BLOCK)
-            if wrapper is not None:
-                return wrapper
+        # Check registered plugins
+        wrapper = self._lookup_plugin(category_name)
+        if wrapper is not None:
+            return wrapper
 
         # Return a pending proxy for category-like names (starts with _)
         if category_name.startswith("_"):
@@ -972,8 +985,8 @@ class DataBlock(DataContainer):
     def __dir__(self):
         names = set(super().__dir__())
         names.update(self.categories)
-        if self._plugin_factory is not None:
-            names.update(self._plugin_factory.list_plugins(PluginScope.BLOCK))
+        if self._plugins:
+            names.update(self._plugins.keys())
         return sorted(names)
 
     def __repr__(self):
@@ -1030,7 +1043,7 @@ class _PendingCategory:
                     SchemaWarning,
                     stacklevel=4,
                 )
-            real = Category(name, plugin_factory=parent._plugin_factory)
+            real = Category(name)
             parent._categories[name] = real
             if hasattr(parent, "categories"):
                 delattr(parent, "categories")
@@ -1138,7 +1151,7 @@ class _PendingDataBlock:
         if real is None:
             name = object.__getattribute__(self, "_pb_name")
             parent = object.__getattribute__(self, "_pb_parent")
-            real = DataBlock(name, plugin_factory=parent._plugin_factory)
+            real = DataBlock(name)
             parent._data_blocks[name] = real
             if hasattr(parent, "blocks"):
                 delattr(parent, "blocks")
@@ -1270,29 +1283,24 @@ class MMCIFDataContainer(DataContainer):
 
     # Define attributes that should be handled as normal Python attributes
     _RESERVED_ATTRS = {
-        "_data_blocks", "_plugin_factory",
-        "source_format", "name", "blocks", "data", "plugin_factory",
+        "_data_blocks", "_plugins",
+        "source_format", "name", "blocks", "data", "register",
     }
 
     def __init__(
         self,
         data_blocks: Dict[str, DataBlock] = None,
         source_format: DataSourceFormat = DataSourceFormat.MMCIF,
-        plugin_factory: Optional[PluginFactory] = None,
     ):
         self._data_blocks = DataBlockCollection(
             data_blocks if data_blocks is not None else {}
         )
-        self._plugin_factory = plugin_factory
+        self._plugins: Dict[str, Plugin] = {}
         self.source_format = source_format
 
     @property
     def name(self) -> str:
         return f"MMCIFDataContainer({len(self)} blocks)"
-
-    @property
-    def plugin_factory(self) -> Optional[PluginFactory]:
-        return self._plugin_factory
 
     def __getitem__(self, block_name: str) -> DataBlock:
         # Handle both prefixed (data_block) and unprefixed (block) names
@@ -1313,11 +1321,10 @@ class MMCIFDataContainer(DataContainer):
             # Return a pending proxy — commits on first write
             return _PendingDataBlock(actual_block_name, self)
 
-        # Check for registered plugins
-        if self._plugin_factory is not None:
-            wrapper = self._plugin_factory.get_wrapper(block_name, self, PluginScope.CONTAINER)
-            if wrapper is not None:
-                return wrapper
+        # Check registered plugins
+        wrapper = self._lookup_plugin(block_name)
+        if wrapper is not None:
+            return wrapper
 
         hint = _suggest(block_name, list(self.blocks))
         raise AttributeError(
@@ -1395,8 +1402,8 @@ class MMCIFDataContainer(DataContainer):
     def __dir__(self):
         names = set(super().__dir__())
         names.update(self.blocks)
-        if self._plugin_factory is not None:
-            names.update(self._plugin_factory.list_plugins(PluginScope.CONTAINER))
+        if self._plugins:
+            names.update(self._plugins.keys())
         return sorted(names)
 
     def __repr__(self):
