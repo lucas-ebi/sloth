@@ -1,6 +1,12 @@
 Changelog
 =========
 
+v0.8.1 (2026-04-09)
+--------------------
+
+- Fix README: replace stale ``handler.validate()`` examples with
+  ``MMCIFValidator().validate()`` API.
+
 v0.8.0 (2026-04-09)
 --------------------
 
