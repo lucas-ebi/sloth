@@ -18,6 +18,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen, ModalScreen
 from textual.widgets import (
+    Button,
     DataTable,
     Footer,
     Header,
@@ -1568,10 +1569,10 @@ class EditorScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class ConfirmScreen(ModalScreen[Optional[str]]):
-    """Generic keyboard-driven confirmation dialog.
+    """Generic confirmation dialog with focusable buttons.
 
-    Each button's first letter acts as a hotkey.  Tab / Shift+Tab moves
-    focus between buttons, Enter activates the focused one, Esc cancels.
+    Arrow keys (left/right) and Tab/Shift+Tab move between buttons.
+    Enter activates the focused button.  Esc cancels.
 
     Returns the label string of the chosen button, or ``None`` on Esc.
     """
@@ -1588,13 +1589,24 @@ class ConfirmScreen(ModalScreen[Optional[str]]):
         background: $surface;
         padding: 1 2;
     }
-    #confirm-hint {
+    #confirm-buttons {
         margin-top: 1;
-        color: $text-muted;
+        height: auto;
+        align: center middle;
+    }
+    #confirm-buttons Button {
+        margin: 0 1;
+        min-width: 12;
+    }
+    #confirm-buttons Button:focus {
+        background: $primary;
+        color: $text;
     }
     """
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
 
     def __init__(
         self,
@@ -1605,31 +1617,30 @@ class ConfirmScreen(ModalScreen[Optional[str]]):
         super().__init__(**kwargs)
         self._prompt = prompt
         self._buttons = list(buttons)
-        # Map lowercase first-letter → label for hotkeys
-        self._hotkeys: Dict[str, str] = {}
-        for label in self._buttons:
-            key = label[0].lower()
-            if key not in self._hotkeys:
-                self._hotkeys[key] = label
 
     def compose(self) -> ComposeResult:
-        hints = "  ".join(
-            f"\\[{label[0].upper()}]{label[1:]}"
-            for label in self._buttons
-        )
         with Vertical(id="confirm-box"):
             yield Static(self._prompt)
-            yield Static(
-                f"[dim]{hints}  │  Esc cancel[/]",
-                id="confirm-hint",
-            )
+            with Horizontal(id="confirm-buttons"):
+                for i, label in enumerate(self._buttons):
+                    yield Button(label, id=f"confirm-btn-{i}")
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm-btn-0", Button).focus()
 
     def on_key(self, event) -> None:
-        label = self._hotkeys.get(event.key)
-        if label is not None:
+        if event.key in ("left", "right"):
+            btns = list(self.query(Button))
+            focused = self.focused
+            if focused in btns:
+                idx = btns.index(focused)
+                nxt = (idx - 1) if event.key == "left" else (idx + 1)
+                btns[nxt % len(btns)].focus()
             event.prevent_default()
             event.stop()
-            self.dismiss(label)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.label.plain)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
