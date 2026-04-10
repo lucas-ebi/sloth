@@ -33,6 +33,7 @@ dependencies = [
     "msgpack",
     "gemmi>=0.6.0",
     "jsonschema>=4.0.0",
+    "textual>=0.50.0",
 ]
 requires-python = ">=3.8"
 
@@ -82,10 +83,10 @@ all = [
 ]
 
 [project.scripts]
-sloth-demo = "demo:main"
+sloth = "sloth.mmcif.cli.app:main"
 
 [tool.setuptools]
-packages = ["sloth"]
+packages = ["sloth", "sloth.mmcif", "sloth.mmcif.cli", "sloth.mmcif.scripts"]
 
 [tool.setuptools.package-data]
 sloth = ["*.py"]
