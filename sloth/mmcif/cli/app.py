@@ -837,7 +837,14 @@ class EditorScreen(Screen):
                         data_block, cat_name, cat.row_count, len(cat)
                     )
 
-        # Re-show the view that was active before the mutation
+        # Defer the table/meter refresh so it runs *after* any tree events
+        # have settled — otherwise tree reflows clobber the table contents.
+        self.call_later(self._deferred_restore_view, view_block, view_cat)
+
+    def _deferred_restore_view(
+        self, view_block: Optional[str], view_cat: Optional[str]
+    ) -> None:
+        """Re-show the view that was active before the undo/redo mutation."""
         if (view_block
                 and view_block in self._container.blocks
                 and view_cat
