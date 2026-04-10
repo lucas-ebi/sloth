@@ -6,7 +6,7 @@ Retro mainframe-inspired components with an arcade flair.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from textual.widgets import Static, Tree, DataTable, Input, Footer, Header
 from textual.widgets.tree import TreeNode
@@ -159,11 +159,26 @@ class CIFTree(Tree):
     """
 
     def __init__(self, **kwargs) -> None:
-        super().__init__("🦥 mmCIF", **kwargs)
+        super().__init__("[dim]container[/]", **kwargs)
         self._block_nodes: Dict[str, TreeNode] = {}
         self._container: Optional[MMCIFDataContainer] = None
 
-    def load_container(self, container: MMCIFDataContainer) -> None:
+    def set_root_label(self, label: str) -> None:
+        """Set the container/root label shown above blocks."""
+        self.root.set_label(f"[bold bright_cyan]{label}[/]")
+
+    def load_container(
+        self,
+        container: MMCIFDataContainer,
+        children_of: Optional[Callable[[str], List[str]]] = None,
+    ) -> None:
+        """Load a container into the tree.
+
+        If *children_of* is provided it should be a callable that returns the
+        owned child category names (without ``_`` prefix) for a given category.
+        Categories that are children of another present category will be nested
+        under their parent, mirroring the hierarchical JSON export structure.
+        """
         self._container = container
         self.clear()
         self._block_nodes.clear()
@@ -175,14 +190,44 @@ class CIFTree(Tree):
             )
             self._block_nodes[block.name] = bnode
 
-            for cat_name in sorted(block.categories):
+            # Determine hierarchy if a children_of helper was provided
+            cat_names = list(block.categories)
+            cat_names_stripped = [c.lstrip("_") for c in cat_names]
+            present: Set[str] = set(cat_names_stripped)
+
+            # Map stripped name → original name (with underscore prefix)
+            orig: Dict[str, str] = {}
+            for c in cat_names:
+                orig[c.lstrip("_")] = c
+
+            # Build parent→[children] restricted to categories actually present.
+            # Each child is assigned to exactly one parent (first claimant wins)
+            # to avoid duplicate nodes in the tree.
+            child_map: Dict[str, List[str]] = {}
+            owned: Set[str] = set()
+            if children_of:
+                for cat_s in sorted(cat_names_stripped):
+                    kids = [
+                        k
+                        for k in children_of(cat_s)
+                        if k in present and k not in owned
+                    ]
+                    if kids:
+                        child_map[cat_s] = kids
+                        owned.update(kids)
+
+            # Root categories: not owned by another present category
+            roots = [c for c in cat_names_stripped if c not in owned]
+
+            def _add_cat(parent_node: TreeNode, cat_stripped: str) -> None:
+                cat_name = orig[cat_stripped]
                 cat = block[cat_name]
                 row_count = cat.row_count
                 label = (
                     f"[bright_yellow]▸ {cat_name}[/]"
                     f" [dim]({row_count} rows, {len(cat)} items)[/]"
                 )
-                cnode = bnode.add(
+                cnode = parent_node.add(
                     label,
                     data={
                         "type": "category",
@@ -200,6 +245,13 @@ class CIFTree(Tree):
                             "item": item_name,
                         },
                     )
+                # Recursively add children
+                for child_s in child_map.get(cat_stripped, []):
+                    _add_cat(cnode, child_s)
+
+            for root_s in sorted(roots):
+                _add_cat(bnode, root_s)
+
             bnode.expand()
 
         self.root.expand()
@@ -250,15 +302,26 @@ class CIFTree(Tree):
         """Return which blocks and categories are currently expanded.
 
         Returns ``{"blocks": {name, …}, "categories": {(block, cat), …}}``.
+        Category expansion is collected recursively so nested categories are kept.
         """
         expanded_blocks: set = set()
         expanded_cats: set = set()
+
+        def _walk_categories(block_name: str, node: TreeNode) -> None:
+            for child in node.children:
+                if not child.data:
+                    continue
+                if child.data.get("type") == "category":
+                    cname = child.data.get("name", "")
+                    if child.is_expanded:
+                        expanded_cats.add((block_name, cname))
+                _walk_categories(block_name, child)
+
         for bname, bnode in self._block_nodes.items():
             if bnode.is_expanded:
                 expanded_blocks.add(bname)
-            for child in bnode.children:
-                if child.is_expanded and child.data:
-                    expanded_cats.add((bname, child.data.get("name", "")))
+            _walk_categories(bname, bnode)
+
         return {"blocks": expanded_blocks, "categories": expanded_cats}
 
     def restore_expanded_state(
@@ -267,19 +330,38 @@ class CIFTree(Tree):
         select_block: Optional[str] = None,
         select_category: Optional[str] = None,
     ) -> None:
-        """Re-expand previously-expanded nodes and optionally highlight one."""
+        """Re-expand previously-expanded nodes and optionally highlight one.
+
+        When selecting a category, all ancestor nodes are expanded so it is
+        immediately visible even if nested under collapsed parents.
+        """
+        selected_node: Optional[TreeNode] = None
+
+        def _walk_and_restore(block_name: str, node: TreeNode) -> None:
+            nonlocal selected_node
+            for child in node.children:
+                if not child.data:
+                    continue
+                if child.data.get("type") == "category":
+                    cname = child.data.get("name", "")
+                    if (block_name, cname) in state["categories"]:
+                        child.expand()
+                    if block_name == select_block and cname == select_category:
+                        selected_node = child
+                _walk_and_restore(block_name, child)
+
         for bname, bnode in self._block_nodes.items():
             if bname in state["blocks"]:
                 bnode.expand()
-            for child in bnode.children:
-                if not child.data:
-                    continue
-                cname = child.data.get("name", "")
-                if (bname, cname) in state["categories"]:
-                    child.expand()
-                # Highlight the active category
-                if bname == select_block and cname == select_category:
-                    self.select_node(child)
+            _walk_and_restore(bname, bnode)
+
+        if selected_node is not None:
+            # Ensure every ancestor is expanded so the selected node is visible.
+            parent = selected_node.parent
+            while parent is not None:
+                parent.expand()
+                parent = parent.parent
+            self.select_node(selected_node)
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         node_data = event.node.data

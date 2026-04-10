@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -28,6 +28,7 @@ from textual.widgets import (
     ListView,
     Static,
 )
+from textual.widgets import TextArea
 from textual.coordinate import Coordinate
 
 from ..handler import MMCIFHandler
@@ -113,7 +114,10 @@ class FileOpenScreen(ModalScreen[Optional[str]]):
     }
     """
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("tab", "autocomplete", "Autocomplete", show=False, priority=True),
+        Binding("escape", "cancel", "Cancel"),
+    ]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="file-dialog"):
@@ -227,15 +231,21 @@ class AddCategoryScreen(ModalScreen[Optional[str]]):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, hints: SchemaHints, **kwargs) -> None:
+    def __init__(
+        self,
+        hints: SchemaHints,
+        present_categories: Optional[Set[str]] = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._hints = hints
+        self._present_categories = set(present_categories or set())
 
     def compose(self) -> ComposeResult:
         with Vertical(id="add-cat-dialog"):
             yield Label(
                 "[bold bright_green]╔══ ADD CATEGORY ══╗[/]\n"
-                "[dim]Type a category name (e.g. _atom_site). "
+                "[dim]Type a category name (e.g. _atom_site).\n"
                 "Suggestions appear as you type.[/]"
             )
             yield Input(
@@ -253,17 +263,52 @@ class AddCategoryScreen(ModalScreen[Optional[str]]):
     def handle_change(self, event: Input.Changed) -> None:
         self._show_suggestions(event.value.strip())
 
-    def _show_suggestions(self, prefix: str) -> None:
-        matches = self._hints.match_categories(prefix or "_")[:10]
+    def on_key(self, event) -> None:
+        if event.key == "tab":
+            self.action_autocomplete()
+            event.prevent_default()
+            event.stop()
+
+    def _top_category_suggestion(self, prefix: str) -> Optional[str]:
+        required, matches = self._hints.suggested_categories(
+            prefix,
+            self._present_categories,
+            limit=10,
+        )
+        if required:
+            return required[0]
         if matches:
-            lines = "  ".join(f"[bright_cyan]{m}[/]" for m in matches)
-            self.query_one("#cat-suggestions", Static).update(
-                f"[bold bright_yellow]⚡ SUGGESTIONS:[/]\n  {lines}"
-            )
+            return matches[0]
+        return None
+
+    def _show_suggestions(self, prefix: str) -> None:
+        required, matches = self._hints.suggested_categories(
+            prefix,
+            self._present_categories,
+            limit=10,
+        )
+        if required or matches:
+            chunks = []
+            if required:
+                req_lines = "  ".join(f"[bold bright_red]{m}[/]" for m in required)
+                chunks.append(f"[bold bright_yellow]⚠ MISSING REQUIRED PARENTS:[/]\n  {req_lines}")
+            if matches:
+                match_lines = "  ".join(f"[bright_cyan]{m}[/]" for m in matches)
+                chunks.append(f"[bold bright_yellow]⚡ OTHER SUGGESTIONS:[/]\n  {match_lines}")
+            self.query_one("#cat-suggestions", Static).update("\n".join(chunks))
         else:
             self.query_one("#cat-suggestions", Static).update(
                 "[dim]No matching categories in dictionary[/]"
             )
+
+    def action_autocomplete(self) -> None:
+        input_widget = self.query_one("#cat-name-input", Input)
+        prefix = input_widget.value.strip()
+        suggestion = self._top_category_suggestion(prefix)
+        if not suggestion:
+            return
+        input_widget.value = suggestion
+        self._show_suggestions(suggestion)
 
     @on(Input.Submitted, "#cat-name-input")
     def handle_submit(self, event: Input.Submitted) -> None:
@@ -304,7 +349,10 @@ class AddItemScreen(ModalScreen[Optional[str]]):
     }
     """
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("tab", "autocomplete", "Autocomplete", show=False, priority=True),
+        Binding("escape", "cancel", "Cancel"),
+    ]
 
     def __init__(self, hints: SchemaHints, category: str, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -329,6 +377,18 @@ class AddItemScreen(ModalScreen[Optional[str]]):
     def handle_change(self, event: Input.Changed) -> None:
         self._show_suggestions(event.value.strip())
 
+    def on_key(self, event) -> None:
+        if event.key == "tab":
+            self.action_autocomplete()
+            event.prevent_default()
+            event.stop()
+
+    def _top_item_suggestion(self, prefix: str) -> Optional[str]:
+        matches = self._hints.match_items(self._category, prefix)[:12]
+        if matches:
+            return matches[0]
+        return None
+
     def _show_suggestions(self, prefix: str) -> None:
         matches = self._hints.match_items(self._category, prefix)[:12]
         if matches:
@@ -340,6 +400,15 @@ class AddItemScreen(ModalScreen[Optional[str]]):
             self.query_one("#item-suggestions", Static).update(
                 "[dim]No matching items in dictionary[/]"
             )
+
+    def action_autocomplete(self) -> None:
+        input_widget = self.query_one("#item-name-input", Input)
+        prefix = input_widget.value.strip()
+        suggestion = self._top_item_suggestion(prefix)
+        if not suggestion:
+            return
+        input_widget.value = suggestion
+        self._show_suggestions(suggestion)
 
     @on(Input.Submitted, "#item-name-input")
     def handle_submit(self, event: Input.Submitted) -> None:
@@ -758,6 +827,8 @@ class EditorScreen(Screen):
         self._validator: Optional[MMCIFValidator] = None
         self._current_block: Optional[str] = None
         self._current_category: Optional[str] = None
+        self._paste_after_add_category = False
+        self._paste_after_add_item = False
         self._dirty = False
         # Undo entry: (data_block_name, view_block, view_category, serialized_text)
         self._undo_stack: List[Tuple[Optional[str], Optional[str], Optional[str], str]] = []
@@ -822,7 +893,8 @@ class EditorScreen(Screen):
         if data_block is None:
             # Full-container restore (e.g. new-block undo) → must rebuild tree
             expanded = tree.get_expanded_state()
-            tree.load_container(self._container)
+            self._hints.build_hierarchy(self._container)
+            tree.load_container(self._container, children_of=self._hints.children_of)
             tree.restore_expanded_state(
                 expanded,
                 select_block=view_block,
@@ -902,8 +974,10 @@ class EditorScreen(Screen):
         )
 
     def on_mount(self) -> None:
+        self._hints.build_hierarchy(self._container)
         tree = self.query_one("#cif-tree", CIFTree)
-        tree.load_container(self._container)
+        tree.set_root_label(self._file_path or "(unsaved) new file")
+        tree.load_container(self._container, children_of=self._hints.children_of)
         self._update_completion()
 
         # Auto-select first block/category if available
@@ -938,6 +1012,18 @@ class EditorScreen(Screen):
     @on(CIFTree.ItemSelected)
     def on_item_selected(self, event: CIFTree.ItemSelected) -> None:
         self._show_category(event.block_name, event.category_name)
+
+        # Jump cursor to the selected item column in the table.
+        table = self.query_one("#data-table", DataTable)
+        block = self._container[event.block_name]
+        cat = block[event.category_name]
+        item_names = list(cat.items)
+        if event.item_name in item_names:
+            col_idx = item_names.index(event.item_name) + 1  # +1 for row-number column
+            row_idx = 0 if cat.row_count > 0 else None
+            table.focus()
+            table.move_cursor(row=row_idx, column=col_idx, animate=False, scroll=True)
+
         enums = self._hints.enumerations_for(event.category_name, event.item_name)
         hint = self.query_one("#hint-panel", HintPanel)
         hint.show_item_hint(event.category_name, event.item_name, enums)
@@ -1104,31 +1190,75 @@ class EditorScreen(Screen):
     # ── Actions: Add ───────────────────────────────────────────────────
 
     def action_add_menu(self) -> None:
-        """Route to add-category, add-item, or add-row based on context."""
+        """Context-aware add action based on current tree node level."""
+        tree = self.query_one("#cif-tree", CIFTree)
+        node_data = None
+        try:
+            node = tree.cursor_node
+            node_data = node.data if node is not None else None
+        except Exception:
+            node_data = None
+
+        ntype = node_data.get("type") if isinstance(node_data, dict) else None
+
+        if ntype == "item":
+            # Column-level context: bulk paste values into this column.
+            self._current_block = node_data.get("block", self._current_block)
+            self._current_category = node_data.get("category", self._current_category)
+            self.action_paste_column()
+            return
+
+        if ntype == "category":
+            self._current_block = node_data.get("block", self._current_block)
+            self._current_category = node_data.get("name", self._current_category)
+            self.app.push_screen(
+                _AddChoiceScreen(self._current_category),
+                self._handle_add_choice,
+            )
+            return
+
+        if ntype == "block":
+            self._current_block = node_data.get("name", self._current_block)
+            self._current_category = None
+            self._do_add_category(paste_after=True)
+            return
+
+        # Root/container context (or fallback when no node info available).
         if self._current_category:
             self.app.push_screen(
                 _AddChoiceScreen(self._current_category),
                 self._handle_add_choice,
             )
-        elif self._current_block:
-            self._do_add_category()
-        else:
-            self.notify(
-                "Select or create a data block first.",
-                severity="warning",
-            )
+            return
+        if self._current_block:
+            self._do_add_category(paste_after=True)
+            return
+        self.action_new_block()
 
     def _handle_add_choice(self, choice: Optional[str]) -> None:
         if choice == "category":
-            self._do_add_category()
+            self._do_add_category(paste_after=True)
         elif choice == "item":
-            self._do_add_item()
+            self._do_add_item(paste_after=True)
         elif choice == "row":
             self._do_add_row()
+        elif choice == "paste_table":
+            self.action_paste_table()
+        elif choice == "paste_column":
+            self.action_paste_column()
 
-    def _do_add_category(self) -> None:
+    def _do_add_category(self, paste_after: bool = False) -> None:
+        self._paste_after_add_category = paste_after
+        present_categories: Set[str] = set()
+        if self._current_block:
+            try:
+                # __getitem__ accepts both "DEMO" and "data_DEMO".
+                present_categories = set(self._container[self._current_block].categories)
+            except KeyError:
+                present_categories = set()
         self.app.push_screen(
-            AddCategoryScreen(self._hints), self._on_category_added
+            AddCategoryScreen(self._hints, present_categories=present_categories),
+            self._on_category_added,
         )
 
     def _on_category_added(self, cat_name: Optional[str]) -> None:
@@ -1137,15 +1267,44 @@ class EditorScreen(Screen):
         self._push_undo()
         block = self._container[self._current_block]
         cat = Category(cat_name)
+
+        # For known dictionary categories, pre-create all defined items
+        # so users can start adding rows immediately.
+        dict_items = self._hints.items_for_category(cat_name)
+        for item_name in dict_items:
+            cat[item_name] = Item(item_name, ['.'])
+
         block[cat_name] = cat
         self._dirty = True
 
         tree = self.query_one("#cif-tree", CIFTree)
-        tree.add_category_node(self._current_block, cat_name, 0, 0)
+        expanded = tree.get_expanded_state()
+        self._hints.build_hierarchy(self._container)
+        tree.load_container(self._container, children_of=self._hints.children_of)
+        tree.restore_expanded_state(
+            expanded,
+            select_block=self._current_block,
+            select_category=cat_name,
+        )
         self._show_category(self._current_block, cat_name)
-        self.notify(f"[bright_green]✓[/] Category {cat_name} added!", severity="information")
+        if dict_items:
+            self.notify(
+                f"[bright_green]✓[/] Category {cat_name} added with {len(dict_items)} dictionary items!",
+                severity="information",
+            )
+            if self._paste_after_add_category:
+                self.action_paste_table()
+        else:
+            self.notify(f"[bright_green]✓[/] Category {cat_name} added!", severity="information")
+            if self._paste_after_add_category:
+                self.notify(
+                    "No dictionary items found for this category; add items before table paste.",
+                    severity="warning",
+                )
+        self._paste_after_add_category = False
 
-    def _do_add_item(self) -> None:
+    def _do_add_item(self, paste_after: bool = False) -> None:
+        self._paste_after_add_item = paste_after
         if not self._current_category or not self._current_block:
             return
         self.app.push_screen(
@@ -1175,6 +1334,196 @@ class EditorScreen(Screen):
             len(cat),
         )
         self.notify(f"[bright_green]✓[/] Item {item_name} added!", severity="information")
+        if self._paste_after_add_item:
+            self._open_paste_column_for_item(item_name)
+        self._paste_after_add_item = False
+
+    # ── Paste-table ────────────────────────────────────────────────────
+
+    def action_paste_table(self) -> None:
+        """Open the paste-table modal for the current category."""
+        if not self._current_category or not self._current_block:
+            self.notify("Select a category first.", severity="warning")
+            return
+        block = self._container[self._current_block]
+        cat = block[self._current_category]
+        item_names = list(cat.items)
+        if not item_names:
+            self.notify("Category has no items; add items first.", severity="warning")
+            return
+        self.app.push_screen(
+            PasteTableScreen(self._current_category, item_names),
+            self._on_table_pasted,
+        )
+
+    def _on_table_pasted(self, text: Optional[str]) -> None:
+        if not text or not self._current_block or not self._current_category:
+            return
+        block = self._container[self._current_block]
+        cat = block[self._current_category]
+        item_names = list(cat.items)
+
+        warn, data = self._parse_paste_text(text, item_names)
+        if not data:
+            self.notify(warn or "No data parsed.", severity="warning")
+            return
+
+        n_rows = max(len(v) for v in data.values())
+        if n_rows == 0:
+            return
+
+        self._push_undo()
+        for item_name in item_names:
+            values = data.get(item_name, ['.'] * n_rows)
+            cat[item_name] = Item(item_name, values)
+        self._dirty = True
+
+        self._show_category(self._current_block, self._current_category)
+        tree = self.query_one("#cif-tree", CIFTree)
+        tree.refresh_category_node(
+            self._current_block, self._current_category, cat.row_count, len(cat)
+        )
+        msg = f"[bright_green]✓[/] Imported {n_rows} rows into {self._current_category}"
+        if warn:
+            msg += f"  [yellow]({warn})[/]"
+        self.notify(msg, severity="information")
+
+    def action_paste_column(self) -> None:
+        """Open the paste-column modal for the currently selected item column."""
+        if not self._current_category or not self._current_block:
+            self.notify("Select a category first.", severity="warning")
+            return
+
+        table = self.query_one("#data-table", DataTable)
+        block = self._container[self._current_block]
+        cat = block[self._current_category]
+        item_names = list(cat.items)
+        if not item_names:
+            self.notify("Category has no items; add items first.", severity="warning")
+            return
+
+        try:
+            cursor_col = table.cursor_coordinate.column
+        except Exception:
+            cursor_col = 1
+
+        if cursor_col <= 0 or cursor_col > len(item_names):
+            self.notify(
+                "Select a target item column first (or choose the item in the left panel).",
+                severity="warning",
+            )
+            return
+
+        target_item = item_names[cursor_col - 1]
+        self._open_paste_column_for_item(target_item)
+
+    def _open_paste_column_for_item(self, item_name: str) -> None:
+        if not self._current_category or not self._current_block:
+            return
+        block = self._container[self._current_block]
+        cat = block[self._current_category]
+        self.app.push_screen(
+            PasteColumnScreen(self._current_category, item_name, cat.row_count),
+            lambda text, item=item_name: self._on_column_pasted(item, text),
+        )
+
+    def _on_column_pasted(self, item_name: str, text: Optional[str]) -> None:
+        if text is None or not self._current_block or not self._current_category:
+            return
+
+        lines = text.splitlines()
+        values = [line.strip() if line.strip() else "." for line in lines]
+        if not values:
+            self.notify("No values parsed.", severity="warning")
+            return
+
+        block = self._container[self._current_block]
+        cat = block[self._current_category]
+        row_count = cat.row_count
+
+        # For populated categories, enforce exact row count to avoid accidental shifts.
+        if row_count > 0 and len(values) != row_count:
+            self.notify(
+                f"Row mismatch: category has {row_count} rows, pasted {len(values)} values.",
+                severity="warning",
+            )
+            return
+
+        self._push_undo()
+        if row_count == 0:
+            item_names = list(cat.items)
+            for existing_item in item_names:
+                if existing_item == item_name:
+                    cat[existing_item] = Item(existing_item, values)
+                else:
+                    cat[existing_item] = Item(existing_item, ['.'] * len(values))
+        else:
+            cat[item_name] = Item(item_name, values)
+        self._dirty = True
+
+        self._show_category(self._current_block, self._current_category)
+        tree = self.query_one("#cif-tree", CIFTree)
+        tree.refresh_category_node(
+            self._current_block, self._current_category, cat.row_count, len(cat)
+        )
+        self.notify(
+            f"[bright_green]✓[/] Imported {len(values)} values into {item_name}",
+            severity="information",
+        )
+
+    def _parse_paste_text(
+        self, text: str, item_names: List[str]
+    ) -> Tuple[Optional[str], Dict[str, List[str]]]:
+        """Parse pasted TSV/CSV text into {item_name: [values]}.
+
+        Returns (warning_or_None, data_dict).  Empty data_dict means failure.
+        """
+        lines = [l for l in text.splitlines() if l.strip()]
+        if not lines:
+            return "No data found in pasted text.", {}
+
+        # Detect delimiter: prefer tab (spreadsheet), fall back to comma
+        first_line = lines[0]
+        delimiter = '\t' if '\t' in first_line else ','
+
+        rows = [line.split(delimiter) for line in lines]
+
+        # Header detection: ≥50 % of first-row cells match known item names?
+        item_set_lower = {n.lower() for n in item_names}
+        first_row = [c.strip() for c in rows[0]]
+        header_hits = sum(1 for c in first_row if c.lower() in item_set_lower)
+        has_header = bool(first_row) and header_hits >= max(1, len(first_row) * 0.5)
+
+        warn: Optional[str] = None
+        if has_header:
+            col_map: Dict[int, str] = {}
+            for col_idx, cell in enumerate(first_row):
+                cell_l = cell.lower()
+                for item in item_names:
+                    if item.lower() == cell_l:
+                        col_map[col_idx] = item
+                        break
+            data_rows = rows[1:]
+            unknown = [c for c in first_row if c and c.lower() not in item_set_lower]
+            if unknown:
+                warn = f"Unknown columns ignored: {', '.join(unknown)}"
+        else:
+            # No header row — map columns by position to item order
+            col_map = {i: item for i, item in enumerate(item_names)}
+            data_rows = rows
+
+        if not data_rows:
+            return "No data rows found.", {}
+
+        n_rows = len(data_rows)
+        result: Dict[str, List[str]] = {item: ['.'] * n_rows for item in item_names}
+        for row_idx, row in enumerate(data_rows):
+            for col_idx, item in col_map.items():
+                if col_idx < len(row):
+                    val = row[col_idx].strip()
+                    result[item][row_idx] = val if val else '.'
+
+        return warn, result
 
     def _do_add_row(self) -> None:
         if not self._current_category or not self._current_block:
@@ -1442,6 +1791,7 @@ class EditorScreen(Screen):
             self._handler.write(self._container, path)
             self._file_path = path
             self._dirty = False
+            self.query_one("#cif-tree", CIFTree).set_root_label(path)
             self.notify(
                 f"[bold bright_green]★ SAVED[/] → {path}",
                 severity="information",
@@ -1480,8 +1830,10 @@ class EditorScreen(Screen):
             self._dirty = False
             self._current_block = None
             self._current_category = None
+            self._hints.build_hierarchy(container)
             tree = self.query_one("#cif-tree", CIFTree)
-            tree.load_container(container)
+            tree.set_root_label(path)
+            tree.load_container(container, children_of=self._hints.children_of)
             table = self.query_one("#data-table", DataTable)
             table.clear(columns=True)
 
@@ -1708,7 +2060,127 @@ class EditCellScreen(ModalScreen[Optional[str]]):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Add-choice mini-modal (category / item / row)
+# Paste-table modal
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PasteTableScreen(ModalScreen[Optional[str]]):
+    """Modal to paste TSV/CSV rows into the current category."""
+
+    DEFAULT_CSS = """
+    PasteTableScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.85);
+    }
+    #paste-dialog {
+        width: 90;
+        height: 30;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #paste-area {
+        height: 1fr;
+        margin: 1 0;
+        border: solid $accent;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, category: str, item_names: List[str], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._category = category
+        self._item_names = item_names
+
+    def compose(self) -> ComposeResult:
+        cols = "  ".join(f"[bright_cyan]{n}[/]" for n in self._item_names[:8])
+        if len(self._item_names) > 8:
+            cols += "  [dim]…[/]"
+        with Vertical(id="paste-dialog"):
+            yield Label(
+                f"[bold bright_green]╔══ PASTE TABLE into {self._category} ══╗[/]\n"
+                f"[dim]Columns:[/] {cols}\n"
+                "[dim]TSV/CSV — first row may be headers. "
+                "Ctrl+S to import  │  Esc to cancel[/]"
+            )
+            yield TextArea(id="paste-area")
+
+    def on_mount(self) -> None:
+        self.query_one("#paste-area", TextArea).focus()
+
+    def on_key(self, event) -> None:
+        if event.key == "ctrl+s":
+            text = self.query_one("#paste-area", TextArea).text.strip()
+            if text:
+                self.dismiss(text)
+            event.prevent_default()
+            event.stop()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class PasteColumnScreen(ModalScreen[Optional[str]]):
+    """Modal to paste one value per line into a selected item column."""
+
+    DEFAULT_CSS = """
+    PasteColumnScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.85);
+    }
+    #paste-col-dialog {
+        width: 90;
+        height: 26;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #paste-col-area {
+        height: 1fr;
+        margin: 1 0;
+        border: solid $accent;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, category: str, item_name: str, row_count: int, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._category = category
+        self._item_name = item_name
+        self._row_count = row_count
+
+    def compose(self) -> ComposeResult:
+        count_hint = (
+            f"[dim]Expecting exactly {self._row_count} lines.[/]"
+            if self._row_count > 0
+            else "[dim]Category is empty: line count will become row count.[/]"
+        )
+        with Vertical(id="paste-col-dialog"):
+            yield Label(
+                f"[bold bright_green]╔══ PASTE COLUMN into {self._category}.{self._item_name} ══╗[/]\n"
+                "[dim]One value per line (blank lines become '.'). "
+                "Ctrl+S to import  │  Esc to cancel[/]\n"
+                f"{count_hint}"
+            )
+            yield TextArea(id="paste-col-area")
+
+    def on_mount(self) -> None:
+        self.query_one("#paste-col-area", TextArea).focus()
+
+    def on_key(self, event) -> None:
+        if event.key == "ctrl+s":
+            text = self.query_one("#paste-col-area", TextArea).text
+            self.dismiss(text)
+            event.prevent_default()
+            event.stop()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Add-choice modal
 # ═══════════════════════════════════════════════════════════════════════════
 
 class _AddChoiceScreen(ModalScreen[Optional[str]]):
@@ -1743,9 +2215,10 @@ class _AddChoiceScreen(ModalScreen[Optional[str]]):
         with Vertical(id="add-choice-dialog"):
             yield Static(
                 "[bold bright_green]╔══ ADD WHAT? ══╗[/]\n\n"
-                f"  [bright_cyan]\\[C][/]ategory   — new category in this block\n"
-                f"  [bright_cyan]\\[I][/]tem       — new column in {self._cat}\n"
-                f"  [bright_cyan]\\[R][/]ow        — new row in {self._cat}\n\n"
+                f"  [bright_cyan]\\[C][/]ategory   — add category + paste table\n"
+                f"  [bright_cyan]\\[I][/]tem       — add column + paste values\n"
+                f"  [bright_cyan]\\[R][/]ow        — new row in {self._cat}\n"
+                "\n"
                 "[dim]Press key or Esc to cancel[/]"
             )
 
@@ -1799,11 +2272,10 @@ class SlothApp(App):
     DataTable > .datatable--even-row {
         background: #0d0d0d;
     }
-    DataTable > .datatable--odd-row {
-        background: #0a0a0a;
-    }
     Tree {
         background: #0a0a0a;
+        color: #44ff44;
+        border-right: solid #226622;
     }
     Tree > .tree--cursor {
         background: #226622;
