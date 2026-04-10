@@ -811,6 +811,12 @@ class EditorScreen(Screen):
         color: $text;
         padding: 0 1;
     }
+
+    #inline-edit-input {
+        dock: bottom;
+        height: 3;
+        display: none;
+    }
     """
 
     def __init__(
@@ -827,6 +833,7 @@ class EditorScreen(Screen):
         self._validator: Optional[MMCIFValidator] = None
         self._current_block: Optional[str] = None
         self._current_category: Optional[str] = None
+        self._inline_edit_ctx: Optional[Tuple[int, str]] = None
         self._paste_after_add_category = False
         self._paste_after_add_item = False
         self._dirty = False
@@ -968,6 +975,7 @@ class EditorScreen(Screen):
             with Vertical(id="table-panel"):
                 yield DataTable(id="data-table", cursor_type="cell")
         yield HintPanel(id="hint-panel")
+        yield Input(id="inline-edit-input", placeholder="Edit cell value")
         yield Static(
             "[dim]? Help │ r Requirements │ a Add │ e Edit │ d Clear/Del │ D Del column │ Ctrl+Z Undo │ Ctrl+S Save[/]",
             id="status-line",
@@ -1595,15 +1603,45 @@ class EditorScreen(Screen):
             return
         item_name = item_names[cursor_col - 1]
         current_value = cat[item_name][cursor_row] if cursor_row < cat.row_count else "?"
+        self._start_inline_edit(cursor_row, item_name, current_value)
 
-        enums = self._hints.enumerations_for(self._current_category, item_name)
+    def _start_inline_edit(self, row_idx: int, item_name: str, current_value: str) -> None:
+        """Open lightweight in-place editor for a specific cell."""
+        self._inline_edit_ctx = (row_idx, item_name)
+        editor = self.query_one("#inline-edit-input", Input)
+        editor.placeholder = f"Edit {item_name}[{row_idx}] and press Enter (Esc to cancel)"
+        editor.value = current_value
+        editor.styles.display = "block"
+        editor.focus()
 
-        self.app.push_screen(
-            EditCellScreen(
-                self._current_category, item_name, current_value, enums
-            ),
-            lambda val: self._on_cell_edited(cursor_row, item_name, val),
-        )
+    def _finish_inline_edit(self, *, commit: bool) -> None:
+        editor = self.query_one("#inline-edit-input", Input)
+        ctx = self._inline_edit_ctx
+        value = editor.value
+
+        editor.styles.display = "none"
+        editor.value = ""
+        self._inline_edit_ctx = None
+        self.query_one("#data-table", DataTable).focus()
+
+        if commit and ctx is not None:
+            row_idx, item_name = ctx
+            self._on_cell_edited(row_idx, item_name, value)
+
+    @on(Input.Submitted, "#inline-edit-input")
+    def _inline_edit_submitted(self, event: Input.Submitted) -> None:
+        self._finish_inline_edit(commit=True)
+
+    def on_key(self, event) -> None:
+        focused = self.focused
+        if (
+            event.key == "escape"
+            and isinstance(focused, Input)
+            and focused.id == "inline-edit-input"
+        ):
+            self._finish_inline_edit(commit=False)
+            event.prevent_default()
+            event.stop()
 
     def _on_cell_edited(
         self, row_idx: int, item_name: str, new_value: Optional[str]
