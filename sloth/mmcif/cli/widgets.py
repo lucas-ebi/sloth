@@ -167,6 +167,10 @@ class CIFTree(Tree):
         """Set the container/root label shown above blocks."""
         self.root.set_label(f"[bold bright_cyan]{label}[/]")
 
+    @staticmethod
+    def _display_block_name(name: str) -> str:
+        return name if name.startswith("data_") else f"data_{name}"
+
     def load_container(
         self,
         container: MMCIFDataContainer,
@@ -185,7 +189,7 @@ class CIFTree(Tree):
 
         for block in container:
             bnode = self.root.add(
-                f"[bold bright_cyan]📦 {block.name}[/]",
+                f"[bold bright_cyan]{self._display_block_name(block.name)}[/]",
                 data={"type": "block", "name": block.name},
             )
             self._block_nodes[block.name] = bnode
@@ -258,7 +262,7 @@ class CIFTree(Tree):
 
     def add_block_node(self, block_name: str) -> None:
         bnode = self.root.add(
-            f"[bold bright_cyan]📦 {block_name}[/]",
+            f"[bold bright_cyan]{self._display_block_name(block_name)}[/]",
             data={"type": "block", "name": block_name},
         )
         self._block_nodes[block_name] = bnode
