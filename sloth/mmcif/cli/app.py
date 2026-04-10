@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -37,6 +37,7 @@ from ..models import (
     Item,
     DataSourceFormat,
 )
+from ..validator import MMCIFValidator
 from .widgets import (
     SPLASH_ART,
     CIFTree,
@@ -479,7 +480,7 @@ class HelpScreen(ModalScreen):
             yield Static(
                 "[bold bright_green]"
                 "╔════════════════════════════════════════════════════════════╗\n"
-                "║                   SLOTH — QUICK REFERENCE                ║\n"
+                "║                   SLOTH — QUICK REFERENCE                  ║\n"
                 "╠════════════════════════════════════════════════════════════╣[/]\n"
                 "[bright_cyan]"
                 "  NAVIGATION\n"
@@ -494,7 +495,10 @@ class HelpScreen(ModalScreen):
                 "  a i         Add item (column) to current category\n"
                 "  a r         Add row to current category\n"
                 "  e           Edit selected cell value\n"
-                "  d           Delete selected row / category / item\n"
+                "  d           Clear cell (set to ?) / delete row on # col\n"
+                "  D           Delete entire column (item) under cursor\n"
+                "  Ctrl+Z      Undo last change\n"
+                "  Ctrl+Y      Redo\n"
                 "\n"
                 "  FILE\n"
                 "  ────\n"
@@ -505,12 +509,128 @@ class HelpScreen(ModalScreen):
                 "\n"
                 "  OTHER\n"
                 "  ─────\n"
+                "  r           Show missing requirements\n"
                 "  ?           Toggle this help\n"
                 "  Ctrl+Q      Quit SLOTH\n"
                 "[/]\n"
                 "[bold bright_green]"
                 "╚════════════════════════════════════════════════════════════╝[/]"
             )
+
+
+class RequirementsScreen(ModalScreen):
+    """Modal showing concrete schema/wwPDB gaps for the selected block."""
+
+    DEFAULT_CSS = """
+    RequirementsScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.85);
+    }
+    #requirements-box {
+        width: 100;
+        height: auto;
+        max-height: 42;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #requirements-scroll {
+        height: auto;
+        max-height: 36;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("r", "dismiss", "Close"),
+    ]
+
+    # These come from EditorScreen._ISSUE_GROUP_* but we keep a local
+    # copy so the screen stays self-contained.
+    _GROUP_LABELS = {
+        "missing": ("Missing required items", "bright_red"),
+        "enum": ("Invalid enumeration values", "bright_yellow"),
+        "type": ("Type / format mismatches", "yellow"),
+        "pattern": ("Pattern violations", "yellow"),
+        "value": ("Value constraint violations", "yellow"),
+        "relationship": ("Relationship / foreign-key issues", "bright_magenta"),
+        "other": ("Other issues", "dim white"),
+    }
+    _GROUP_ORDER = ["missing", "enum", "type", "pattern", "value", "relationship", "other"]
+    _MAX_PER_GROUP = 8
+
+    def __init__(
+        self,
+        block_name: str,
+        methods: List[str],
+        blocking: dict[str, List[str]],
+        warnings_: dict[str, List[str]],
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._block_name = block_name
+        self._methods = methods
+        self._blocking = blocking
+        self._warnings = warnings_
+
+    def _render_groups(
+        self,
+        groups: dict[str, List[str]],
+        bullet_colour: str,
+    ) -> str:
+        if not groups:
+            return f"  [dim]None.[/]"
+        parts: List[str] = []
+        for key in self._GROUP_ORDER:
+            items = groups.get(key)
+            if not items:
+                continue
+            label, colour = self._GROUP_LABELS.get(key, (key, "white"))
+            parts.append(f"  [{colour} bold]{label}[/] [dim]({len(items)})[/]")
+            shown = items[: self._MAX_PER_GROUP]
+            for line in shown:
+                # Truncate very long lines
+                display = line if len(line) <= 90 else line[:87] + "..."
+                parts.append(f"    [{bullet_colour}]•[/] {display}")
+            remaining = len(items) - len(shown)
+            if remaining > 0:
+                parts.append(f"    [dim]… and {remaining} more[/]")
+        return "\n".join(parts)
+
+    def compose(self) -> ComposeResult:
+        methods = ", ".join(self._methods) if self._methods else "(not set)"
+        total_errors = sum(len(v) for v in self._blocking.values())
+        total_warnings = sum(len(v) for v in self._warnings.values())
+
+        header = (
+            "[bold bright_green]"
+            "╔══════════════════════════════════════════════════════════════════╗\n"
+            f"║  Requirements — {self._block_name:<48} ║\n"
+            "╠══════════════════════════════════════════════════════════════════╣[/]\n"
+            f"  [dim]Method(s):[/] [bold]{methods}[/]\n"
+            f"  [dim]Blocking:[/] [bold bright_red]{total_errors}[/]  "
+            f"[dim]Warnings:[/] [bold bright_yellow]{total_warnings}[/]"
+        )
+
+        blocking_text = self._render_groups(self._blocking, "bright_red")
+        warnings_text = self._render_groups(self._warnings, "bright_yellow")
+
+        body = (
+            f"\n\n[bold bright_red]▌ Blocking ({total_errors})[/]\n"
+            f"{blocking_text}\n\n"
+            f"[bold bright_yellow]▌ Warnings ({total_warnings})[/]\n"
+            f"{warnings_text}\n\n"
+            "[dim]Source: PDBx/mmCIF dictionary + wwPDB business rules.[/]\n"
+            "[dim]Press [bold]Esc[/bold] or [bold]r[/bold] to close.[/]"
+        )
+
+        from textual.widgets import Static as _S
+        from textual.containers import VerticalScroll
+
+        with Vertical(id="requirements-box"):
+            yield _S(header)
+            with VerticalScroll(id="requirements-scroll"):
+                yield _S(body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -578,11 +698,15 @@ class EditorScreen(Screen):
         Binding("ctrl+e", "export_json", "Export JSON"),
         Binding("ctrl+o", "open_file", "Open"),
         Binding("ctrl+n", "new_block", "New block"),
+        Binding("ctrl+z", "undo", "Undo"),
+        Binding("ctrl+y", "redo", "Redo"),
         Binding("ctrl+q", "quit_app", "Quit"),
         Binding("question_mark", "help", "Help"),
         Binding("a", "add_menu", "Add…", show=True),
         Binding("e", "edit_cell", "Edit cell", show=True),
-        Binding("d", "delete_item", "Delete", show=True),
+        Binding("d", "delete", "Delete cell/row", show=True),
+        Binding("D", "delete_column", "Delete column", show=True),
+        Binding("r", "show_requirements", "Requirements", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -630,9 +754,124 @@ class EditorScreen(Screen):
         self._file_path = file_path
         self._handler = MMCIFHandler()
         self._hints = SchemaHints()
+        self._validator: Optional[MMCIFValidator] = None
         self._current_block: Optional[str] = None
         self._current_category: Optional[str] = None
         self._dirty = False
+        # Undo entry: (data_block_name, view_block, view_category, serialized_text)
+        self._undo_stack: List[Tuple[Optional[str], Optional[str], Optional[str], str]] = []
+        self._redo_stack: List[Tuple[Optional[str], Optional[str], Optional[str], str]] = []
+        self._UNDO_LIMIT = 50
+
+    # ── Undo / Redo ────────────────────────────────────────────────────
+
+    def _snapshot_block(self, block_name: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str], str]:
+        """Serialize a single block (or the entire container).
+
+        Returns ``(data_block_name, view_block, view_category, text)``.
+        """
+        import io as _io
+        from sloth.mmcif.writer import MMCIFWriter
+        from sloth.mmcif.models import MMCIFDataContainer
+
+        name = block_name or self._current_block
+        if name and name in self._container.blocks:
+            tmp = MMCIFDataContainer()
+            tmp[name] = self._container[name]
+        else:
+            tmp = self._container
+            name = None
+
+        buf = _io.StringIO()
+        MMCIFWriter().write(buf, tmp)
+        return (name, self._current_block, self._current_category, buf.getvalue())
+
+    def _push_undo(self) -> None:
+        """Save current state to undo stack (call *before* a mutation)."""
+        self._undo_stack.append(self._snapshot_block())
+        if len(self._undo_stack) > self._UNDO_LIMIT:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def _restore_snapshot(self, snap: Tuple[Optional[str], Optional[str], Optional[str], str]) -> None:
+        """Replace the affected block (or entire container) from a snapshot."""
+        import tempfile as _tmp, os as _os
+        from sloth.mmcif.parser import MMCIFParser
+
+        block_name, _view_block, _view_cat, text = snap
+        fd, path = _tmp.mkstemp(suffix=".cif")
+        try:
+            with _os.fdopen(fd, "w") as fh:
+                fh.write(text)
+            parsed = MMCIFParser().parse(path)
+        finally:
+            _os.unlink(path)
+
+        if block_name and block_name in parsed.blocks:
+            self._container[block_name] = parsed[block_name]
+        else:
+            self._container = parsed
+
+    def _refresh_after_restore(self, snap: Tuple[Optional[str], Optional[str], Optional[str], str]) -> None:
+        """Reload tree and table, restoring the view that was active before the change."""
+        data_block, view_block, view_cat, _text = snap
+
+        tree = self.query_one("#cif-tree", CIFTree)
+
+        if data_block is None:
+            # Full-container restore (e.g. new-block undo) → must rebuild tree
+            expanded = tree.get_expanded_state()
+            tree.load_container(self._container)
+            tree.restore_expanded_state(
+                expanded,
+                select_block=view_block,
+                select_category=view_cat,
+            )
+        else:
+            # Block-level restore → just update tree node labels (no rebuild)
+            if data_block in self._container.blocks:
+                block = self._container[data_block]
+                for cat_name in block.categories:
+                    cat = block[cat_name]
+                    tree.refresh_category_node(
+                        data_block, cat_name, cat.row_count, len(cat)
+                    )
+
+        # Re-show the view that was active before the mutation
+        if (view_block
+                and view_block in self._container.blocks
+                and view_cat
+                and view_cat in self._container[view_block].categories):
+            self._show_category(view_block, view_cat)
+        elif view_block and view_block in self._container.blocks:
+            self._current_block = view_block
+            self._current_category = None
+        else:
+            self._current_block = None
+            self._current_category = None
+        self._update_completion()
+
+    def action_undo(self) -> None:
+        if not self._undo_stack:
+            self.notify("Nothing to undo.", severity="warning")
+            return
+        self._redo_stack.append(self._snapshot_block(self._undo_stack[-1][0]))
+        snap = self._undo_stack.pop()
+        self._restore_snapshot(snap)
+        self._dirty = bool(self._undo_stack)
+        self._refresh_after_restore(snap)
+        self.notify("[dim]Undo[/]")
+
+    def action_redo(self) -> None:
+        if not self._redo_stack:
+            self.notify("Nothing to redo.", severity="warning")
+            return
+        self._undo_stack.append(self._snapshot_block(self._redo_stack[-1][0]))
+        snap = self._redo_stack.pop()
+        self._restore_snapshot(snap)
+        self._dirty = True
+        self._refresh_after_restore(snap)
+        self.notify("[dim]Redo[/]")
 
     def compose(self) -> ComposeResult:
         mode = "EDIT" if self._file_path else "BUILD"
@@ -650,7 +889,7 @@ class EditorScreen(Screen):
                 yield DataTable(id="data-table", cursor_type="cell")
         yield HintPanel(id="hint-panel")
         yield Static(
-            "[dim]? Help │ a Add │ e Edit │ d Delete │ Ctrl+S Save │ Ctrl+Q Quit[/]",
+            "[dim]? Help │ r Requirements │ a Add │ e Edit │ d Clear/Del │ D Del column │ Ctrl+Z Undo │ Ctrl+S Save[/]",
             id="status-line",
         )
 
@@ -685,7 +924,7 @@ class EditorScreen(Screen):
         hint.show_message(
             f"[bold bright_cyan]📦 {event.block_name}[/]  │  "
             f"[dim]{len(cats)} categories[/]  │  "
-            f"[dim]Select a category to view data, or press [bold]a[/] to add one[/]"
+            f"[dim]Select a category to view data, [bold]a[/] to add, [bold]r[/] for requirements[/]"
         )
 
     @on(CIFTree.ItemSelected)
@@ -752,6 +991,108 @@ class EditorScreen(Screen):
             len(list(block.categories)),
         )
 
+    def _get_validator(self) -> Optional[MMCIFValidator]:
+        if self._validator is None:
+            try:
+                self._validator = MMCIFValidator(quiet=True)
+            except Exception:
+                self._validator = None
+        return self._validator
+
+    def _experimental_methods_for_block(self, block: DataBlock) -> List[str]:
+        if "_exptl" not in block.categories:
+            return []
+        try:
+            methods = [
+                m
+                for m in block["_exptl"]["method"]
+                if m not in ("?", ".", "")
+            ]
+        except Exception:
+            return []
+        return sorted(set(methods))
+
+    @staticmethod
+    def _classify_issue(msg: str) -> str:
+        """Return a group key for a validation issue message."""
+        low = msg.lower()
+        if "mandatory" in low and ("missing" in low or "null" in low):
+            return "missing"
+        if "at least one of" in low:
+            return "missing"
+        if "expected at least" in low and "rows" in low:
+            return "missing"
+        if "not in allowed values" in low or "not allowed when" in low \
+                or "not in enumeration" in low:
+            return "enum"
+        if "does not match expected type" in low:
+            return "type"
+        if "foreign key" in low or "parent category" in low or "composite key" in low:
+            return "relationship"
+        if "does not match" in low:
+            return "pattern"
+        if "length" in low or "value" in low:
+            return "value"
+        return "other"
+
+    _ISSUE_GROUP_LABELS = {
+        "missing": ("Missing required items", "bright_red"),
+        "enum": ("Invalid enumeration values", "bright_yellow"),
+        "type": ("Type / format mismatches", "yellow"),
+        "pattern": ("Pattern violations", "yellow"),
+        "value": ("Value constraint violations", "yellow"),
+        "relationship": ("Relationship / foreign-key issues", "bright_magenta"),
+        "other": ("Other issues", "dim white"),
+    }
+    _ISSUE_GROUP_ORDER = ["missing", "enum", "type", "pattern", "value", "relationship", "other"]
+
+    def _requirement_gaps_for_block(
+        self, block: DataBlock
+    ) -> tuple[List[str], dict[str, List[str]], dict[str, List[str]]]:
+        validator = self._get_validator()
+        methods = self._experimental_methods_for_block(block)
+        # Normalize method strings: strip surrounding quotes
+        methods = [m.strip("'\"") for m in methods]
+        if validator is None:
+            return methods, {"other": ["Unable to initialize MMCIFValidator."]}, {}
+
+        report = validator.validate(block)
+        blocking: dict[str, List[str]] = {}
+        warnings_: dict[str, List[str]] = {}
+
+        for issue in report.errors:
+            path = issue.path or ""
+            text = f"{path}: {issue.message}" if path else issue.message
+            group = self._classify_issue(issue.message)
+            blocking.setdefault(group, []).append(text)
+        for issue in report.warnings:
+            path = issue.path or ""
+            text = f"{path}: {issue.message}" if path else issue.message
+            group = self._classify_issue(issue.message)
+            warnings_.setdefault(group, []).append(text)
+
+        # Deduplicate within groups
+        for d in (blocking, warnings_):
+            for k in d:
+                d[k] = sorted(set(d[k]))
+
+        return methods, blocking, warnings_
+
+    def action_show_requirements(self) -> None:
+        if not self._current_block:
+            self.notify("Select a data block first.", severity="warning")
+            return
+        block = self._container[self._current_block]
+        methods, blocking, warnings_ = self._requirement_gaps_for_block(block)
+        self.app.push_screen(
+            RequirementsScreen(
+                block_name=self._current_block,
+                methods=methods,
+                blocking=blocking,
+                warnings_=warnings_,
+            )
+        )
+
     # ── Actions: Add ───────────────────────────────────────────────────
 
     def action_add_menu(self) -> None:
@@ -785,6 +1126,7 @@ class EditorScreen(Screen):
     def _on_category_added(self, cat_name: Optional[str]) -> None:
         if cat_name is None or self._current_block is None:
             return
+        self._push_undo()
         block = self._container[self._current_block]
         cat = Category(cat_name)
         block[cat_name] = cat
@@ -812,6 +1154,7 @@ class EditorScreen(Screen):
         # Create an Item with '?' values matching existing row count
         row_count = cat.row_count
         values = ["?"] * row_count if row_count > 0 else []
+        self._push_undo()
         cat[item_name] = Item(item_name, values)
         self._dirty = True
 
@@ -848,6 +1191,7 @@ class EditorScreen(Screen):
         block = self._container[self._current_block]
         cat = block[self._current_category]
 
+        self._push_undo()
         for item_name, value in row_data.items():
             existing = cat._items.get(item_name)
             if isinstance(existing, Item):
@@ -912,6 +1256,7 @@ class EditorScreen(Screen):
         block = self._container[self._current_block]
         cat = block[self._current_category]
 
+        self._push_undo()
         item = cat._items.get(item_name)
         if isinstance(item, Item):
             if item._values is not None and row_idx < len(item._values):
@@ -931,7 +1276,8 @@ class EditorScreen(Screen):
 
     # ── Actions: Delete ────────────────────────────────────────────────
 
-    def action_delete_item(self) -> None:
+    def action_delete(self) -> None:
+        """Clear a cell (set to '?') or delete a row when on the # column."""
         table = self.query_one("#data-table", DataTable)
         if not self._current_category or not self._current_block:
             self.notify("Select a category first.", severity="warning")
@@ -940,7 +1286,7 @@ class EditorScreen(Screen):
             cursor_row = table.cursor_coordinate.row
             cursor_col = table.cursor_coordinate.column
         except Exception:
-            self.notify("Place cursor on an element to delete.", severity="warning")
+            self.notify("Place cursor on a cell.", severity="warning")
             return
 
         block = self._container[self._current_block]
@@ -948,21 +1294,100 @@ class EditorScreen(Screen):
         item_names = list(cat.items)
 
         if cursor_col == 0:
-            # Delete entire row
+            # Row-number column → delete the entire row
             if cat.row_count == 0:
                 return
-            self._delete_row(cat, cursor_row, item_names)
+            self.app.push_screen(
+                ConfirmScreen(
+                    f"[bold bright_red]Delete row {cursor_row} from {self._current_category}?[/]\n"
+                    "[dim]Ctrl+Z to undo afterwards.[/]",
+                ),
+                lambda choice, r=cursor_row, c=cat, ns=item_names: (
+                    self._confirmed_delete_row(choice, c, r, ns)
+                ),
+            )
         else:
-            # Delete entire column
-            if cursor_col - 1 < len(item_names):
-                col_name = item_names[cursor_col - 1]
-                cat.delete(col_name)
-                self._dirty = True
-                self._show_category(self._current_block, self._current_category)
-                self.notify(
-                    f"[bright_red]✗[/] Item {col_name} deleted",
-                    severity="information",
-                )
+            # Data cell → confirm then null it
+            if cursor_col - 1 >= len(item_names):
+                return
+            item_name = item_names[cursor_col - 1]
+            current_val = "?"
+            try:
+                row = cat[cursor_row]
+                current_val = row.data.get(item_name, "?")
+            except Exception:
+                pass
+            if current_val in ("?", ".", ""):
+                self.notify("[dim]Already empty.[/]")
+                return
+            self.app.push_screen(
+                ConfirmScreen(
+                    f"[bold bright_yellow]Nullify {item_name}\[{cursor_row}]?[/]\n"
+                    f"[dim]Current value: {current_val!r} → ?[/]",
+                ),
+                lambda choice, r=cursor_row, iname=item_name, c=cat: (
+                    self._confirmed_clear_cell(choice, c, r, iname)
+                ),
+            )
+
+    def _confirmed_clear_cell(
+        self, choice: Optional[str], cat: Category, row_idx: int, item_name: str
+    ) -> None:
+        if choice != "Yes":
+            return
+        self._push_undo()
+        item = cat._items.get(item_name)
+        if isinstance(item, Item):
+            if item._values is not None and row_idx < len(item._values):
+                item._values[row_idx] = "?"
+                if hasattr(item, "values"):
+                    delattr(item, "values")
+        elif isinstance(item, list):
+            if row_idx < len(item):
+                item[row_idx] = "?"
+        self._dirty = True
+        self._show_category(self._current_block, self._current_category)
+        self.notify(f"[dim]{item_name}\[{row_idx}] → ?[/]")
+
+    def _confirmed_delete_row(
+        self, choice: Optional[str], cat: Category, row_idx: int, item_names: List[str]
+    ) -> None:
+        if choice != "Yes":
+            return
+        self._push_undo()
+        self._delete_row(cat, row_idx, item_names)
+
+    def action_delete_column(self) -> None:
+        """Delete the entire column (item) under the cursor."""
+        table = self.query_one("#data-table", DataTable)
+        if not self._current_category or not self._current_block:
+            self.notify("Select a category first.", severity="warning")
+            return
+        try:
+            cursor_col = table.cursor_coordinate.column
+        except Exception:
+            self.notify("Place cursor on a column.", severity="warning")
+            return
+
+        block = self._container[self._current_block]
+        cat = block[self._current_category]
+        item_names = list(cat.items)
+
+        if cursor_col == 0:
+            self.notify("Move to a data column to delete it.", severity="warning")
+            return
+        if cursor_col - 1 >= len(item_names):
+            return
+
+        col_name = item_names[cursor_col - 1]
+        self.app.push_screen(
+            ConfirmScreen(
+                f"[bold bright_red]Delete entire column {col_name} "
+                f"from {self._current_category}?[/]\n"
+                "[dim]Ctrl+Z to undo afterwards.[/]",
+            ),
+            lambda choice, cn=col_name, c=cat: self._confirmed_delete_column(choice, c, cn),
+        )
 
     def _delete_row(
         self, cat: Category, row_idx: int, item_names: List[str]
@@ -981,6 +1406,20 @@ class EditorScreen(Screen):
         self._dirty = True
         self._show_category(self._current_block, self._current_category)
         self.notify(f"[bright_red]✗[/] Row {row_idx} deleted", severity="information")
+
+    def _confirmed_delete_column(
+        self, choice: Optional[str], cat: Category, col_name: str
+    ) -> None:
+        if choice != "Yes":
+            return
+        self._push_undo()
+        cat.delete(col_name)
+        self._dirty = True
+        self._show_category(self._current_block, self._current_category)
+        self.notify(
+            f"[bright_red]✗[/] Column {col_name} deleted",
+            severity="information",
+        )
 
     # ── Actions: File ops ──────────────────────────────────────────────
 
@@ -1061,6 +1500,11 @@ class EditorScreen(Screen):
             return
         block = DataBlock(name)
         block_key = f"data_{name}" if not name.startswith("data_") else name
+        # Full-container snapshot since we're adding a new block
+        self._undo_stack.append(self._snapshot_block(None))
+        if len(self._undo_stack) > self._UNDO_LIMIT:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
         self._container[block_key] = block
         self._dirty = True
         self._current_block = block.name
@@ -1079,7 +1523,109 @@ class EditorScreen(Screen):
         self.app.push_screen(HelpScreen())
 
     def action_quit_app(self) -> None:
-        self.app.exit()
+        if self._dirty:
+            self.app.push_screen(
+                ConfirmScreen(
+                    "[bold bright_yellow]You have unsaved changes.[/]\n"
+                    "Save before quitting?",
+                    buttons=("Save", "Discard", "Cancel"),
+                ),
+                self._handle_quit_confirm,
+            )
+        else:
+            self.app.exit()
+
+    def _handle_quit_confirm(self, choice: Optional[str]) -> None:
+        if choice == "Save":
+            default = self._file_path or ""
+            self.app.push_screen(
+                SaveFileScreen(default),
+                self._save_then_quit,
+            )
+        elif choice == "Discard":
+            self.app.exit()
+        # "Cancel" or None → stay
+
+    def _save_then_quit(self, path: Optional[str]) -> None:
+        if path is None:
+            return  # user cancelled the save dialog
+        try:
+            self._handler.write(self._container, path)
+            self.app.exit()
+        except Exception as exc:
+            self.notify(f"Save failed: {exc}", severity="error")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Confirmation modal
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ConfirmScreen(ModalScreen[Optional[str]]):
+    """Generic keyboard-driven confirmation dialog.
+
+    Each button's first letter acts as a hotkey.  Tab / Shift+Tab moves
+    focus between buttons, Enter activates the focused one, Esc cancels.
+
+    Returns the label string of the chosen button, or ``None`` on Esc.
+    """
+
+    DEFAULT_CSS = """
+    ConfirmScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.85);
+    }
+    #confirm-box {
+        width: 60;
+        height: auto;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-hint {
+        margin-top: 1;
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(
+        self,
+        prompt: str,
+        buttons: Sequence[str] = ("Yes", "No"),
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._prompt = prompt
+        self._buttons = list(buttons)
+        # Map lowercase first-letter → label for hotkeys
+        self._hotkeys: Dict[str, str] = {}
+        for label in self._buttons:
+            key = label[0].lower()
+            if key not in self._hotkeys:
+                self._hotkeys[key] = label
+
+    def compose(self) -> ComposeResult:
+        hints = "  ".join(
+            f"\\[{label[0].upper()}]{label[1:]}"
+            for label in self._buttons
+        )
+        with Vertical(id="confirm-box"):
+            yield Static(self._prompt)
+            yield Static(
+                f"[dim]{hints}  │  Esc cancel[/]",
+                id="confirm-hint",
+            )
+
+    def on_key(self, event) -> None:
+        label = self._hotkeys.get(event.key)
+        if label is not None:
+            event.prevent_default()
+            event.stop()
+            self.dismiss(label)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1179,9 +1725,9 @@ class _AddChoiceScreen(ModalScreen[Optional[str]]):
         with Vertical(id="add-choice-dialog"):
             yield Static(
                 "[bold bright_green]╔══ ADD WHAT? ══╗[/]\n\n"
-                f"  [bright_cyan][C][/]  Category   — new category in this block\n"
-                f"  [bright_cyan][I][/]  Item       — new column in {self._cat}\n"
-                f"  [bright_cyan][R][/]  Row        — new row in {self._cat}\n\n"
+                f"  [bright_cyan]\\[C][/]ategory   — new category in this block\n"
+                f"  [bright_cyan]\\[I][/]tem       — new column in {self._cat}\n"
+                f"  [bright_cyan]\\[R][/]ow        — new row in {self._cat}\n\n"
                 "[dim]Press key or Esc to cancel[/]"
             )
 

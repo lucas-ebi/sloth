@@ -246,6 +246,41 @@ class CIFTree(Tree):
                 )
                 break
 
+    def get_expanded_state(self) -> Dict[str, set]:
+        """Return which blocks and categories are currently expanded.
+
+        Returns ``{"blocks": {name, …}, "categories": {(block, cat), …}}``.
+        """
+        expanded_blocks: set = set()
+        expanded_cats: set = set()
+        for bname, bnode in self._block_nodes.items():
+            if bnode.is_expanded:
+                expanded_blocks.add(bname)
+            for child in bnode.children:
+                if child.is_expanded and child.data:
+                    expanded_cats.add((bname, child.data.get("name", "")))
+        return {"blocks": expanded_blocks, "categories": expanded_cats}
+
+    def restore_expanded_state(
+        self,
+        state: Dict[str, set],
+        select_block: Optional[str] = None,
+        select_category: Optional[str] = None,
+    ) -> None:
+        """Re-expand previously-expanded nodes and optionally highlight one."""
+        for bname, bnode in self._block_nodes.items():
+            if bname in state["blocks"]:
+                bnode.expand()
+            for child in bnode.children:
+                if not child.data:
+                    continue
+                cname = child.data.get("name", "")
+                if (bname, cname) in state["categories"]:
+                    child.expand()
+                # Highlight the active category
+                if bname == select_block and cname == select_category:
+                    self.select_node(child)
+
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         node_data = event.node.data
         if node_data is None:
