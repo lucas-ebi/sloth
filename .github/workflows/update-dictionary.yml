@@ -62,7 +62,7 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.CREATE_PR_TOKEN }}
           commit-message: "chore: update mmCIF dictionary to ${{ steps.diff.outputs.version }}"
           branch: auto/update-mmcif-dictionary
           delete-branch: true
